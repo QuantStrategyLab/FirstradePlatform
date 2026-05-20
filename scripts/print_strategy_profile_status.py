@@ -29,7 +29,6 @@ def main(argv: list[str] | None = None) -> int:
         "Eligible",
         "Enabled",
         "Domain",
-        "Adapter source",
     ]
     print(" | ".join(headers))
     print(" | ".join("---" for _ in headers))
@@ -42,7 +41,6 @@ def main(argv: list[str] | None = None) -> int:
                     "Yes" if row["eligible"] else "No",
                     "Yes" if row["enabled"] else "No",
                     str(row["domain"]),
-                    str(row["strategy_adapter_source_platform"]),
                 ]
             )
         )
@@ -51,4 +49,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
