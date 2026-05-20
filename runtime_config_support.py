@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from quant_platform_kit.common.runtime_config import (
+    resolve_bool_value,
+    resolve_optional_float_env,
+    resolve_strategy_runtime_path_settings,
+)
+from quant_platform_kit.common.runtime_target import (
+    RuntimeTarget,
+    build_runtime_target,
+    resolve_runtime_target_from_env,
+)
+from strategy_registry import (
+    FIRSTRADE_PLATFORM,
+    resolve_strategy_definition,
+    resolve_strategy_metadata,
+)
+from us_equity_strategies import get_strategy_catalog
+
+DEFAULT_ACCOUNT_REGION = "US"
+
+
+@dataclass(frozen=True)
+class PlatformRuntimeSettings:
+    project_id: str | None
+    account_prefix: str
+    account_region: str
+    strategy_profile: str
+    strategy_display_name: str
+    strategy_domain: str
+    notify_lang: str
+    tg_token: str | None
+    tg_chat_id: str | None
+    dry_run_only: bool
+    live_trading_enabled: bool
+    debug_position_snapshot: bool = False
+    income_threshold_usd: float | None = None
+    qqqi_income_ratio: float | None = None
+    runtime_execution_window_trading_days: int | None = None
+    feature_snapshot_path: str | None = None
+    feature_snapshot_manifest_path: str | None = None
+    strategy_config_path: str | None = None
+    strategy_config_source: str | None = None
+    strategy_plugin_mounts_json: str | None = None
+    runtime_target: RuntimeTarget | None = None
+
+
+def infer_account_region(raw_value: str | None, *, account_prefix: str) -> str:
+    for candidate in (raw_value, account_prefix):
+        normalized = _normalize_region(candidate)
+        if normalized is not None:
+            return normalized
+    return DEFAULT_ACCOUNT_REGION
+
+
+def load_platform_runtime_settings(
+    *,
+    project_id_resolver: Callable[[], str | None],
+) -> PlatformRuntimeSettings:
+    dry_run_only = resolve_bool_value(os.getenv("FIRSTRADE_DRY_RUN_ONLY", "true"))
+    account_prefix = os.getenv("ACCOUNT_PREFIX", "FIRSTRADE")
+    runtime_target = _resolve_runtime_target(dry_run_only=dry_run_only)
+    strategy_definition = resolve_strategy_definition(
+        runtime_target.strategy_profile,
+        platform_id=FIRSTRADE_PLATFORM,
+    )
+    strategy_metadata = resolve_strategy_metadata(
+        strategy_definition.profile,
+        platform_id=FIRSTRADE_PLATFORM,
+    )
+    runtime_paths = resolve_strategy_runtime_path_settings(
+        strategy_catalog=get_strategy_catalog(),
+        strategy_definition=strategy_definition,
+        strategy_metadata=strategy_metadata,
+        platform_env_prefix="FIRSTRADE",
+        env=os.environ,
+        repo_root=Path(__file__).resolve().parent,
+    )
+    return PlatformRuntimeSettings(
+        project_id=project_id_resolver(),
+        account_prefix=account_prefix,
+        account_region=infer_account_region(
+            os.getenv("ACCOUNT_REGION"),
+            account_prefix=account_prefix,
+        ),
+        strategy_profile=runtime_paths.strategy_profile,
+        strategy_display_name=runtime_paths.strategy_display_name,
+        strategy_domain=runtime_paths.strategy_domain,
+        notify_lang=os.getenv("NOTIFY_LANG", "en"),
+        tg_token=os.getenv("TELEGRAM_TOKEN"),
+        tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
+        dry_run_only=dry_run_only,
+        live_trading_enabled=resolve_bool_value(os.getenv("FIRSTRADE_ENABLE_LIVE_TRADING")),
+        debug_position_snapshot=resolve_bool_value(os.getenv("FIRSTRADE_DEBUG_POSITION_SNAPSHOT")),
+        income_threshold_usd=resolve_optional_float_env(os.environ, "INCOME_THRESHOLD_USD"),
+        qqqi_income_ratio=_qqqi_income_ratio_env(),
+        runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
+            strategy_definition.profile
+        ),
+        feature_snapshot_path=runtime_paths.feature_snapshot_path,
+        feature_snapshot_manifest_path=runtime_paths.feature_snapshot_manifest_path,
+        strategy_config_path=runtime_paths.strategy_config_path,
+        strategy_config_source=runtime_paths.strategy_config_source,
+        strategy_plugin_mounts_json=(
+            os.getenv("FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON")
+            or os.getenv("STRATEGY_PLUGIN_MOUNTS_JSON")
+        ),
+        runtime_target=runtime_target,
+    )
+
+
+def _resolve_runtime_target(*, dry_run_only: bool) -> RuntimeTarget:
+    if os.getenv("RUNTIME_TARGET_JSON"):
+        return resolve_runtime_target_from_env(
+            env=os.environ,
+            expected_platform_id=FIRSTRADE_PLATFORM,
+        )
+    profile = os.getenv("STRATEGY_PROFILE")
+    if not profile:
+        raise EnvironmentError("STRATEGY_PROFILE or RUNTIME_TARGET_JSON is required")
+    return build_runtime_target(
+        platform_id=FIRSTRADE_PLATFORM,
+        strategy_profile=profile,
+        dry_run_only=dry_run_only,
+        deployment_selector=os.getenv("K_SERVICE"),
+        account_selector=os.getenv("FIRSTRADE_ACCOUNT"),
+        account_scope=os.getenv("ACCOUNT_REGION") or DEFAULT_ACCOUNT_REGION,
+        service_name=os.getenv("K_SERVICE"),
+    )
+
+
+def _normalize_region(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+    value = str(raw_value).strip()
+    if not value:
+        return None
+    return value.upper()
+
+
+def _qqqi_income_ratio_env() -> float | None:
+    value = resolve_optional_float_env(os.environ, "QQQI_INCOME_RATIO")
+    if value is not None and not (0.0 <= value <= 1.0):
+        raise ValueError(f"QQQI_INCOME_RATIO must be in [0,1], got {value}")
+    return value
+
+
+def _runtime_execution_window_trading_days_env(strategy_profile: str) -> int | None:
+    if strategy_profile != "tech_communication_pullback_enhancement":
+        return None
+    raw_value = os.getenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
+    if raw_value is None or not str(raw_value).strip():
+        return None
+    try:
+        value = int(str(raw_value).strip())
+    except ValueError as exc:
+        raise ValueError(
+            "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS must be a positive integer"
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS must be a positive integer"
+        )
+    return value
+
