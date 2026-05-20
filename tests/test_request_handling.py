@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("flask")
+
+import main
+
+
+def test_run_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
+    monkeypatch.delenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", raising=False)
+    client = main.app.test_client()
+
+    response = client.get("/run")
+
+    assert response.status_code == 403
+    assert response.get_json()["ok"] is False
+
+
+def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(main, "run_strategy_cycle", lambda: {"ok": True, "action_done": False})
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "action_done": False}
