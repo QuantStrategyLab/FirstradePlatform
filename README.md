@@ -43,24 +43,16 @@ This platform is intended to mirror the role of `InteractiveBrokersPlatform`,
 account reads, market data reads, order translation, runtime safety controls,
 and deployment wiring.
 
-Firstrade is not yet a first-class `platform_id` inside the pinned
-`UsEquityStrategies` version. Until that support lands upstream, this
-repository reports runtime identity as `firstrade` while loading the same
-value-native strategy adapter shape used by LongBridge/Schwab. The default
-source is:
-
-```bash
-FIRSTRADE_STRATEGY_ADAPTER_SOURCE_PLATFORM=longbridge
-```
+Firstrade is a first-class `platform_id` in `UsEquityStrategies`. It is treated
+as a value-native US equity platform for strategy adapter purposes, so weight
+strategies receive the same `portfolio_snapshot` input needed for platform-side
+`weight -> value` translation.
 
 Print the current Firstrade strategy matrix:
 
 ```bash
 .venv/bin/python scripts/print_strategy_profile_status.py
 ```
-
-The long-term target is first-class `firstrade` coverage in
-`UsEquityStrategies` so this bridge can be removed.
 
 ## Environment
 
@@ -79,7 +71,6 @@ commit credentials.
 | `FIRSTRADE_ACCOUNT` | Optional | Required when multiple accounts are returned |
 | `STRATEGY_PROFILE` | Yes for runtime | Shared US equity strategy profile |
 | `FIRSTRADE_DRY_RUN_ONLY` | Optional | Defaults to `true` for platform runtime |
-| `FIRSTRADE_STRATEGY_ADAPTER_SOURCE_PLATFORM` | Optional | `longbridge` default; `schwab` also allowed |
 | `ACCOUNT_PREFIX` | Optional | Alert/log prefix, default `FIRSTRADE` |
 | `ACCOUNT_REGION` | Optional | Runtime account scope, default `US` |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
@@ -190,7 +181,5 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 开源协议方面：本仓库使用 MIT；上游 `firstrade` 包也是 MIT。发布或二次分发
 时保留 `NOTICE.md` 和上游项目信息。
 
-注意：当前 `UsEquityStrategies` 尚未内置 `firstrade` 平台 adapter。本仓库
-临时复用 LongBridge/Schwab 的 value-native 策略输入形状，并在运行报告中保留
-Firstrade 平台身份。后续应在 `UsEquityStrategies` 里补齐 first-class
-`firstrade` 兼容矩阵。
+`UsEquityStrategies` 已经内置 `firstrade` 平台 adapter。本仓库按 value-native
+美股平台接入通用策略，策略逻辑不读取 Firstrade 环境变量，也不包含券商分支。
