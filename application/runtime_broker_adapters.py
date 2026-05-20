@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+import pandas as pd
+
 from application.firstrade_client import (
     FirstradeBrokerClient,
     StockOrderRequest,
@@ -99,6 +101,8 @@ class FirstradeBrokerAdapters:
     account_hash: str | None = None
     clock: Callable[[], datetime] = _utcnow
     live_orders: bool = False
+    live_order_ack: bool = False
+    max_order_notional_usd: float = 25.0
 
     def normalize_symbol(self, symbol: str) -> str:
         value = str(symbol or "").strip().upper()
@@ -159,6 +163,28 @@ class FirstradeBrokerAdapters:
             quote_loader=load_quote,
             price_series_loader=load_price_series,
         )
+
+    def build_market_history_loader(self, market_data_port: MarketDataPort):
+        def load_market_history(_broker_client, symbol, *_args, **_kwargs):
+            series = market_data_port.get_price_series(str(symbol).strip().upper())
+            if not series.points:
+                return pd.Series(dtype=float)
+            index = pd.DatetimeIndex([pd.Timestamp(point.as_of) for point in series.points])
+            closes = [float(point.close) for point in series.points]
+            return pd.Series(closes, index=index, dtype=float)
+
+        return load_market_history
+
+    def build_price_history(self, market_data_port: MarketDataPort, symbol: str):
+        series = market_data_port.get_price_series(symbol)
+        return [
+            {
+                "close": float(point.close),
+                "high": float(point.close),
+                "low": float(point.close),
+            }
+            for point in series.points
+        ]
 
     def build_portfolio_snapshot(self) -> PortfolioSnapshot:
         balances = self.client.get_balances(self.account)
@@ -223,8 +249,18 @@ class FirstradeBrokerAdapters:
                 price_type=str(order_intent.order_type or "market").lower(),
                 duration=str(order_intent.time_in_force or "day").lower(),
                 limit_price=order_intent.limit_price,
+                max_notional_usd=float(
+                    (getattr(order_intent, "metadata", {}) or {}).get(
+                        "max_notional_usd",
+                        self.max_order_notional_usd,
+                    )
+                ),
             )
-            raw = self.client.place_stock_order(request, dry_run=not self.live_orders)
+            raw = self.client.place_stock_order(
+                request,
+                dry_run=not self.live_orders,
+                explicit_live_ack=self.live_order_ack,
+            )
             return ExecutionReport(
                 symbol=request.symbol,
                 side=request.side,
@@ -244,6 +280,8 @@ def build_runtime_broker_adapters(
     account_hash: str | None = None,
     clock: Callable[[], datetime] = _utcnow,
     live_orders: bool = False,
+    live_order_ack: bool = False,
+    max_order_notional_usd: float = 25.0,
 ) -> FirstradeBrokerAdapters:
     return FirstradeBrokerAdapters(
         client=client,
@@ -252,4 +290,6 @@ def build_runtime_broker_adapters(
         account_hash=account_hash,
         clock=clock,
         live_orders=live_orders,
+        live_order_ack=live_order_ack,
+        max_order_notional_usd=max_order_notional_usd,
     )

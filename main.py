@@ -1,4 +1,4 @@
-"""Minimal Cloud Run entrypoint for Firstrade platform validation."""
+"""Cloud Run entrypoint for Firstrade platform validation and dry-run cycles."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from application.firstrade_client import (
     is_live_trading_enabled,
     mask_account_id,
 )
+from application.rebalance_service import run_strategy_cycle
 from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
@@ -32,6 +33,7 @@ def health():
             "strategy_domain": "us_equity",
             "live_trading_enabled": is_live_trading_enabled(),
             "smoke_on_http": _flag("FIRSTRADE_RUN_SMOKE_ON_HTTP"),
+            "strategy_run_on_http": _flag("FIRSTRADE_RUN_STRATEGY_ON_HTTP"),
             "as_of": datetime.now(timezone.utc).isoformat(),
         }
     )
@@ -78,6 +80,30 @@ def smoke():
         )
     except FirstradePlatformError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/run")
+@app.get("/run")
+def run_strategy():
+    if not _flag("FIRSTRADE_RUN_STRATEGY_ON_HTTP"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Set FIRSTRADE_RUN_STRATEGY_ON_HTTP=true to allow HTTP-triggered "
+                        "strategy evaluation and guarded order routing."
+                    ),
+                }
+            ),
+            403,
+        )
+    try:
+        return jsonify(run_strategy_cycle())
+    except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
 @app.get("/precheck")

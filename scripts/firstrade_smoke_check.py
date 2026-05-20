@@ -5,6 +5,7 @@ Default behavior:
 - login
 - list masked accounts
 - fetch one quote
+- optionally fetch balances and positions
 - do not place or preview any order unless explicitly requested
 """
 
@@ -41,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--account", default=os.getenv("FIRSTRADE_ACCOUNT", ""))
     parser.add_argument("--symbol", default="SPY", help="Symbol to quote or validate.")
     parser.add_argument("--quote-only", action="store_true", help="Login and quote only.")
+    parser.add_argument(
+        "--include-balances",
+        action="store_true",
+        help="Also fetch raw balance payload for the selected account.",
+    )
+    parser.add_argument(
+        "--include-positions",
+        action="store_true",
+        help="Also fetch raw positions payload for the selected account.",
+    )
     parser.add_argument("--preview-order", action="store_true", help="Build a Firstrade order preview.")
     parser.add_argument("--live-order", action="store_true", help="Submit a live order after local safety gates.")
     parser.add_argument("--side", choices=["buy", "sell"], default="buy")
@@ -79,6 +90,10 @@ def main(argv: list[str] | None = None) -> int:
         "selected_account": mask_account_id(account),
         "quote": client.get_quote(account, args.symbol),
     }
+    if args.include_balances:
+        result["balances"] = client.get_balances(account)
+    if args.include_positions:
+        result["positions"] = client.get_positions(account)
 
     if args.preview_order or args.live_order:
         request = StockOrderRequest(
@@ -111,4 +126,3 @@ if __name__ == "__main__":
     except (FirstradePlatformError, FirstradeSafetyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2)
-

@@ -38,6 +38,9 @@ class PlatformRuntimeSettings:
     tg_chat_id: str | None
     dry_run_only: bool
     live_trading_enabled: bool
+    run_strategy_on_http: bool
+    live_order_ack: bool
+    max_order_notional_usd: float
     debug_position_snapshot: bool = False
     income_threshold_usd: float | None = None
     qqqi_income_ratio: float | None = None
@@ -96,6 +99,12 @@ def load_platform_runtime_settings(
         tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
         live_trading_enabled=resolve_bool_value(os.getenv("FIRSTRADE_ENABLE_LIVE_TRADING")),
+        run_strategy_on_http=resolve_bool_value(os.getenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP")),
+        live_order_ack=resolve_bool_value(os.getenv("FIRSTRADE_LIVE_ORDER_ACK")),
+        max_order_notional_usd=(
+            resolve_optional_float_env(os.environ, "FIRSTRADE_MAX_ORDER_NOTIONAL_USD")
+            or 25.0
+        ),
         debug_position_snapshot=resolve_bool_value(os.getenv("FIRSTRADE_DEBUG_POSITION_SNAPSHOT")),
         income_threshold_usd=resolve_optional_float_env(os.environ, "INCOME_THRESHOLD_USD"),
         qqqi_income_ratio=_qqqi_income_ratio_env(),
@@ -167,4 +176,3 @@ def _runtime_execution_window_trading_days_env(strategy_profile: str) -> int | N
             "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS must be a positive integer"
         )
     return value
-
