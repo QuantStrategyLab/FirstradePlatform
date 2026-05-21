@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from application.firstrade_client import FirstradeCredentials
 from application.rebalance_service import run_strategy_cycle
+from notifications.telegram import I18N, build_translator, render_cycle_summary
 from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
 from runtime_config_support import PlatformRuntimeSettings
 
@@ -80,6 +81,12 @@ class FakeStrategyRuntime:
         )
 
 
+def test_notification_i18n_keys_are_aligned():
+    assert set(I18N["zh"]) == set(I18N["en"])
+    assert build_translator("zh")("account_label", account="****1234") == "🆔 账户: ****1234"
+    assert build_translator("en")("account_label", account="****1234") == "🆔 Account: ****1234"
+
+
 def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     observed = {}
     messages = []
@@ -125,5 +132,99 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert dry_run is True
     assert explicit_live_ack is False
     assert result["notification_sent"] is True
-    assert "Firstrade Strategy Cycle" in messages[0]
-    assert "buy AAA x2.0" in messages[0]
+    assert "🔔 【Rebalance Instruction】" in messages[0]
+    assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
+    assert "🆔 Account: ****5678" in messages[0]
+    assert "📌 Strategy Account" in messages[0]
+    assert "Target changes: AAA +50.00 USD" in messages[0]
+    assert "🧪 Dry-run buy: AAA 2 shares" in messages[0]
+
+
+def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "tqqq_growth_income",
+            "strategy_display_name": "TQQQ 增长收益",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 98.65,
+                "liquid_cash": 98.65,
+                "portfolio_rows": (("TQQQ", "QQQ"), ("BOXX",)),
+                "market_values": {"TQQQ": 0.0, "QQQ": 0.0, "BOXX": 0.0},
+                "quantities": {"TQQQ": 0, "QQQ": 0, "BOXX": 0},
+            },
+            "allocation": {"targets": {"TQQQ": 44.39, "QQQ": 44.39, "BOXX": 7.89}},
+            "execution": {
+                "reserved_cash": 1.97,
+                "investable_cash": 96.68,
+                "signal_display": "entry",
+                "signal_date": "2026-05-20",
+                "effective_date": "2026-05-21",
+                "execution_timing_contract": "next_trading_day",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [
+                {"symbol": "TQQQ", "reason": "buy_quantity_zero"},
+                {"symbol": "QQQ", "reason": "buy_quantity_zero"},
+                {"symbol": "BOXX", "reason": "below_trade_threshold"},
+            ],
+        },
+        lang="zh",
+    )
+
+    assert "🔔 【调仓指令】" in message
+    assert "🆔 账户: ****1234" in message
+    assert "📌 策略账户概览" in message
+    assert "⏱ 执行时点: 2026-05-20 -> 2026-05-21 (次一交易日执行)" in message
+    assert "🎯 信号: 入场信号" in message
+    assert "调仓变化: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
+    assert "未下单: 原因=买入股数为0:TQQQ,QQQ, 低于调仓阈值:BOXX" in message
+    assert "profile:" not in message
+    assert "targets:" not in message
+
+
+def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "tqqq_growth_income",
+            "strategy_display_name": "TQQQ Growth Income",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 98.65,
+                "liquid_cash": 98.65,
+                "portfolio_rows": (("TQQQ", "QQQ"), ("BOXX",)),
+                "market_values": {"TQQQ": 0.0, "QQQ": 0.0, "BOXX": 0.0},
+                "quantities": {"TQQQ": 0, "QQQ": 0, "BOXX": 0},
+            },
+            "allocation": {"targets": {"TQQQ": 44.39, "QQQ": 44.39, "BOXX": 7.89}},
+            "execution": {
+                "reserved_cash": 1.97,
+                "investable_cash": 96.68,
+                "signal_display": "entry",
+                "signal_date": "2026-05-20",
+                "effective_date": "2026-05-21",
+                "execution_timing_contract": "next_trading_day",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [
+                {"symbol": "TQQQ", "reason": "buy_quantity_zero"},
+                {"symbol": "QQQ", "reason": "buy_quantity_zero"},
+                {"symbol": "BOXX", "reason": "below_trade_threshold"},
+            ],
+        },
+        lang="en",
+    )
+
+    assert "🔔 【Rebalance Instruction】" in message
+    assert "🆔 Account: ****1234" in message
+    assert "📌 Strategy Account" in message
+    assert "⏱ Timing: 2026-05-20 -> 2026-05-21 (next trading day)" in message
+    assert "🎯 Signal: Entry Signal" in message
+    assert "Target changes: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
+    assert "No order submitted: reason=buy quantity rounds to 0:TQQQ,QQQ, below trade threshold:BOXX" in message
+    assert "账户" not in message
+    assert "信号" not in message
+    assert "profile:" not in message
+    assert "targets:" not in message
