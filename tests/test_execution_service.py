@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from application.execution_service import execute_value_target_plan
+from application.execution_service import (
+    execute_value_target_plan,
+    substitute_small_safe_haven_targets_with_cash,
+)
 from quant_platform_kit.common.models import ExecutionReport, QuoteSnapshot
 
 
@@ -89,3 +92,39 @@ def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
     assert result.skipped_orders == (
         {"symbol": "SPY", "reason": "buy_quantity_zero", "max_order_notional_usd": 25.0},
     )
+
+
+def test_execute_value_target_plan_leaves_small_safe_haven_target_as_cash():
+    execution_port = FakeExecutionPort()
+    plan = {
+        "allocation": {
+            "targets": {"AAA": 1500.0, "BOXX": 750.0},
+            "safe_haven_symbols": ("BOXX",),
+        },
+        "portfolio": {
+            "market_values": {"AAA": 0.0, "BOXX": 0.0},
+            "sellable_quantities": {},
+            "liquid_cash": 2500.0,
+            "cash_sweep_symbol": "BOXX",
+        },
+        "execution": {"current_min_trade": 1.0, "investable_cash": 2500.0},
+    }
+
+    result = execute_value_target_plan(
+        plan=plan,
+        market_data_port=FakeMarketDataPort({"AAA": 100.0, "BOXX": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        max_order_notional_usd=2500.0,
+        safe_haven_cash_substitute_threshold_usd=1000.0,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("buy", "AAA", 15.0),
+    ]
+    adjusted_plan = substitute_small_safe_haven_targets_with_cash(
+        plan,
+        threshold_usd=1000.0,
+    )
+    assert adjusted_plan["allocation"]["targets"]["BOXX"] == 0.0

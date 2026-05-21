@@ -16,8 +16,52 @@ class ExecutionCycleResult:
     action_done: bool
 
 
+DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
+
+
 def _floor_quantity(quantity: float) -> int:
     return max(0, int(float(quantity or 0.0)))
+
+
+def _safe_haven_cash_symbols(*, portfolio: dict[str, Any], allocation: dict[str, Any]) -> tuple[str, ...]:
+    symbols: list[str] = []
+    for symbol in allocation.get("safe_haven_symbols", ()):
+        normalized = str(symbol or "").strip().upper()
+        if normalized:
+            symbols.append(normalized)
+    cash_sweep_symbol = str(portfolio.get("cash_sweep_symbol") or "").strip().upper()
+    if cash_sweep_symbol:
+        symbols.append(cash_sweep_symbol)
+    return tuple(dict.fromkeys(symbols))
+
+
+def substitute_small_safe_haven_targets_with_cash(
+    plan: dict[str, Any],
+    *,
+    threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
+) -> dict[str, Any]:
+    """Return a plan whose small safe-haven target values are left as cash."""
+    threshold = max(0.0, float(threshold_usd or 0.0))
+    if threshold <= 0.0:
+        return dict(plan or {})
+
+    adjusted_plan = dict(plan or {})
+    allocation = dict(adjusted_plan.get("allocation") or {})
+    portfolio = dict(adjusted_plan.get("portfolio") or {})
+    targets = {
+        str(symbol).strip().upper(): float(value or 0.0)
+        for symbol, value in dict(allocation.get("targets") or {}).items()
+    }
+    changed = False
+    for symbol in _safe_haven_cash_symbols(portfolio=portfolio, allocation=allocation):
+        target_value = float(targets.get(symbol, 0.0) or 0.0)
+        if 0.0 < target_value < threshold:
+            targets[symbol] = 0.0
+            changed = True
+    if changed:
+        allocation["targets"] = targets
+        adjusted_plan["allocation"] = allocation
+    return adjusted_plan
 
 
 def _quote_price(market_data_port: MarketDataPort, symbol: str) -> float | None:
@@ -67,8 +111,13 @@ def execute_value_target_plan(
     limit_sell_discount: float = 0.995,
     limit_buy_premium: float = 1.005,
     max_order_notional_usd: float = 25.0,
+    safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
+    plan = substitute_small_safe_haven_targets_with_cash(
+        plan,
+        threshold_usd=safe_haven_cash_substitute_threshold_usd,
+    )
     allocation = dict(plan.get("allocation") or {})
     portfolio = dict(plan.get("portfolio") or {})
     execution = dict(plan.get("execution") or {})

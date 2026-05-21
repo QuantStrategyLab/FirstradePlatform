@@ -23,6 +23,7 @@ from strategy_registry import (
 from us_equity_strategies import get_strategy_catalog
 
 DEFAULT_ACCOUNT_REGION = "US"
+DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class PlatformRuntimeSettings:
     run_strategy_on_http: bool
     live_order_ack: bool
     max_order_notional_usd: float
+    safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD
     debug_position_snapshot: bool = False
     income_threshold_usd: float | None = None
     qqqi_income_ratio: float | None = None
@@ -67,6 +69,10 @@ def load_platform_runtime_settings(
 ) -> PlatformRuntimeSettings:
     dry_run_only = resolve_bool_value(os.getenv("FIRSTRADE_DRY_RUN_ONLY", "true"))
     account_prefix = os.getenv("ACCOUNT_PREFIX", "FIRSTRADE")
+    safe_haven_cash_substitute_threshold_usd = resolve_optional_float_env(
+        os.environ,
+        "FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD",
+    )
     runtime_target = _resolve_runtime_target(dry_run_only=dry_run_only)
     strategy_definition = resolve_strategy_definition(
         runtime_target.strategy_profile,
@@ -104,6 +110,11 @@ def load_platform_runtime_settings(
         max_order_notional_usd=(
             resolve_optional_float_env(os.environ, "FIRSTRADE_MAX_ORDER_NOTIONAL_USD")
             or 25.0
+        ),
+        safe_haven_cash_substitute_threshold_usd=(
+            max(0.0, safe_haven_cash_substitute_threshold_usd)
+            if safe_haven_cash_substitute_threshold_usd is not None
+            else DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD
         ),
         debug_position_snapshot=resolve_bool_value(os.getenv("FIRSTRADE_DEBUG_POSITION_SNAPSHOT")),
         income_threshold_usd=resolve_optional_float_env(os.environ, "INCOME_THRESHOLD_USD"),
