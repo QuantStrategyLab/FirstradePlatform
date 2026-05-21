@@ -14,7 +14,10 @@ from typing import Any
 
 import pandas as pd
 
-from application.execution_service import execute_value_target_plan
+from application.execution_service import (
+    execute_value_target_plan,
+    substitute_small_safe_haven_targets_with_cash,
+)
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -192,6 +195,10 @@ def run_strategy_cycle(
         strategy_profile=settings.strategy_profile,
         runtime_metadata=getattr(evaluation, "metadata", None),
     )
+    plan = substitute_small_safe_haven_targets_with_cash(
+        plan,
+        threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
+    )
     execution_result = execute_value_target_plan(
         plan=plan,
         market_data_port=market_data_port,
@@ -200,6 +207,7 @@ def run_strategy_cycle(
         limit_sell_discount=LIMIT_SELL_DISCOUNT,
         limit_buy_premium=LIMIT_BUY_PREMIUM,
         max_order_notional_usd=settings.max_order_notional_usd,
+        safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
     )
     result = {
         "ok": True,

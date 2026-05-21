@@ -82,6 +82,7 @@ commit credentials.
 | `FIRSTRADE_RUN_STRATEGY_ON_HTTP` | Optional | Must be `true` before `/run` performs strategy evaluation and order routing |
 | `FIRSTRADE_LIVE_ORDER_ACK` | Optional | Must be `true` before `/run` can submit live orders |
 | `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` | Optional | Single-order cap for strategy-generated orders, default `25` |
+| `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` | Optional | Safe-haven/cash-sweep target values below this USD amount are kept as cash instead of buying BOXX/BIL. Default `1000`. |
 
 ## Local Validation
 
@@ -243,6 +244,7 @@ HTTP 策略闭环实盘还必须额外满足：
 - `FIRSTRADE_DRY_RUN_ONLY=false`
 - `FIRSTRADE_LIVE_ORDER_ACK=true`
 - 单笔金额不超过 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
+- `BOXX`/`BIL` 等避险现金替代标的目标金额低于 `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` 时保留现金，默认门槛 `1000` USD
 
 策略闭环生成的是整数股限价单。如果 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
 低于目标标的当前价格，本轮会跳过该订单，而不是放大金额。
