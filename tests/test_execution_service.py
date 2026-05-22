@@ -69,6 +69,30 @@ def test_execute_value_target_plan_sells_before_buys_and_caps_order_notional():
     assert all(order.metadata["max_notional_usd"] == 25.0 for order in execution_port.orders)
 
 
+def test_execute_value_target_plan_uses_sellable_quantity_when_market_value_is_stale_below_quote():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"SOXL": 0.0}},
+            "portfolio": {
+                "market_values": {"SOXL": 524.10},
+                "sellable_quantities": {"SOXL": 3.0},
+                "liquid_cash": 0.0,
+            },
+            "execution": {"current_min_trade": 5.0, "investable_cash": 0.0},
+        },
+        market_data_port=FakeMarketDataPort({"SOXL": 175.42}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        max_order_notional_usd=1000.0,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("sell", "SOXL", 3.0),
+    ]
+
+
 def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(
