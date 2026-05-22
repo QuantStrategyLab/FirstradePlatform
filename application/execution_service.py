@@ -23,6 +23,22 @@ def _floor_quantity(quantity: float) -> int:
     return max(0, int(float(quantity or 0.0)))
 
 
+def _sell_budget(
+    *,
+    delta_value: float,
+    target_value: float,
+    sellable_quantity: float,
+    price: float,
+    order_notional_cap: float,
+) -> float:
+    sellable_notional = max(0.0, float(sellable_quantity or 0.0)) * max(0.0, float(price or 0.0))
+    if sellable_notional <= 0.0:
+        return 0.0
+    value_delta_budget = max(0.0, abs(float(delta_value or 0.0)))
+    position_budget = max(0.0, sellable_notional - max(0.0, float(target_value or 0.0)))
+    return min(max(value_delta_budget, position_budget), sellable_notional, max(0.0, float(order_notional_cap or 0.0)))
+
+
 def _safe_haven_cash_symbols(*, portfolio: dict[str, Any], allocation: dict[str, Any]) -> tuple[str, ...]:
     symbols: list[str] = []
     for symbol in allocation.get("safe_haven_symbols", ()):
@@ -167,7 +183,13 @@ def execute_value_target_plan(
     for symbol, delta_value, price in [item for item in tradable_deltas if item[1] < 0]:
         if delta_value < 0:
             sellable = sellable_quantities.get(symbol, 0.0)
-            sell_budget = min(abs(delta_value), sellable * price, order_notional_cap)
+            sell_budget = _sell_budget(
+                delta_value=delta_value,
+                target_value=targets.get(symbol, 0.0),
+                sellable_quantity=sellable,
+                price=price,
+                order_notional_cap=order_notional_cap,
+            )
             quantity = _floor_quantity(sell_budget / price)
             if quantity <= 0:
                 skipped.append(
