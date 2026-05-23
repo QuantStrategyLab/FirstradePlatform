@@ -26,3 +26,24 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {"ok": True, "action_done": False}
+
+
+def test_root_post_calls_strategy_cycle_when_gate_enabled(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(main, "run_strategy_cycle", lambda: {"ok": True, "action_done": False})
+    client = main.app.test_client()
+
+    response = client.post("/")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "action_done": False}
+
+
+def test_scheduler_health_routes_accept_post():
+    client = main.app.test_client()
+
+    precheck_response = client.post("/precheck")
+    probe_response = client.post("/probe")
+
+    assert precheck_response.status_code == 200
+    assert probe_response.status_code == 200
