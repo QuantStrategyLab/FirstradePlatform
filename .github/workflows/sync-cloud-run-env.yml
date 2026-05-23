@@ -449,3 +449,57 @@ jobs:
           fi
 
           gcloud "${gcloud_args[@]}"
+
+      - name: Clean up old Cloud Run revisions and images
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+
+          service_json="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${CLOUD_RUN_REGION}" \
+            --format=json)"
+          latest_revision="$(python -c 'import json,sys; print(json.load(sys.stdin)["status"]["latestReadyRevisionName"])' <<< "${service_json}")"
+          traffic_revisions="$(python -c 'import json,sys; svc=json.load(sys.stdin); print("\n".join(t.get("revisionName","") for t in svc.get("status",{}).get("traffic",[]) if t.get("revisionName") and int(t.get("percent",0)) > 0))' <<< "${service_json}")"
+
+          keep_revision() {
+            local revision="$1"
+            if [ "${revision}" = "${latest_revision}" ]; then
+              return 0
+            fi
+            if printf '%s\n' "${traffic_revisions}" | grep -Fxq "${revision}"; then
+              return 0
+            fi
+            return 1
+          }
+
+          while IFS= read -r revision; do
+            if [ -z "${revision}" ] || keep_revision "${revision}"; then
+              continue
+            fi
+            gcloud run revisions delete "${revision}" \
+              --project="${GCP_PROJECT_ID}" \
+              --region="${CLOUD_RUN_REGION}" \
+              --quiet
+          done < <(gcloud run revisions list \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${CLOUD_RUN_REGION}" \
+            --service="${CLOUD_RUN_SERVICE}" \
+            --format='value(metadata.name)')
+
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          old_digests="$(gcloud artifacts docker images list "${image_repo}" \
+            --project="${GCP_PROJECT_ID}" \
+            --include-tags \
+            --format=json \
+            | python -c 'import json,os,sys; keep=os.environ["GITHUB_SHA"]; rows=json.load(sys.stdin); print("\n".join(row["version"] for row in rows if keep not in set(row.get("tags") or [])))')"
+
+          while IFS= read -r digest; do
+            if [ -z "${digest}" ]; then
+              continue
+            fi
+            gcloud artifacts docker images delete "${image_repo}@${digest}" \
+              --project="${GCP_PROJECT_ID}" \
+              --delete-tags \
+              --quiet
+          done <<< "${old_digests}"
