@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from application.firstrade_client import (
@@ -16,8 +18,11 @@ class FakeSession:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.login_two_code = None
+        self.session = SimpleNamespace(headers={})
 
     def login(self):
+        self.session.headers["ftat"] = "fake-ftat"
+        self.session.headers["sid"] = "fake-sid"
         return False
 
     def login_two(self, code):
@@ -51,6 +56,21 @@ class FakeOrder:
             "quantity": kwargs["quantity"],
             "price": kwargs["price"],
         }
+
+
+class ReusableFakeSession(FakeSession):
+    login_calls = 0
+
+    def login(self):
+        type(self).login_calls += 1
+        return super().login()
+
+
+class HeaderCheckingAccountData(FakeAccountData):
+    def __init__(self, session):
+        headers = session.session.headers
+        if not headers.get("ftat") or not headers.get("sid"):
+            raise RuntimeError("missing cached auth headers")
 
 
 def build_fake_client(live=False):
@@ -128,3 +148,32 @@ def test_select_account_requires_explicit_account_when_multiple():
     with pytest.raises(Exception, match="Multiple Firstrade accounts"):
         client.select_account()
 
+
+def test_client_reuses_cached_session_without_logging_in_again(tmp_path):
+    ReusableFakeSession.login_calls = 0
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        session_cache_ttl_seconds=3600,
+    )
+
+    first_client = FirstradeBrokerClient(
+        credentials,
+        session_factory=ReusableFakeSession,
+        account_data_factory=HeaderCheckingAccountData,
+        order_factory=FakeOrder,
+    ).connect()
+    assert first_client.session_reused is False
+    assert ReusableFakeSession.login_calls == 1
+
+    second_client = FirstradeBrokerClient(
+        credentials,
+        session_factory=ReusableFakeSession,
+        account_data_factory=HeaderCheckingAccountData,
+        order_factory=FakeOrder,
+    ).connect()
+
+    assert second_client.session_reused is True
+    assert ReusableFakeSession.login_calls == 1

@@ -147,6 +147,7 @@ def run_strategy_cycle(
         live_trading_enabled=settings.live_trading_enabled,
         client_factory=client_factory,
     )
+    print(f"Firstrade session reused={bool(getattr(client, 'session_reused', False))}", flush=True)
     account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
     strategy_runtime = load_strategy_runtime(
         settings.strategy_profile,
@@ -210,6 +211,7 @@ def run_strategy_cycle(
         "strategy_display_name": strategy_runtime.display_name,
         "dry_run_only": settings.dry_run_only,
         "live_trading_enabled": settings.live_trading_enabled,
+        "session_reused": bool(getattr(client, "session_reused", False)),
         "portfolio": plan.get("portfolio", {}),
         "allocation": plan.get("allocation", {}),
         "execution": plan.get("execution", {}),

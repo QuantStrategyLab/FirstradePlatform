@@ -71,6 +71,8 @@ commit credentials.
 | `FIRSTRADE_ACCOUNT` | Optional | Required when multiple accounts are returned |
 | `STRATEGY_PROFILE` | Yes for runtime | Shared US equity strategy profile |
 | `FIRSTRADE_DRY_RUN_ONLY` | Optional | Defaults to `true` for platform runtime |
+| `FIRSTRADE_REUSE_SESSION` | Optional | Reuse cached Firstrade session headers inside the same warm runtime instance before logging in again. Defaults to `false` |
+| `FIRSTRADE_SESSION_CACHE_TTL_SECONDS` | Optional | Max age for local session header reuse when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `21600` |
 | `ACCOUNT_PREFIX` | Optional | Alert/log prefix, default `FIRSTRADE` |
 | `ACCOUNT_REGION` | Optional | Runtime account scope, default `US` |
 | `NOTIFY_LANG` | Optional | Notification language, `en` or `zh` |
@@ -172,6 +174,12 @@ all of these gates:
 The strategy execution service uses whole-share limit orders for generated
 strategy orders. If the notional cap is below the current price of a target
 symbol, that order is skipped instead of being enlarged.
+
+`FIRSTRADE_REUSE_SESSION=true` reduces repeated login attempts while the same
+Cloud Run instance stays warm. It stores the current session headers only in the
+container-local cookie directory and tries that session before calling Firstrade
+login again. A cold start, new revision, expired session, or broker-side
+invalidation still falls back to a fresh login.
 
 ## Cloud Run Shape
 

@@ -33,6 +33,7 @@ I18N = {
         "investable_cash": "可投资现金",
         "holdings_title": "💼 策略持仓",
         "holding_line": "{symbol}: {market_value} / {quantity}",
+        "quantity_share": "{quantity}股",
         "quantity_shares": "{quantity}股",
         "signal_label": "信号",
         "separator": SEPARATOR,
@@ -43,10 +44,15 @@ I18N = {
         "market_status_line": "📊 市场状态: {status}",
         "signal_line": "🎯 信号: {signal}",
         "target_diff_summary": "调仓变化: {details}",
-        "dry_run_buy_order": "🧪 模拟买单: {symbol} {quantity}",
-        "dry_run_sell_order": "🧪 模拟卖单: {symbol} {quantity}",
-        "submitted_buy_order": "已提交买单: {symbol} {quantity}",
-        "submitted_sell_order": "已提交卖单: {symbol} {quantity}",
+        "order_logs_title": "🧾 执行明细",
+        "dry_run_order": "🧪 模拟{order_type}{side} {symbol}: {quantity}{price}",
+        "submitted_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}",
+        "order_type_limit": "限价",
+        "order_type_market": "市价",
+        "side_buy": "买入",
+        "side_sell": "卖出",
+        "order_price_suffix": " @ ${price}",
+        "order_id_suffix": "（订单号: {order_id}）",
         "no_order_submitted": "未下单: 原因={reason}",
         "no_rebalance_needed": "✅ 无需调仓",
         "no_trades": "✅ 无需调仓",
@@ -105,6 +111,7 @@ I18N = {
         "investable_cash": "Investable cash",
         "holdings_title": "💼 Strategy Holdings",
         "holding_line": "{symbol}: {market_value} / {quantity}",
+        "quantity_share": "{quantity} share",
         "quantity_shares": "{quantity} shares",
         "signal_label": "Signal",
         "separator": SEPARATOR,
@@ -115,10 +122,15 @@ I18N = {
         "market_status_line": "📊 Market: {status}",
         "signal_line": "🎯 Signal: {signal}",
         "target_diff_summary": "Target changes: {details}",
-        "dry_run_buy_order": "🧪 Dry-run buy: {symbol} {quantity}",
-        "dry_run_sell_order": "🧪 Dry-run sell: {symbol} {quantity}",
-        "submitted_buy_order": "Submitted buy: {symbol} {quantity}",
-        "submitted_sell_order": "Submitted sell: {symbol} {quantity}",
+        "order_logs_title": "🧾 Execution details",
+        "dry_run_order": "🧪 Dry-run {order_type} {side} {symbol}: {quantity}{price}",
+        "submitted_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id}",
+        "order_type_limit": "limit",
+        "order_type_market": "market",
+        "side_buy": "buy",
+        "side_sell": "sell",
+        "order_price_suffix": " @ ${price}",
+        "order_id_suffix": " (ID: {order_id})",
         "no_order_submitted": "No order submitted: reason={reason}",
         "no_rebalance_needed": "✅ No rebalance needed",
         "no_trades": "✅ No rebalance needed",
@@ -211,6 +223,11 @@ def _format_money(value: Any) -> str:
     return "$0.00" if number is None else f"${number:,.2f}"
 
 
+def _format_price(value: Any) -> str:
+    number = _safe_float(value)
+    return "" if number is None else f"{number:,.2f}"
+
+
 def _format_quantity(value: Any) -> str:
     number = _safe_float(value)
     if number is None:
@@ -221,7 +238,9 @@ def _format_quantity(value: Any) -> str:
 
 
 def _format_shares(value: Any, *, translator: Callable[..., str]) -> str:
-    return translator("quantity_shares", quantity=_format_quantity(value))
+    quantity = _format_quantity(value)
+    key = "quantity_share" if quantity == "1" else "quantity_shares"
+    return translator(key, quantity=quantity)
 
 
 def _parse_detail_kwargs(text: str) -> dict[str, str]:
@@ -448,13 +467,39 @@ def _format_order_lines(
     for order in submitted:
         side = str(order.get("side") or "").lower()
         symbol = str(order.get("symbol") or "").upper()
-        side_key = "buy" if side == "buy" else "sell"
-        mode_key = "dry_run" if dry_run_only else "submitted"
+        raw_payload = dict(order.get("raw_payload") or {})
+        order_type = str(order.get("order_type") or raw_payload.get("price_type") or "limit").lower()
+        if order_type not in {"limit", "market"}:
+            order_type = "limit"
+        price = _format_price(order.get("limit_price") or raw_payload.get("limit_price") or raw_payload.get("price"))
+        price_suffix = translator("order_price_suffix", price=price) if price else ""
+        side_key = "side_buy" if side == "buy" else "side_sell"
+        order_type_key = "order_type_limit" if order_type == "limit" else "order_type_market"
+        quantity = _format_shares(order.get("quantity"), translator=translator)
+        if dry_run_only:
+            lines.append(
+                translator(
+                    "dry_run_order",
+                    order_type=translator(order_type_key),
+                    side=translator(side_key),
+                    symbol=symbol,
+                    quantity=quantity,
+                    price=price_suffix,
+                )
+            )
+            continue
+        order_id = str(order.get("broker_order_id") or raw_payload.get("order_id") or "").strip()
+        order_id_suffix = translator("order_id_suffix", order_id=order_id) if order_id else ""
         lines.append(
             translator(
-                f"{mode_key}_{side_key}_order",
+                "submitted_order",
+                icon="📈" if side == "buy" else "📉",
+                order_type=translator(order_type_key),
+                side=translator(side_key),
                 symbol=symbol,
-                quantity=_format_shares(order.get("quantity"), translator=translator),
+                quantity=quantity,
+                price=price_suffix,
+                order_id=order_id_suffix,
             )
         )
     return lines
@@ -515,8 +560,10 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     lines.append(SEPARATOR)
     lines.extend(target_diff_lines)
     if submitted:
+        lines.append(translator("order_logs_title"))
         lines.extend(_format_order_lines(submitted, dry_run_only=dry_run_only, translator=translator))
     elif skipped and has_rebalance_attempt:
+        lines.append(translator("order_logs_title"))
         reason = _format_skipped_reason(skipped, translator=translator)
         lines.append(translator("no_order_submitted", reason=reason))
     else:

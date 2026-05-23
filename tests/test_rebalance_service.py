@@ -117,6 +117,8 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
             "symbol": "AAA",
             "side": "buy",
             "quantity": 2.0,
+            "order_type": "limit",
+            "limit_price": 10.05,
             "status": "previewed",
             "broker_order_id": None,
             "raw_payload": {
@@ -137,7 +139,8 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "🆔 Account: ****5678" in messages[0]
     assert "📌 Strategy Account" in messages[0]
     assert "Target changes: AAA +50.00 USD" in messages[0]
-    assert "🧪 Dry-run buy: AAA 2 shares" in messages[0]
+    assert "🧾 Execution details" in messages[0]
+    assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
@@ -179,6 +182,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template
     assert "⏱ 执行时点: 2026-05-20 -> 2026-05-21 (次一交易日执行)" in message
     assert "🎯 信号: 入场信号" in message
     assert "调仓变化: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
+    assert "🧾 执行明细" in message
     assert "未下单: 原因=买入股数为0:TQQQ,QQQ, 低于调仓阈值:BOXX" in message
     assert "profile:" not in message
     assert "targets:" not in message
@@ -270,6 +274,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     assert "⏱ Timing: 2026-05-20 -> 2026-05-21 (next trading day)" in message
     assert "🎯 Signal: Entry Signal" in message
     assert "Target changes: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
+    assert "🧾 Execution details" in message
     assert "No order submitted: reason=buy quantity rounds to 0:TQQQ,QQQ, below trade threshold:BOXX" in message
     assert "账户" not in message
     assert "信号" not in message
