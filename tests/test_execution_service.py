@@ -152,3 +152,35 @@ def test_execute_value_target_plan_leaves_small_safe_haven_target_as_cash():
         threshold_usd=1000.0,
     )
     assert adjusted_plan["allocation"]["targets"]["BOXX"] == 0.0
+
+
+def test_execute_value_target_plan_projects_unbuyable_value_target_to_zero():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {
+                "strategy_symbols": ("SOXL", "SOXX", "BOXX"),
+                "risk_symbols": ("SOXL", "SOXX"),
+                "safe_haven_symbols": ("BOXX",),
+                "targets": {"SOXL": 541.58, "SOXX": 154.74, "BOXX": 77.37},
+            },
+            "portfolio": {
+                "market_values": {"SOXL": 0.0, "SOXX": 536.88, "BOXX": 0.0},
+                "sellable_quantities": {"SOXX": 1.0},
+                "liquid_cash": 236.81,
+                "cash_sweep_symbol": "BOXX",
+            },
+            "execution": {"current_min_trade": 7.74, "investable_cash": 213.60},
+        },
+        market_data_port=FakeMarketDataPort({"SOXL": 191.15, "SOXX": 536.88, "BOXX": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        max_order_notional_usd=1000.0,
+        safe_haven_cash_substitute_threshold_usd=1000.0,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("sell", "SOXX", 1.0),
+        ("buy", "SOXL", 1.0),
+    ]
