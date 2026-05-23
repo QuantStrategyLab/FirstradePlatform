@@ -184,6 +184,53 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template
     assert "targets:" not in message
 
 
+def test_render_cycle_summary_localizes_strategy_signal_codes():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "soxl_soxx_trend_income",
+            "strategy_display_name": "SOXL/SOXX 半导体趋势收益",
+            "dry_run_only": True,
+            "portfolio": {
+                "total_equity": 0.0,
+                "liquid_cash": 0.0,
+                "portfolio_rows": (("SOXL", "SOXX", "BOXX"), ("QQQI", "SPYI")),
+                "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0, "QQQI": 0.0, "SPYI": 0.0},
+                "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 0, "QQQI": 0, "SPYI": 0},
+            },
+            "allocation": {"targets": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0, "QQQI": 0.0, "SPYI": 0.0}},
+            "execution": {
+                "reserved_cash": 0.0,
+                "investable_cash": 0.0,
+                "dashboard_text": "\n".join(
+                    (
+                        "📌 策略账户概览",
+                        "💼 策略持仓",
+                        "  - SOXL: $0.00 / 0股",
+                        "🎯 信号: signal_blend_gate_risk_on: soxl_ratio=70.0%, soxx_ratio=20.0%, trend_symbol=SOXX, window=140",
+                    )
+                ),
+                "status_display": "market_status_blend_gate_risk_on: asset=SOXX+SOXL",
+                "signal_display": "signal_blend_gate_risk_on: soxl_ratio=70.0%, soxx_ratio=20.0%, trend_symbol=SOXX, window=140 | small_account_warning_note: min_recommended_equity=$1,000, portfolio_equity=$0, reason=integer-share minimum position sizing may prevent backtest replication",
+                "signal_date": "2026-05-23",
+                "effective_date": "2026-05-25",
+                "execution_timing_contract": "next_trading_day",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [],
+        },
+        lang="zh",
+    )
+
+    assert "📊 市场状态: 🚀 风险开启（SOXX+SOXL）" in message
+    assert "🎯 信号: SOXX 站上 140 日门槛线，持有 SOXL 70.0% + SOXX 20.0%" in message
+    assert "  - 小账户提示：净值 $0 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测" in message
+    assert message.count("🎯 信号:") == 1
+    assert "signal_blend_gate_risk_on" not in message
+    assert "soxl_ratio" not in message
+    assert "small_account_warning_note" not in message
+
+
 def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template():
     message = render_cycle_summary(
         {

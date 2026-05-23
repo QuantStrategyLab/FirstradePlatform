@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from quant_platform_kit.common.notification_localization import (
+    localize_notification_text as _base_localize_notification_text,
+)
+
 
 SEPARATOR = "━━━━━━━━━━━━━━━━━━"
+
+_DETAIL_FIELD_SPLIT_RE = re.compile(r",\s*(?=[A-Za-z_][\w-]*\s*=)")
+_STRUCTURED_PAREN_RE = re.compile(r"^(?P<key>[A-Za-z_][\w-]*)\((?P<details>.*)\)$")
 
 
 I18N = {
@@ -16,7 +24,9 @@ I18N = {
         "strategy_label": "🧭 策略: {name}",
         "account_label": "🆔 账户: {account}",
         "dry_run_banner": "🧪 模拟运行，本轮不提交真实订单",
+        "dashboard_label": "📊 资产看板",
         "account_overview_title": "📌 策略账户概览",
+        "equity": "净值",
         "total_assets": "总资产（策略标的+现金）",
         "buying_power": "购买力",
         "reserved_cash": "预留现金",
@@ -24,6 +34,8 @@ I18N = {
         "holdings_title": "💼 策略持仓",
         "holding_line": "{symbol}: {market_value} / {quantity}",
         "quantity_shares": "{quantity}股",
+        "signal_label": "信号",
+        "separator": SEPARATOR,
         "same_trading_day": "当日执行",
         "next_trading_day": "次一交易日执行",
         "next_n_trading_days": "{count}个交易日后执行",
@@ -37,12 +49,41 @@ I18N = {
         "submitted_sell_order": "已提交卖单: {symbol} {quantity}",
         "no_order_submitted": "未下单: 原因={reason}",
         "no_rebalance_needed": "✅ 无需调仓",
+        "no_trades": "✅ 无需调仓",
         "no_executable_orders": "无可执行订单",
         "signal_state_hold": "趋势持有",
         "signal_state_entry": "入场信号",
         "signal_state_reduce": "减仓信号",
         "signal_state_exit": "离场信号",
         "signal_state_idle": "等待信号",
+        "signal_hold": "趋势持有",
+        "signal_entry": "入场信号",
+        "signal_reduce": "减仓信号",
+        "signal_exit": "离场信号",
+        "signal_idle": "等待信号",
+        "market_status_blend_gate_risk_on": "🚀 风险开启（{asset}）",
+        "market_status_blend_gate_defensive": "🛡️ 降杠杆（{asset}）",
+        "market_status_blend_gate_overlay_capped": "🧯 过热降档（{asset}）",
+        "signal_blend_gate_risk_on": "{trend_symbol} 站上 {window} 日门槛线，持有 SOXL {soxl_ratio} + SOXX {soxx_ratio}",
+        "signal_blend_gate_defensive": "{trend_symbol} 跌破门槛线，防守持有 SOXX {soxx_ratio}",
+        "signal_blend_gate_overlay_capped": "{trend_symbol} 仍在 {window} 日门槛线上方，但触发过热降档（{reasons}），目标仓位 {allocation_text}",
+        "market_status_risk_on": "🚀 风险开启（{asset}）",
+        "market_status_delever": "🛡️ 降杠杆（{asset}）",
+        "signal_risk_on": "SOXL 站上 {window} 日均线，持有 SOXL，交易层风险仓位 {ratio}",
+        "signal_delever": "SOXL 跌破 {window} 日均线，切换至 SOXX，交易层风险仓位 {ratio}",
+        "blend_gate_reason_rsi_cap": "RSI 超阈值",
+        "blend_gate_reason_bollinger_cap": "突破布林上轨",
+        "blend_gate_reason_volatility_delever": "{symbol} {window} 日年化波动率 {volatility} 高于 {threshold}，SOXL 转向 {redirect_symbol}",
+        "small_account_warning_note": "小账户提示：净值 {portfolio_equity} 低于建议 {min_recommended_equity}；{reason}",
+        "small_account_warning_reason_integer_shares_min_position_value_may_prevent_backtest_replication": "整数股和最小仓位限制可能导致实盘无法完全复现回测",
+        "strategy_name_tqqq_growth_income": "TQQQ 增长收益",
+        "strategy_name_soxl_soxx_trend_income": "SOXL/SOXX 半导体趋势收益",
+        "strategy_name_global_etf_rotation": "全球 ETF 轮动",
+        "strategy_name_global_etf_confidence_vol_gate": "全球 ETF 置信波动门控",
+        "strategy_name_russell_1000_multi_factor_defensive": "罗素1000多因子",
+        "strategy_name_tech_communication_pullback_enhancement": "科技通信回调增强",
+        "strategy_name_qqq_tech_enhancement": "科技通信回调增强",
+        "strategy_name_mega_cap_leader_rotation_top50_balanced": "Mega Cap Top50 平衡龙头轮动",
         "skip_reason_below_trade_threshold": "低于调仓阈值",
         "skip_reason_quote_unavailable": "无法获取报价",
         "skip_reason_sell_quantity_zero": "卖出股数为0",
@@ -55,7 +96,9 @@ I18N = {
         "strategy_label": "🧭 Strategy: {name}",
         "account_label": "🆔 Account: {account}",
         "dry_run_banner": "🧪 Dry run only; no live orders submitted",
+        "dashboard_label": "📊 Dashboard",
         "account_overview_title": "📌 Strategy Account",
+        "equity": "Equity",
         "total_assets": "Total assets",
         "buying_power": "Buying power",
         "reserved_cash": "Reserved cash",
@@ -63,6 +106,8 @@ I18N = {
         "holdings_title": "💼 Strategy Holdings",
         "holding_line": "{symbol}: {market_value} / {quantity}",
         "quantity_shares": "{quantity} shares",
+        "signal_label": "Signal",
+        "separator": SEPARATOR,
         "same_trading_day": "same trading day",
         "next_trading_day": "next trading day",
         "next_n_trading_days": "next {count} trading days",
@@ -76,12 +121,41 @@ I18N = {
         "submitted_sell_order": "Submitted sell: {symbol} {quantity}",
         "no_order_submitted": "No order submitted: reason={reason}",
         "no_rebalance_needed": "✅ No rebalance needed",
+        "no_trades": "✅ No rebalance needed",
         "no_executable_orders": "no executable orders",
         "signal_state_hold": "Trend Hold",
         "signal_state_entry": "Entry Signal",
         "signal_state_reduce": "Reduce Signal",
         "signal_state_exit": "Exit Signal",
         "signal_state_idle": "Idle",
+        "signal_hold": "Trend Hold",
+        "signal_entry": "Entry Signal",
+        "signal_reduce": "Reduce Signal",
+        "signal_exit": "Exit Signal",
+        "signal_idle": "Idle",
+        "market_status_blend_gate_risk_on": "Risk on ({asset})",
+        "market_status_blend_gate_defensive": "Defensive ({asset})",
+        "market_status_blend_gate_overlay_capped": "Overheat capped ({asset})",
+        "signal_blend_gate_risk_on": "{trend_symbol} is above the {window}-day gate; hold SOXL {soxl_ratio} + SOXX {soxx_ratio}",
+        "signal_blend_gate_defensive": "{trend_symbol} is below the gate; hold SOXX {soxx_ratio}",
+        "signal_blend_gate_overlay_capped": "{trend_symbol} remains above the {window}-day gate, but overheat cap is active ({reasons}); target {allocation_text}",
+        "market_status_risk_on": "Risk on ({asset})",
+        "market_status_delever": "Delever ({asset})",
+        "signal_risk_on": "SOXL is above the {window}-day average; hold SOXL at risk sleeve {ratio}",
+        "signal_delever": "SOXL is below the {window}-day average; switch to SOXX at risk sleeve {ratio}",
+        "blend_gate_reason_rsi_cap": "RSI over threshold",
+        "blend_gate_reason_bollinger_cap": "price above upper band",
+        "blend_gate_reason_volatility_delever": "{symbol} {window}d annualized volatility {volatility} is above {threshold}; redirect SOXL to {redirect_symbol}",
+        "small_account_warning_note": "small account warning: portfolio equity {portfolio_equity} is below recommended {min_recommended_equity}; {reason}",
+        "small_account_warning_reason_integer_shares_min_position_value_may_prevent_backtest_replication": "integer-share minimum position sizing may prevent backtest replication",
+        "strategy_name_tqqq_growth_income": "TQQQ Growth Income",
+        "strategy_name_soxl_soxx_trend_income": "SOXL/SOXX Semiconductor Trend Income",
+        "strategy_name_global_etf_rotation": "Global ETF Rotation",
+        "strategy_name_global_etf_confidence_vol_gate": "Global ETF Confidence Vol Gate",
+        "strategy_name_russell_1000_multi_factor_defensive": "Russell 1000 Multi-Factor Defensive",
+        "strategy_name_tech_communication_pullback_enhancement": "Tech Communication Pullback Enhancement",
+        "strategy_name_qqq_tech_enhancement": "Tech Communication Pullback Enhancement",
+        "strategy_name_mega_cap_leader_rotation_top50_balanced": "Mega Cap Top50 Balanced Leader Rotation",
         "skip_reason_below_trade_threshold": "below trade threshold",
         "skip_reason_quote_unavailable": "quote unavailable",
         "skip_reason_sell_quantity_zero": "sell quantity rounds to 0",
@@ -97,7 +171,12 @@ def build_translator(lang: str | None) -> Callable[..., str]:
 
     def translate(key: str, **kwargs) -> str:
         template = I18N[active_lang].get(key, I18N["en"].get(key, key))
-        return template.format(**kwargs) if kwargs else template
+        if not kwargs:
+            return template
+        try:
+            return template.format(**kwargs)
+        except (IndexError, KeyError, ValueError):
+            return template
 
     return translate
 
@@ -145,6 +224,65 @@ def _format_shares(value: Any, *, translator: Callable[..., str]) -> str:
     return translator("quantity_shares", quantity=_format_quantity(value))
 
 
+def _parse_detail_kwargs(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for part in _DETAIL_FIELD_SPLIT_RE.split(str(text or "")):
+        key, sep, value = part.partition("=")
+        if not sep:
+            continue
+        normalized_key = key.strip()
+        if not normalized_key:
+            continue
+        values[normalized_key] = value.strip()
+    return values
+
+
+def _structured_key_and_kwargs(text: str) -> tuple[str, dict[str, str]]:
+    key, sep, details = text.partition(":")
+    if sep:
+        return key.strip(), _parse_detail_kwargs(details)
+    match = _STRUCTURED_PAREN_RE.fullmatch(text.strip())
+    if not match:
+        return "", {}
+    return match.group("key").strip(), _parse_detail_kwargs(match.group("details"))
+
+
+def _localize_structured_text(text: Any, *, translator: Callable[..., str]) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    translation_key, kwargs = _structured_key_and_kwargs(value)
+    if translation_key:
+        for nested_key in ("reason", "reasons"):
+            if nested_key in kwargs:
+                kwargs[nested_key] = _base_localize_notification_text(
+                    kwargs[nested_key],
+                    translator=translator,
+                )
+        translated = translator(translation_key, **kwargs) if kwargs else translator(translation_key)
+        if translated != translation_key:
+            return translated
+    translated = translator(value)
+    if translated != value:
+        return translated
+    return _base_localize_notification_text(value, translator=translator)
+
+
+def _is_dashboard_signal_line(line: str) -> bool:
+    text = str(line or "").strip()
+    text = text.removeprefix("-").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    return (
+        text.startswith("🎯")
+        or lowered.startswith(("signal:", "signal："))
+        or text.startswith(("信号:", "信号："))
+        or "small account warning" in lowered
+        or "小账户提示" in text
+    )
+
+
 def _format_dashboard_lines(
     portfolio: Mapping[str, Any],
     execution: Mapping[str, Any],
@@ -153,7 +291,15 @@ def _format_dashboard_lines(
 ) -> list[str]:
     dashboard_text = str(execution.get("dashboard_text") or "").strip()
     if dashboard_text:
-        return [line.rstrip() for line in dashboard_text.splitlines() if line.strip()]
+        has_signal_display = bool(str(execution.get("signal_display") or "").strip())
+        lines = []
+        for line in dashboard_text.splitlines():
+            if not line.strip():
+                continue
+            if has_signal_display and _is_dashboard_signal_line(line):
+                continue
+            lines.append(_base_localize_notification_text(line.rstrip(), translator=translator))
+        return lines
 
     lines = [translator("account_overview_title")]
     total_equity = _safe_float(portfolio.get("total_equity"))
@@ -234,9 +380,25 @@ def _first_summary(value: Any, *, translator: Callable[..., str]) -> str:
     if not text:
         return ""
     summary = text.split(" | ", 1)[0].strip()
-    key = f"signal_state_{summary.lower()}"
-    translated = translator(key)
-    return translated if translated != key else summary
+    structured = _localize_structured_text(summary, translator=translator)
+    if structured and structured != summary:
+        return structured
+    normalized = summary.lower()
+    for key in (f"signal_state_{normalized}", f"signal_{normalized}"):
+        translated = translator(key)
+        if translated != key:
+            return translated
+    return structured or _base_localize_notification_text(summary, translator=translator)
+
+
+def _detail_lines(value: Any, *, translator: Callable[..., str]) -> list[str]:
+    segments = [segment.strip() for segment in str(value or "").split(" | ") if segment.strip()]
+    details = []
+    for segment in segments[1:]:
+        localized = _localize_structured_text(segment, translator=translator)
+        if localized:
+            details.append(localized)
+    return details
 
 
 def _format_signal_lines(execution: Mapping[str, Any], *, translator: Callable[..., str]) -> list[str]:
@@ -247,6 +409,7 @@ def _format_signal_lines(execution: Mapping[str, Any], *, translator: Callable[.
         lines.append(translator("market_status_line", status=status))
     if signal:
         lines.append(translator("signal_line", signal=signal))
+        lines.extend(f"  - {line}" for line in _detail_lines(execution.get("signal_display"), translator=translator))
     return lines
 
 
@@ -329,7 +492,11 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         for item in skipped
     )
     has_rebalance_attempt = bool(submitted or target_diff_lines or has_meaningful_skip)
-    strategy_name = str(result.get("strategy_display_name") or result.get("strategy_profile") or "").strip()
+    strategy_profile = str(result.get("strategy_profile") or "").strip()
+    strategy_name = str(result.get("strategy_display_name") or strategy_profile).strip()
+    translated_strategy_name = translator(f"strategy_name_{strategy_profile}") if strategy_profile else ""
+    if translated_strategy_name and translated_strategy_name != f"strategy_name_{strategy_profile}":
+        strategy_name = translated_strategy_name
     account = str(result.get("account") or "").strip()
     lines = [translator("rebalance_title" if has_rebalance_attempt else "heartbeat_title")]
     if strategy_name:

@@ -25,7 +25,7 @@ from application.firstrade_client import (
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 from decision_mapper import map_strategy_decision_to_plan
-from notifications.telegram import build_sender, render_cycle_summary
+from notifications.telegram import build_sender, build_translator, render_cycle_summary
 from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
     required_semiconductor_rotation_history_lookback,
@@ -40,13 +40,6 @@ LIMIT_BUY_PREMIUM = 1.005
 
 def get_project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT")
-
-
-def _identity_translator(key: str, **kwargs) -> str:
-    if not kwargs:
-        return key
-    details = ", ".join(f"{name}={value}" for name, value in sorted(kwargs.items()))
-    return f"{key}: {details}"
 
 
 def _series_from_price_history(market_data_port, symbol: str) -> pd.Series:
@@ -186,7 +179,7 @@ def run_strategy_cycle(
         available_inputs=available_inputs,
         market_inputs=market_inputs,
         portfolio_snapshot=snapshot,
-        translator=_identity_translator,
+        translator=build_translator(settings.notify_lang),
     )
     evaluation = strategy_runtime.evaluate(**evaluation_inputs)
     plan = map_strategy_decision_to_plan(
