@@ -9,7 +9,7 @@ env:
   GCP_PROJECT_NUMBER: "1088907247379"
   GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
   GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
-  GCP_CLOUD_BUILD_SERVICE_ACCOUNT: projects/firstradequant/serviceAccounts/firstrade-platform-build@firstradequant.iam.gserviceaccount.com
+  GCP_RUNTIME_SERVICE_ACCOUNT: firstrade-platform-runtime@firstradequant.iam.gserviceaccount.com
   GCP_ARTIFACT_REGISTRY_HOSTNAME: us-central1-docker.pkg.dev
   GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
 
@@ -115,16 +115,32 @@ jobs:
           project_id: ${{ env.GCP_PROJECT_ID }}
           version: ">= 416.0.0"
 
-      - name: Build and deploy Cloud Run image
+      - name: Build, push, and deploy Cloud Run image
         if: steps.deploy_config.outputs.enabled == 'true'
         run: |
           set -euo pipefail
 
-          gcloud builds submit . \
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          image="${image_repo}:${GITHUB_SHA}"
+
+          gcloud auth configure-docker "${GCP_ARTIFACT_REGISTRY_HOSTNAME}" --quiet
+          docker build --pull -t "${image}" .
+          docker push "${image}"
+
+          gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project="${GCP_PROJECT_ID}" \
-            --config=cloudbuild.yaml \
-            --service-account="${GCP_CLOUD_BUILD_SERVICE_ACCOUNT}" \
-            --substitutions="COMMIT_SHA=${GITHUB_SHA},REPO_NAME=firstradequant,_AR_HOSTNAME=${GCP_ARTIFACT_REGISTRY_HOSTNAME},_AR_PROJECT_ID=${GCP_PROJECT_ID},_AR_REPOSITORY=${GCP_ARTIFACT_REGISTRY_REPOSITORY},_DEPLOY_REGION=${CLOUD_RUN_REGION},_PLATFORM=managed,_SERVICE_NAME=${CLOUD_RUN_SERVICE}"
+            --region="${CLOUD_RUN_REGION}" \
+            --platform=managed \
+            --image="${image}" \
+            --service-account="${GCP_RUNTIME_SERVICE_ACCOUNT}" \
+            --ingress=internal \
+            --max-instances=1 \
+            --concurrency=80 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300s \
+            --labels="managed-by=github-actions,commit-sha=${GITHUB_SHA},github-run-id=${GITHUB_RUN_ID}" \
+            --quiet
 
       - name: Check whether env sync is enabled
         id: env_sync_config
