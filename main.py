@@ -82,6 +82,7 @@ def smoke():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@app.post("/")
 @app.post("/run")
 @app.get("/run")
 def run_strategy():
@@ -106,11 +107,13 @@ def run_strategy():
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
+@app.post("/precheck")
 @app.get("/precheck")
 def precheck():
     return health()
 
 
+@app.post("/probe")
 @app.get("/probe")
 def probe():
     return health()
