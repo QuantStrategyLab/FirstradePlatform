@@ -7,6 +7,42 @@ from typing import Any
 
 from quant_platform_kit.common.models import OrderIntent
 from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort
+try:
+    from quant_platform_kit.common.small_account_compatibility import (
+        project_unbuyable_value_targets_to_cash,
+    )
+except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
+    def project_unbuyable_value_targets_to_cash(
+        target_values,
+        prices,
+        *,
+        symbols=None,
+        quantity_step=1.0,
+    ):
+        adjusted = {
+            str(symbol or "").strip().upper(): float(value or 0.0)
+            for symbol, value in dict(target_values or {}).items()
+        }
+        step = max(0.0, float(quantity_step or 0.0))
+        if step <= 0.0:
+            return adjusted, ()
+        candidate_symbols = (
+            tuple(adjusted)
+            if symbols is None
+            else tuple(dict.fromkeys(str(symbol or "").strip().upper() for symbol in symbols))
+        )
+        normalized_prices = {
+            str(symbol or "").strip().upper(): float(price or 0.0)
+            for symbol, price in dict(prices or {}).items()
+        }
+        substituted = []
+        for symbol in candidate_symbols:
+            target_value = max(0.0, float(adjusted.get(symbol, 0.0) or 0.0))
+            price = max(0.0, float(normalized_prices.get(symbol, 0.0) or 0.0))
+            if price > 0.0 and 0.0 < target_value < (price * step):
+                adjusted[symbol] = 0.0
+                substituted.append(symbol)
+        return adjusted, tuple(dict.fromkeys(substituted))
 
 
 @dataclass(frozen=True)
@@ -88,6 +124,43 @@ def _quote_price(market_data_port: MarketDataPort, symbol: str) -> float | None:
     return price if price > 0 else None
 
 
+def _apply_small_account_whole_share_compatibility(
+    plan: dict[str, Any],
+    *,
+    market_data_port: MarketDataPort,
+) -> dict[str, Any]:
+    adjusted_plan = dict(plan or {})
+    allocation = dict(adjusted_plan.get("allocation") or {})
+    targets = dict(allocation.get("targets") or {})
+    candidate_symbols = tuple(
+        dict.fromkeys(
+            tuple(allocation.get("risk_symbols", ()))
+            + tuple(allocation.get("income_symbols", ()))
+        )
+    )
+    if not candidate_symbols:
+        safe_haven_symbols = set(allocation.get("safe_haven_symbols", ()))
+        candidate_symbols = tuple(
+            symbol for symbol in targets if symbol not in safe_haven_symbols
+        )
+    prices = {}
+    for symbol in candidate_symbols:
+        price = _quote_price(market_data_port, str(symbol).strip().upper())
+        if price is not None:
+            prices[str(symbol).strip().upper()] = price
+    adjusted_targets, substituted = project_unbuyable_value_targets_to_cash(
+        targets,
+        prices,
+        symbols=candidate_symbols,
+        quantity_step=1.0,
+    )
+    allocation["targets"] = adjusted_targets
+    if substituted:
+        allocation["small_account_whole_share_substituted_symbols"] = substituted
+    adjusted_plan["allocation"] = allocation
+    return adjusted_plan
+
+
 def _submit_order(
     execution_port: ExecutionPort,
     *,
@@ -133,6 +206,10 @@ def execute_value_target_plan(
     plan = substitute_small_safe_haven_targets_with_cash(
         plan,
         threshold_usd=safe_haven_cash_substitute_threshold_usd,
+    )
+    plan = _apply_small_account_whole_share_compatibility(
+        plan,
+        market_data_port=market_data_port,
     )
     allocation = dict(plan.get("allocation") or {})
     portfolio = dict(plan.get("portfolio") or {})
