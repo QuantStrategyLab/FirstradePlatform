@@ -13,6 +13,8 @@ from pathlib import Path
 from time import time
 from typing import Any, Callable
 
+from application.state_persistence import GcsStateStore
+
 
 class FirstradePlatformError(RuntimeError):
     """Base error for platform integration failures."""
@@ -42,6 +44,9 @@ class FirstradeCredentials:
     cookie_dir: str = ".runtime/firstrade-cookies"
     reuse_session: bool = False
     session_cache_ttl_seconds: int = 21_600
+    persist_session_cache: bool = False
+    gcs_state_bucket: str = ""
+    gcs_state_prefix: str = "firstrade-platform"
     debug: bool = False
 
     @classmethod
@@ -63,6 +68,13 @@ class FirstradeCredentials:
                 env("FIRSTRADE_SESSION_CACHE_TTL_SECONDS", "21600"),
                 default=21_600,
             ),
+            persist_session_cache=(env("FIRSTRADE_PERSIST_SESSION_CACHE", "false") or "")
+            .strip()
+            .lower()
+            == "true",
+            gcs_state_bucket=(env("FIRSTRADE_GCS_STATE_BUCKET", "") or "").strip(),
+            gcs_state_prefix=env("FIRSTRADE_STATE_PREFIX", "firstrade-platform")
+            or "firstrade-platform",
             debug=(env("FIRSTRADE_DEBUG", "false") or "").lower() == "true",
         )
 
@@ -195,6 +207,7 @@ class FirstradeBrokerClient:
         order_factory: Callable[[Any], Any] | None = None,
         quote_factory: Callable[[Any, str, str], Any] | None = None,
         ohlc_factory: Callable[[Any, str, str], Any] | None = None,
+        session_cache_store: GcsStateStore | None = None,
     ) -> None:
         self.credentials = credentials
         self.live_trading_enabled = live_trading_enabled
@@ -203,6 +216,7 @@ class FirstradeBrokerClient:
         self._order_factory = order_factory
         self._quote_factory = quote_factory
         self._ohlc_factory = ohlc_factory
+        self._session_cache_store = session_cache_store
         self.session: Any | None = None
         self.account_data: Any | None = None
         self.session_reused = False
@@ -261,19 +275,31 @@ class FirstradeBrokerClient:
         try:
             payload = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError):
+            payload = None
+        if self._is_valid_session_cache_payload(payload):
+            return payload
+        store = self._session_state_store()
+        if store is None:
             return None
+        try:
+            persisted_payload = store.read_json(self._session_state_key())
+        except Exception:
+            return None
+        if self._is_valid_session_cache_payload(persisted_payload):
+            return persisted_payload
+        return None
+
+    def _is_valid_session_cache_payload(self, payload: Any) -> bool:
         if not isinstance(payload, dict):
-            return None
+            return False
         try:
             saved_at = float(payload.get("saved_at") or 0.0)
         except (TypeError, ValueError):
-            return None
+            return False
         ttl = max(1, int(self.credentials.session_cache_ttl_seconds or 1))
         if saved_at <= 0.0 or (time() - saved_at) > ttl:
-            return None
-        if not payload.get("ftat") or not payload.get("sid"):
-            return None
-        return payload
+            return False
+        return bool(payload.get("ftat") and payload.get("sid"))
 
     def _try_cached_session(
         self,
@@ -288,10 +314,18 @@ class FirstradeBrokerClient:
         try:
             from firstrade import urls
 
-            session.session.headers.update(urls.session_headers())
-            session.session.headers["access-token"] = urls.access_token()
-            session.session.headers["ftat"] = str(payload["ftat"])
-            session.session.headers["sid"] = str(payload["sid"])
+            if hasattr(session, "build_session_from_tokens"):
+                session.build_session_from_tokens(payload)
+            else:
+                session.session.headers.update(urls.session_headers())
+                session.session.headers["access-token"] = str(
+                    payload.get("access-token") or urls.access_token()
+                )
+                session.session.headers["ftat"] = str(payload["ftat"])
+                session.session.headers["sid"] = str(payload["sid"])
+                cookies = payload.get("cookies")
+                if isinstance(cookies, dict) and hasattr(session.session, "cookies"):
+                    session.session.cookies.update(cookies)
             account_data = account_data_factory(session)
         except Exception:
             try:
@@ -302,15 +336,25 @@ class FirstradeBrokerClient:
         self.session = session
         self.account_data = account_data
         self.session_reused = True
+        self._save_session_cache(cookie_dir)
         return True
 
     def _save_session_cache(self, cookie_dir: Path) -> None:
         if not self.credentials.reuse_session or self.session is None:
             return
-        headers = getattr(getattr(self.session, "session", None), "headers", {}) or {}
+        session_obj = getattr(self.session, "session", None)
+        headers = getattr(session_obj, "headers", {}) or {}
+        cookies = {}
+        if hasattr(session_obj, "cookies"):
+            try:
+                cookies = session_obj.cookies.get_dict()
+            except Exception:
+                cookies = {}
         payload = {
+            "access-token": headers.get("access-token"),
             "ftat": headers.get("ftat"),
             "sid": headers.get("sid"),
+            "cookies": cookies,
             "saved_at": time(),
         }
         if not payload["ftat"] or not payload["sid"]:
@@ -318,7 +362,28 @@ class FirstradeBrokerClient:
         try:
             self._session_cache_path(cookie_dir).write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
+            pass
+        store = self._session_state_store()
+        if store is None:
             return
+        try:
+            store.write_json(self._session_state_key(), payload)
+        except Exception:
+            return
+
+    def _session_state_store(self) -> GcsStateStore | None:
+        if self._session_cache_store is not None:
+            return self._session_cache_store
+        if not self.credentials.persist_session_cache or not self.credentials.gcs_state_bucket:
+            return None
+        return GcsStateStore(
+            bucket=self.credentials.gcs_state_bucket,
+            prefix=self.credentials.gcs_state_prefix,
+        )
+
+    def _session_state_key(self) -> str:
+        safe_username = "".join(ch for ch in self.credentials.username if ch.isalnum() or ch in ("-", "_"))
+        return f"sessions/{safe_username or 'unknown'}/latest.json"
 
     def require_connected(self) -> tuple[Any, Any]:
         if self.session is None or self.account_data is None:

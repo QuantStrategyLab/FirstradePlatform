@@ -15,6 +15,7 @@ from application.firstrade_client import (
     mask_account_id,
 )
 from application.rebalance_service import run_strategy_cycle
+from application.session_check_service import run_session_check
 from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
@@ -33,6 +34,7 @@ def health():
             "strategy_domain": "us_equity",
             "live_trading_enabled": is_live_trading_enabled(),
             "smoke_on_http": _flag("FIRSTRADE_RUN_SMOKE_ON_HTTP"),
+            "session_check_on_http": _flag("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"),
             "strategy_run_on_http": _flag("FIRSTRADE_RUN_STRATEGY_ON_HTTP"),
             "as_of": datetime.now(timezone.utc).isoformat(),
         }
@@ -80,6 +82,30 @@ def smoke():
         )
     except FirstradePlatformError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/session-check")
+@app.get("/session-check")
+def session_check():
+    if not _flag("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Set FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP=true to allow HTTP-triggered "
+                        "read-only Firstrade session and account-state checks."
+                    ),
+                }
+            ),
+            403,
+        )
+    try:
+        return jsonify(run_session_check())
+    except FirstradePlatformError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
 @app.post("/")

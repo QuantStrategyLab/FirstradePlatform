@@ -73,6 +73,10 @@ commit credentials.
 | `FIRSTRADE_DRY_RUN_ONLY` | Optional | Defaults to `true` for platform runtime |
 | `FIRSTRADE_REUSE_SESSION` | Optional | Reuse cached Firstrade session headers inside the same warm runtime instance before logging in again. Defaults to `false` |
 | `FIRSTRADE_SESSION_CACHE_TTL_SECONDS` | Optional | Max age for local session header reuse when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `21600` |
+| `FIRSTRADE_PERSIST_SESSION_CACHE` | Optional | Persist Firstrade session headers to the configured GCS state bucket when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `false` |
+| `FIRSTRADE_GCS_STATE_BUCKET` | Optional | GCS bucket for runtime state JSON, including persisted session cache and account funds snapshots |
+| `FIRSTRADE_STATE_PREFIX` | Optional | Object prefix within `FIRSTRADE_GCS_STATE_BUCKET`, default `firstrade-platform` |
+| `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT` | Optional | Persist compact masked account funds snapshots from `/session-check`. Defaults to `false` |
 | `ACCOUNT_PREFIX` | Optional | Alert/log prefix, default `FIRSTRADE` |
 | `ACCOUNT_REGION` | Optional | Runtime account scope, default `US` |
 | `NOTIFY_LANG` | Optional | Notification language, `en` or `zh` |
@@ -81,6 +85,8 @@ commit credentials.
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
+| `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP` | Optional | Must be `true` before `/session-check` performs a read-only login/session/account-state check |
+| `FIRSTRADE_SESSION_CHECK_INCLUDE_POSITIONS` | Optional | Include compact symbol/quantity/market-value positions in `/session-check` funds snapshots. Defaults to `false` |
 | `FIRSTRADE_RUN_STRATEGY_ON_HTTP` | Optional | Must be `true` before `/run` performs strategy evaluation and order routing |
 | `FIRSTRADE_LIVE_ORDER_ACK` | Optional | Must be `true` before `/run` can submit live orders |
 | `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` | Optional | Single-order cap for strategy-generated orders, default `25` |
@@ -175,11 +181,21 @@ The strategy execution service uses whole-share limit orders for generated
 strategy orders. If the notional cap is below the current price of a target
 symbol, that order is skipped instead of being enlarged.
 
-`FIRSTRADE_REUSE_SESSION=true` reduces repeated login attempts while the same
-Cloud Run instance stays warm. It stores the current session headers only in the
-container-local cookie directory and tries that session before calling Firstrade
-login again. A cold start, new revision, expired session, or broker-side
-invalidation still falls back to a fresh login.
+`FIRSTRADE_REUSE_SESSION=true` reduces repeated login attempts by trying cached
+session headers before calling Firstrade login again. By default this cache is
+container-local. When `FIRSTRADE_PERSIST_SESSION_CACHE=true` and
+`FIRSTRADE_GCS_STATE_BUCKET` is set, the same cache is also written to GCS so a
+cold start can try the last known session first. Expired sessions, new broker
+sessions from another device, or broker-side invalidation still fall back to a
+fresh login.
+
+`/session-check` is a read-only route for session keepalive experiments and
+account-state persistence. It connects to Firstrade, selects the account, reads
+balances, optionally reads positions, and returns a compact masked funds
+snapshot. With `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, it writes the snapshot
+to `accounts/<masked-account>/funds/latest.json` plus a timestamped history path
+under the configured GCS prefix. Raw account IDs and login secrets are not
+included in the snapshot.
 
 ## Cloud Run Shape
 
@@ -190,6 +206,8 @@ invalidation still falls back to a fresh login.
 - `/probe` health metadata only
 - `/profiles` shared US equity strategy matrix
 - `/smoke` login + quote only when `FIRSTRADE_RUN_SMOKE_ON_HTTP=true`
+- `/session-check` read-only session/account-state check only when
+  `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP=true`
 - `/run` strategy evaluation + guarded order routing only when
   `FIRSTRADE_RUN_STRATEGY_ON_HTTP=true`
 
