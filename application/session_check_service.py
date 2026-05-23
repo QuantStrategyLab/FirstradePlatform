@@ -7,6 +7,12 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from application.account_payload_utils import (
+    float_or_none,
+    get_first,
+    iter_position_rows,
+    selected_numeric_metrics,
+)
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -40,78 +46,18 @@ def _safe_key(value: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in str(value or "")) or "unknown"
 
 
-def _float_or_none(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(str(value).replace(",", ""))
-    except (TypeError, ValueError):
-        return None
-
-
-def _flatten_values(payload: Any, prefix: str = "") -> dict[str, Any]:
-    values: dict[str, Any] = {}
-    if isinstance(payload, Mapping):
-        for key, value in payload.items():
-            child_key = f"{prefix}.{key}" if prefix else str(key)
-            values.update(_flatten_values(value, child_key))
-    elif isinstance(payload, list):
-        for index, value in enumerate(payload):
-            values.update(_flatten_values(value, f"{prefix}.{index}"))
-    else:
-        values[prefix] = payload
-    return values
-
-
-def _selected_balance_metrics(payload: Any) -> dict[str, float]:
-    metrics: dict[str, float] = {}
-    for key, value in _flatten_values(payload).items():
-        lowered = key.lower()
-        if not any(keyword in lowered for keyword in BALANCE_KEYWORDS):
-            continue
-        number = _float_or_none(value)
-        if number is not None:
-            metrics[key] = number
-    return metrics
-
-
-def _iter_position_rows(payload: Any) -> list[Mapping[str, Any]]:
-    if isinstance(payload, Mapping):
-        for key in ("items", "positions", "data", "result"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [row for row in value if isinstance(row, Mapping)]
-        if "symbol" in payload:
-            return [payload]
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, Mapping)]
-    return []
-
-
-def _get_first(row: Mapping[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in row:
-            return row[key]
-    lower_map = {str(key).lower(): value for key, value in row.items()}
-    for key in keys:
-        lowered = key.lower()
-        if lowered in lower_map:
-            return lower_map[lowered]
-    return None
-
-
 def _compact_positions(payload: Any) -> list[dict[str, Any]]:
     positions: list[dict[str, Any]] = []
-    for row in _iter_position_rows(payload):
-        symbol = _get_first(row, "symbol", "ticker", "security_symbol")
+    for row in iter_position_rows(payload):
+        symbol = get_first(row, "symbol", "ticker", "security_symbol")
         if not symbol:
             continue
         positions.append(
             {
                 "symbol": str(symbol).strip().upper(),
-                "quantity": _float_or_none(_get_first(row, "quantity", "shares", "qty")),
-                "market_value": _float_or_none(
-                    _get_first(row, "market_value", "marketValue", "value", "current_value")
+                "quantity": float_or_none(get_first(row, "quantity", "shares", "qty")),
+                "market_value": float_or_none(
+                    get_first(row, "market_value", "marketValue", "value", "current_value")
                 ),
             }
         )
@@ -133,7 +79,7 @@ def build_account_funds_snapshot(
         "account": mask_account_id(account),
         "session_reused": session_reused,
         "account_summaries": account_summaries,
-        "balance_metrics": _selected_balance_metrics(balances),
+        "balance_metrics": selected_numeric_metrics(balances, BALANCE_KEYWORDS),
     }
     if positions_payload is not None:
         snapshot["positions"] = _compact_positions(positions_payload)

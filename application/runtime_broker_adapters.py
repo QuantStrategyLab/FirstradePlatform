@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
 import pandas as pd
 
+from application.account_payload_utils import (
+    first_numeric_by_keywords,
+    float_or_none,
+    get_first,
+    iter_position_rows,
+)
 from application.firstrade_client import (
     FirstradeBrokerClient,
     StockOrderRequest,
@@ -32,65 +37,6 @@ from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort, Portf
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _float_or_none(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(str(value).replace(",", ""))
-    except (TypeError, ValueError):
-        return None
-
-
-def _flatten_values(payload: Any, prefix: str = "") -> dict[str, Any]:
-    values: dict[str, Any] = {}
-    if isinstance(payload, Mapping):
-        for key, value in payload.items():
-            child_key = f"{prefix}.{key}" if prefix else str(key)
-            values.update(_flatten_values(value, child_key))
-    elif isinstance(payload, list):
-        for index, value in enumerate(payload):
-            values.update(_flatten_values(value, f"{prefix}.{index}"))
-    else:
-        values[prefix] = payload
-    return values
-
-
-def _first_numeric_by_keywords(payload: Any, keywords: tuple[str, ...]) -> float | None:
-    flat = _flatten_values(payload)
-    for key, value in flat.items():
-        key_lower = key.lower()
-        if all(keyword in key_lower for keyword in keywords):
-            number = _float_or_none(value)
-            if number is not None:
-                return number
-    return None
-
-
-def _iter_position_rows(payload: Any) -> list[Mapping[str, Any]]:
-    if isinstance(payload, Mapping):
-        for key in ("items", "positions", "data", "result"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [row for row in value if isinstance(row, Mapping)]
-        if "symbol" in payload:
-            return [payload]
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, Mapping)]
-    return []
-
-
-def _get_first(row: Mapping[str, Any], *keys: str) -> Any:
-    for key in keys:
-        if key in row:
-            return row[key]
-    lower_map = {str(key).lower(): value for key, value in row.items()}
-    for key in keys:
-        lowered = key.lower()
-        if lowered in lower_map:
-            return lower_map[lowered]
-    return None
 
 
 @dataclass(frozen=True)
@@ -120,15 +66,15 @@ class FirstradeBrokerAdapters:
             if cached is not None:
                 return cached
             payload = self.client.get_quote(self.account, normalized)
-            price = _float_or_none(payload.get("last"))
+            price = float_or_none(payload.get("last"))
             if price is None:
                 raise ValueError(f"Firstrade quote did not include a numeric last price for {normalized}.")
             snapshot = QuoteSnapshot(
                 symbol=normalized,
                 as_of=self.clock(),
                 last_price=price,
-                bid_price=_float_or_none(payload.get("bid")),
-                ask_price=_float_or_none(payload.get("ask")),
+                bid_price=float_or_none(payload.get("bid")),
+                ask_price=float_or_none(payload.get("ask")),
                 currency="USD",
             )
             quote_cache[normalized] = snapshot
@@ -150,7 +96,7 @@ class FirstradeBrokerAdapters:
                     PricePoint(
                         as_of=datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc),
                         close=close,
-                        volume=_float_or_none(candle[5] if len(candle) > 5 else None),
+                        volume=float_or_none(candle[5] if len(candle) > 5 else None),
                     )
                 )
             if not points:
@@ -189,45 +135,45 @@ class FirstradeBrokerAdapters:
     def build_portfolio_snapshot(self) -> PortfolioSnapshot:
         balances = self.client.get_balances(self.account)
         positions_payload = self.client.get_positions(self.account)
-        rows = _iter_position_rows(positions_payload)
+        rows = iter_position_rows(positions_payload)
         positions = []
         managed = set(self.strategy_symbols)
         for row in rows:
-            raw_symbol = _get_first(row, "symbol", "ticker", "security_symbol")
+            raw_symbol = get_first(row, "symbol", "ticker", "security_symbol")
             if not raw_symbol:
                 continue
             symbol = self.normalize_symbol(raw_symbol)
             if managed and symbol not in managed:
                 continue
-            quantity = _float_or_none(_get_first(row, "quantity", "shares", "qty"))
+            quantity = float_or_none(get_first(row, "quantity", "shares", "qty"))
             if quantity is None:
                 continue
             positions.append(
                 Position(
                     symbol=symbol,
                     quantity=quantity,
-                    market_value=_float_or_none(
-                        _get_first(row, "market_value", "marketValue", "value", "current_value")
+                    market_value=float_or_none(
+                        get_first(row, "market_value", "marketValue", "value", "current_value")
                     )
                     or 0.0,
-                    average_cost=_float_or_none(
-                        _get_first(row, "average_cost", "avg_cost", "cost_basis", "averagePrice")
+                    average_cost=float_or_none(
+                        get_first(row, "average_cost", "avg_cost", "cost_basis", "averagePrice")
                     ),
                     currency="USD",
                     account_id=mask_account_id(self.account),
                 )
             )
         total_equity = (
-            _first_numeric_by_keywords(balances, ("total", "value"))
-            or _first_numeric_by_keywords(balances, ("equity",))
+            first_numeric_by_keywords(balances, ("total", "value"))
+            or first_numeric_by_keywords(balances, ("equity",))
             or sum(position.market_value for position in positions)
         )
         return PortfolioSnapshot(
             as_of=self.clock(),
             total_equity=float(total_equity or 0.0),
-            buying_power=_first_numeric_by_keywords(balances, ("buying",))
-            or _first_numeric_by_keywords(balances, ("bp",)),
-            cash_balance=_first_numeric_by_keywords(balances, ("cash",)),
+            buying_power=first_numeric_by_keywords(balances, ("buying",))
+            or first_numeric_by_keywords(balances, ("bp",)),
+            cash_balance=first_numeric_by_keywords(balances, ("cash",)),
             positions=tuple(positions),
             metadata={
                 "broker": "firstrade",
