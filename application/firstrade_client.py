@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from time import time
 from typing import Any, Callable
@@ -267,8 +268,7 @@ class FirstradeBrokerClient:
         )
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
-        safe_username = "".join(ch for ch in self.credentials.username if ch.isalnum() or ch in ("-", "_"))
-        return cookie_dir / f"ft_session{safe_username}.json"
+        return cookie_dir / f"ft_session_{self._session_cache_identity()}.json"
 
     def _load_session_cache(self, cookie_dir: Path) -> dict[str, Any] | None:
         path = self._session_cache_path(cookie_dir)
@@ -382,8 +382,13 @@ class FirstradeBrokerClient:
         )
 
     def _session_state_key(self) -> str:
-        safe_username = "".join(ch for ch in self.credentials.username if ch.isalnum() or ch in ("-", "_"))
-        return f"sessions/{safe_username or 'unknown'}/latest.json"
+        return f"sessions/{self._session_cache_identity()}/latest.json"
+
+    def _session_cache_identity(self) -> str:
+        username = str(self.credentials.username or "").strip().lower()
+        if not username:
+            return "unknown"
+        return sha256(username.encode("utf-8")).hexdigest()[:16]
 
     def require_connected(self) -> tuple[Any, Any]:
         if self.session is None or self.account_data is None:
