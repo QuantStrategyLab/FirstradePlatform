@@ -71,7 +71,7 @@ commit credentials.
 | `FIRSTRADE_ACCOUNT` | Optional | Required when multiple accounts are returned |
 | `STRATEGY_PROFILE` | Yes for runtime | Shared US equity strategy profile |
 | `FIRSTRADE_DRY_RUN_ONLY` | Optional | Defaults to `true` for platform runtime |
-| `FIRSTRADE_REUSE_SESSION` | Optional | Reuse cached Firstrade session headers inside the same warm runtime instance before logging in again. Defaults to `false` |
+| `FIRSTRADE_REUSE_SESSION` | Optional | Try cached Firstrade session headers before logging in again. Defaults to `false` |
 | `FIRSTRADE_SESSION_CACHE_TTL_SECONDS` | Optional | Max age for local session header reuse when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `21600` |
 | `FIRSTRADE_PERSIST_SESSION_CACHE` | Optional | Persist Firstrade session headers to the configured GCS state bucket when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `false` |
 | `FIRSTRADE_GCS_STATE_BUCKET` | Optional | GCS bucket for runtime state JSON, including persisted session cache and account funds snapshots |
@@ -213,6 +213,31 @@ included in the snapshot.
 
 With the default environment, `/run` previews orders only. It can submit live
 orders only when every live-trading gate above is enabled.
+
+## Runtime State And Schedulers
+
+The deployed Firstrade runtime keeps trading disabled unless the explicit live
+order gates are changed:
+
+- `FIRSTRADE_DRY_RUN_ONLY=true`
+- `FIRSTRADE_RUN_STRATEGY_ON_HTTP=false`
+- `FIRSTRADE_ENABLE_LIVE_TRADING=false`
+- `FIRSTRADE_LIVE_ORDER_ACK=false`
+
+For session keepalive tests, create a private GCS bucket, grant the Cloud Run
+runtime service account object read/write access, and set:
+
+- `FIRSTRADE_REUSE_SESSION=true`
+- `FIRSTRADE_PERSIST_SESSION_CACHE=true`
+- `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`
+- `FIRSTRADE_GCS_STATE_BUCKET=<bucket-name>`
+- `FIRSTRADE_STATE_PREFIX=firstrade-platform`
+- `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP=true`
+
+The `/session-check` scheduler can safely run more often than the strategy
+scheduler because it is read-only. A typical test schedule is every 30 minutes
+during US regular market hours. The route logs `session_reused=true|false` and
+writes the latest masked funds snapshot plus timestamped history to GCS.
 
 ## License And Upstream Compliance
 
