@@ -185,6 +185,8 @@ def _submit_order(
         "symbol": report.symbol,
         "side": report.side,
         "quantity": report.quantity,
+        "order_type": "limit",
+        "limit_price": round(float(limit_price), 2),
         "status": report.status,
         "broker_order_id": report.broker_order_id,
         "raw_payload": report.raw_payload,

@@ -6,9 +6,11 @@ platform boundary explicit and defaults every order path to preview mode.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from time import time
 from typing import Any, Callable
 
 
@@ -38,6 +40,8 @@ class FirstradeCredentials:
     mfa_secret: str = ""
     mfa_code: str = ""
     cookie_dir: str = ".runtime/firstrade-cookies"
+    reuse_session: bool = False
+    session_cache_ttl_seconds: int = 21_600
     debug: bool = False
 
     @classmethod
@@ -54,6 +58,11 @@ class FirstradeCredentials:
             mfa_code=env("FIRSTRADE_MFA_CODE", "") or "",
             cookie_dir=env("FIRSTRADE_COOKIE_DIR", ".runtime/firstrade-cookies")
             or ".runtime/firstrade-cookies",
+            reuse_session=(env("FIRSTRADE_REUSE_SESSION", "false") or "").strip().lower() == "true",
+            session_cache_ttl_seconds=_coerce_positive_int(
+                env("FIRSTRADE_SESSION_CACHE_TTL_SECONDS", "21600"),
+                default=21_600,
+            ),
             debug=(env("FIRSTRADE_DEBUG", "false") or "").lower() == "true",
         )
 
@@ -102,6 +111,14 @@ def _coerce_positive_float(value: float | None, field: str) -> float | None:
     if coerced <= 0:
         raise FirstradeSafetyError(f"{field} must be positive.")
     return coerced
+
+
+def _coerce_positive_int(value: str | None, *, default: int) -> int:
+    try:
+        coerced = int(str(value or "").strip())
+    except ValueError:
+        return default
+    return coerced if coerced > 0 else default
 
 
 def validate_stock_order(
@@ -188,6 +205,7 @@ class FirstradeBrokerClient:
         self._ohlc_factory = ohlc_factory
         self.session: Any | None = None
         self.account_data: Any | None = None
+        self.session_reused = False
 
     def connect(self) -> "FirstradeBrokerClient":
         self.credentials.require_login_fields()
@@ -201,16 +219,14 @@ class FirstradeBrokerClient:
 
         cookie_dir = Path(self.credentials.cookie_dir)
         cookie_dir.mkdir(parents=True, exist_ok=True)
-        session = session_factory(
-            username=self.credentials.username,
-            password=self.credentials.password,
-            pin=self.credentials.pin,
-            email=self.credentials.email,
-            phone=self.credentials.phone,
-            mfa_secret=self.credentials.mfa_secret,
-            profile_path=str(cookie_dir),
-            debug=self.credentials.debug,
-        )
+        session = self._build_session(session_factory, cookie_dir)
+        if self.credentials.reuse_session and self._try_cached_session(
+            session,
+            account_data_factory=account_data_factory,
+            cookie_dir=cookie_dir,
+        ):
+            return self
+
         needs_mfa_code = bool(session.login())
         if needs_mfa_code:
             if not self.credentials.mfa_code:
@@ -220,7 +236,89 @@ class FirstradeBrokerClient:
             session.login_two(self.credentials.mfa_code)
         self.session = session
         self.account_data = account_data_factory(session)
+        self.session_reused = False
+        self._save_session_cache(cookie_dir)
         return self
+
+    def _build_session(self, session_factory: Callable[..., Any], cookie_dir: Path) -> Any:
+        return session_factory(
+            username=self.credentials.username,
+            password=self.credentials.password,
+            pin=self.credentials.pin,
+            email=self.credentials.email,
+            phone=self.credentials.phone,
+            mfa_secret=self.credentials.mfa_secret,
+            profile_path=str(cookie_dir),
+            debug=self.credentials.debug,
+        )
+
+    def _session_cache_path(self, cookie_dir: Path) -> Path:
+        safe_username = "".join(ch for ch in self.credentials.username if ch.isalnum() or ch in ("-", "_"))
+        return cookie_dir / f"ft_session{safe_username}.json"
+
+    def _load_session_cache(self, cookie_dir: Path) -> dict[str, Any] | None:
+        path = self._session_cache_path(cookie_dir)
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        try:
+            saved_at = float(payload.get("saved_at") or 0.0)
+        except (TypeError, ValueError):
+            return None
+        ttl = max(1, int(self.credentials.session_cache_ttl_seconds or 1))
+        if saved_at <= 0.0 or (time() - saved_at) > ttl:
+            return None
+        if not payload.get("ftat") or not payload.get("sid"):
+            return None
+        return payload
+
+    def _try_cached_session(
+        self,
+        session: Any,
+        *,
+        account_data_factory: Callable[[Any], Any],
+        cookie_dir: Path,
+    ) -> bool:
+        payload = self._load_session_cache(cookie_dir)
+        if not payload:
+            return False
+        try:
+            from firstrade import urls
+
+            session.session.headers.update(urls.session_headers())
+            session.session.headers["access-token"] = urls.access_token()
+            session.session.headers["ftat"] = str(payload["ftat"])
+            session.session.headers["sid"] = str(payload["sid"])
+            account_data = account_data_factory(session)
+        except Exception:
+            try:
+                self._session_cache_path(cookie_dir).unlink()
+            except OSError:
+                pass
+            return False
+        self.session = session
+        self.account_data = account_data
+        self.session_reused = True
+        return True
+
+    def _save_session_cache(self, cookie_dir: Path) -> None:
+        if not self.credentials.reuse_session or self.session is None:
+            return
+        headers = getattr(getattr(self.session, "session", None), "headers", {}) or {}
+        payload = {
+            "ftat": headers.get("ftat"),
+            "sid": headers.get("sid"),
+            "saved_at": time(),
+        }
+        if not payload["ftat"] or not payload["sid"]:
+            return
+        try:
+            self._session_cache_path(cookie_dir).write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            return
 
     def require_connected(self) -> tuple[Any, Any]:
         if self.session is None or self.account_data is None:
