@@ -177,3 +177,61 @@ def test_client_reuses_cached_session_without_logging_in_again(tmp_path):
 
     assert second_client.session_reused is True
     assert ReusableFakeSession.login_calls == 1
+
+
+class FakeStateStore:
+    def __init__(self):
+        self.payloads = {}
+        self.writes = 0
+
+    def read_json(self, key):
+        return self.payloads.get(key)
+
+    def write_json(self, key, payload):
+        self.payloads[key] = dict(payload)
+        self.writes += 1
+        return True
+
+
+def test_client_reuses_persisted_session_cache_when_local_cache_is_missing(tmp_path):
+    ReusableFakeSession.login_calls = 0
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path / "first"),
+        reuse_session=True,
+        session_cache_ttl_seconds=3600,
+        persist_session_cache=True,
+    )
+
+    first_client = FirstradeBrokerClient(
+        credentials,
+        session_factory=ReusableFakeSession,
+        account_data_factory=HeaderCheckingAccountData,
+        order_factory=FakeOrder,
+        session_cache_store=store,
+    ).connect()
+    assert first_client.session_reused is False
+    assert ReusableFakeSession.login_calls == 1
+    assert store.writes == 1
+
+    second_credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path / "second"),
+        reuse_session=True,
+        session_cache_ttl_seconds=3600,
+        persist_session_cache=True,
+    )
+    second_client = FirstradeBrokerClient(
+        second_credentials,
+        session_factory=ReusableFakeSession,
+        account_data_factory=HeaderCheckingAccountData,
+        order_factory=FakeOrder,
+        session_cache_store=store,
+    ).connect()
+
+    assert second_client.session_reused is True
+    assert ReusableFakeSession.login_calls == 1
+    assert store.writes == 2
