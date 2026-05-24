@@ -9,8 +9,12 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from application.state_persistence import GcsStateStore
+from quant_platform_kit.common.execution_outcomes import (
+    DEFAULT_TERMINAL_STRATEGY_RUN_STAGES,
+    is_terminal_strategy_run_stage,
+)
 
-LIVE_TERMINAL_STAGES = frozenset({"SUBMITTED", "FUNDING_BLOCKED", "RECONCILED", "COMPLETED"})
+LIVE_TERMINAL_STAGES = DEFAULT_TERMINAL_STRATEGY_RUN_STAGES
 
 
 def utcnow() -> datetime:
@@ -118,7 +122,10 @@ def is_duplicate_live_run(existing_state: Mapping[str, Any] | None) -> bool:
         return False
     if bool(existing_state.get("dry_run_only")):
         return False
-    return str(existing_state.get("stage") or "").strip().upper() in LIVE_TERMINAL_STAGES
+    return is_terminal_strategy_run_stage(
+        existing_state.get("stage"),
+        terminal_stages=LIVE_TERMINAL_STAGES,
+    )
 
 
 def build_strategy_run_state(

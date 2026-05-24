@@ -35,25 +35,22 @@ from application.strategy_run_persistence import (
 )
 from decision_mapper import map_strategy_decision_to_plan
 from notifications.telegram import build_sender, build_translator, render_cycle_summary
+from quant_platform_kit.common.execution_outcomes import (
+    filter_execution_blocking_skips,
+    is_terminal_funding_block,
+    resolve_strategy_run_stage,
+)
 from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
     required_semiconductor_rotation_history_lookback,
 )
+from quant_platform_kit.notifications.events import NotificationPublisher, RenderedNotification
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
 from strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
 LIMIT_BUY_PREMIUM = 1.005
-EXECUTION_BLOCKING_SKIP_REASONS = frozenset(
-    {
-        "buy_quantity_zero",
-        "insufficient_cash_for_whole_share",
-        "quote_unavailable",
-        "sell_quantity_zero",
-    }
-)
-TERMINAL_FUNDING_BLOCK_SKIP_REASONS = frozenset({"insufficient_cash_for_whole_share"})
 
 
 def _utcnow() -> datetime:
@@ -62,41 +59,6 @@ def _utcnow() -> datetime:
 
 def get_project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT")
-
-
-def _execution_blocking_skips(skipped_orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        dict(item)
-        for item in skipped_orders
-        if str(item.get("reason") or "") in EXECUTION_BLOCKING_SKIP_REASONS
-    ]
-
-
-def _is_terminal_funding_block(blocking_skips: list[dict[str, Any]]) -> bool:
-    if not blocking_skips:
-        return False
-    return all(
-        str(item.get("reason") or "") in TERMINAL_FUNDING_BLOCK_SKIP_REASONS
-        for item in blocking_skips
-    )
-
-
-def _resolve_strategy_run_stage(
-    *,
-    dry_run_only: bool,
-    execution_blocked: bool,
-    terminal_funding_block: bool,
-    action_done: bool,
-) -> str:
-    if dry_run_only:
-        return "DRY_RUN_COMPLETED"
-    if terminal_funding_block and not action_done:
-        return "FUNDING_BLOCKED"
-    if execution_blocked and action_done:
-        return "PARTIAL_SUBMITTED"
-    if execution_blocked:
-        return "EXECUTION_BLOCKED"
-    return "SUBMITTED" if action_done else "NO_ACTION"
 
 
 def _series_from_price_history(market_data_port, symbol: str) -> pd.Series:
@@ -179,13 +141,24 @@ def _publish_cycle_notification(
     *,
     settings: PlatformRuntimeSettings,
     notification_sender: Callable[[str], None] | None = None,
+    log_message: Callable[[str], None] = print,
 ) -> bool:
     sender = notification_sender
     if sender is None:
         if not settings.tg_token or not settings.tg_chat_id:
             return False
         sender = build_sender(settings.tg_token, settings.tg_chat_id)
-    sender(render_cycle_summary(result, lang=settings.notify_lang))
+    message = render_cycle_summary(result, lang=settings.notify_lang)
+    def publish_log(text: str) -> None:
+        try:
+            log_message(text, flush=True)
+        except TypeError:
+            log_message(text)
+
+    NotificationPublisher(
+        log_message=publish_log,
+        send_message=sender,
+    ).publish(RenderedNotification(detailed_text=message, compact_text=message))
     return True
 
 
@@ -330,11 +303,11 @@ def run_strategy_cycle(
     )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)
-    blocking_skips = _execution_blocking_skips(skipped_orders)
+    blocking_skips = filter_execution_blocking_skips(skipped_orders)
     execution_blocked = bool(blocking_skips)
-    funding_blocked = _is_terminal_funding_block(blocking_skips)
+    funding_blocked = is_terminal_funding_block(blocking_skips)
     terminal_funding_block = funding_blocked and not execution_result.action_done
-    strategy_run_stage = _resolve_strategy_run_stage(
+    strategy_run_stage = resolve_strategy_run_stage(
         dry_run_only=settings.dry_run_only,
         execution_blocked=execution_blocked,
         terminal_funding_block=terminal_funding_block,
