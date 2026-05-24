@@ -202,9 +202,15 @@ When `FIRSTRADE_PERSIST_STRATEGY_RUNS=true` and a GCS state bucket is configured
 `strategy-runs/<masked-account>/<strategy-profile>/<yyyy-mm>/latest.json` plus a
 timestamped history path. The record includes the planned targets, compact
 portfolio snapshot, evaluation metadata, submitted orders, skipped orders, and
-stage (`ORDERS_PLANNED`, `DRY_RUN_COMPLETED`, or `SUBMITTED`). For live runs,
+stage (`ORDERS_PLANNED`, `DRY_RUN_COMPLETED`, `NO_ACTION`, `SUBMITTED`,
+`EXECUTION_BLOCKED`, `PARTIAL_SUBMITTED`, or `FUNDING_BLOCKED`). For live runs,
 an existing terminal record in the same account/profile/month blocks duplicate
-order submission.
+order submission. Terminal records include `SUBMITTED`, `FUNDING_BLOCKED`,
+`RECONCILED`, and `COMPLETED`; transient execution blockers such as unavailable
+quotes remain non-terminal so the scheduler can retry while the strategy's
+trading-day execution window is still open. A pure insufficient-cash block is
+recorded as `FUNDING_BLOCKED` with the skipped-order reason and is not retried
+automatically for that period.
 
 ## Cloud Run Shape
 

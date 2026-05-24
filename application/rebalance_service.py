@@ -81,6 +81,24 @@ def _is_terminal_funding_block(blocking_skips: list[dict[str, Any]]) -> bool:
     )
 
 
+def _resolve_strategy_run_stage(
+    *,
+    dry_run_only: bool,
+    execution_blocked: bool,
+    terminal_funding_block: bool,
+    action_done: bool,
+) -> str:
+    if dry_run_only:
+        return "DRY_RUN_COMPLETED"
+    if terminal_funding_block and not action_done:
+        return "FUNDING_BLOCKED"
+    if execution_blocked and action_done:
+        return "PARTIAL_SUBMITTED"
+    if execution_blocked:
+        return "EXECUTION_BLOCKED"
+    return "SUBMITTED" if action_done else "NO_ACTION"
+
+
 def _series_from_price_history(market_data_port, symbol: str) -> pd.Series:
     series = market_data_port.get_price_series(symbol)
     index = pd.DatetimeIndex([pd.Timestamp(point.as_of) for point in series.points])
@@ -316,6 +334,12 @@ def run_strategy_cycle(
     execution_blocked = bool(blocking_skips)
     funding_blocked = _is_terminal_funding_block(blocking_skips)
     terminal_funding_block = funding_blocked and not execution_result.action_done
+    strategy_run_stage = _resolve_strategy_run_stage(
+        dry_run_only=settings.dry_run_only,
+        execution_blocked=execution_blocked,
+        terminal_funding_block=terminal_funding_block,
+        action_done=execution_result.action_done,
+    )
     result = {
         "ok": not execution_blocked,
         "api_kind": "unofficial-reverse-engineered",
@@ -326,6 +350,7 @@ def run_strategy_cycle(
         "live_trading_enabled": settings.live_trading_enabled,
         "session_reused": bool(getattr(client, "session_reused", False)),
         "strategy_run_period": run_period,
+        "strategy_run_stage": strategy_run_stage,
         "strategy_run_persisted": strategy_run_persisted,
         "portfolio": plan.get("portfolio", {}),
         "allocation": plan.get("allocation", {}),
@@ -344,18 +369,8 @@ def run_strategy_cycle(
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
     if persist_strategy_runs:
-        stage = "DRY_RUN_COMPLETED"
-        if not settings.dry_run_only:
-            if terminal_funding_block and not execution_result.action_done:
-                stage = "FUNDING_BLOCKED"
-            elif execution_blocked and execution_result.action_done:
-                stage = "PARTIAL_SUBMITTED"
-            elif execution_blocked:
-                stage = "EXECUTION_BLOCKED"
-            else:
-                stage = "SUBMITTED" if execution_result.action_done else "NO_ACTION"
         completed_state = build_strategy_run_state(
-            stage=stage,
+            stage=strategy_run_stage,
             account=masked_account,
             strategy_profile=strategy_runtime.profile,
             strategy_display_name=strategy_runtime.display_name,

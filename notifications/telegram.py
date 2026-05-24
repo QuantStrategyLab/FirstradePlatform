@@ -55,6 +55,8 @@ I18N = {
         "order_id_suffix": "（订单号: {order_id}）",
         "no_order_submitted": "未下单: 原因={reason}",
         "execution_blocked_banner": "⚠️ 执行阻塞: {reason}",
+        "execution_blocked_retryable_banner": "⚠️ 执行阻塞，可在窗口内自动重试: {reason}",
+        "funding_blocked_banner": "⚠️ 资金不足，本周期不再自动重试: {reason}",
         "no_rebalance_needed": "✅ 无需调仓",
         "no_trades": "✅ 无需调仓",
         "no_executable_orders": "无可执行订单",
@@ -135,6 +137,8 @@ I18N = {
         "order_id_suffix": " (ID: {order_id})",
         "no_order_submitted": "No order submitted: reason={reason}",
         "execution_blocked_banner": "⚠️ Execution blocked: {reason}",
+        "execution_blocked_retryable_banner": "⚠️ Execution blocked; retryable within window: {reason}",
+        "funding_blocked_banner": "⚠️ Funding blocked; no more automatic retries for this period: {reason}",
         "no_rebalance_needed": "✅ No rebalance needed",
         "no_trades": "✅ No rebalance needed",
         "no_executable_orders": "no executable orders",
@@ -557,7 +561,13 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     if bool(result.get("execution_blocked")):
         blocked = list(result.get("execution_blocking_skips") or skipped)
         reason = _format_skipped_reason(blocked, translator=translator)
-        lines.append(translator("execution_blocked_banner", reason=reason))
+        if bool(result.get("funding_blocked")):
+            banner_key = "funding_blocked_banner"
+        elif result.get("execution_block_retryable") is True:
+            banner_key = "execution_blocked_retryable_banner"
+        else:
+            banner_key = "execution_blocked_banner"
+        lines.append(translator(banner_key, reason=reason))
 
     dashboard_lines = _format_dashboard_lines(portfolio, execution, translator=translator)
     if dashboard_lines:
