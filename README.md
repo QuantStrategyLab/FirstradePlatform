@@ -86,9 +86,7 @@ commit credentials.
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
 | `CRISIS_ALERT_GOOGLE_VOICE_TO` | Optional | Google Voice SMS gateway recipients, usually ending in `@txt.voice.google.com` |
-| `CRISIS_ALERT_EMAIL_TO` | Optional | Ordinary email recipients that receive the same escalated alert; also accepted as a legacy recipient list |
-| `CRISIS_ALERT_SMTP_FROM` | Optional | SMTP sender address for Google Voice alerts; falls back to `CRISIS_ALERT_EMAIL_FROM` |
-| `CRISIS_ALERT_EMAIL_FROM` | Optional | Legacy SMTP sender alias; prefer `CRISIS_ALERT_SMTP_FROM` |
+| `CRISIS_ALERT_SMTP_FROM` | Optional | SMTP sender address for Google Voice alerts |
 | `CRISIS_ALERT_SMTP_HOST` | Optional | SMTP host for Google Voice alerts |
 | `CRISIS_ALERT_SMTP_PORT` | Optional | SMTP port. Defaults to `587` |
 | `CRISIS_ALERT_SMTP_USERNAME` | Optional | SMTP username when authentication is required |
