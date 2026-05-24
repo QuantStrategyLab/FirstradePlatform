@@ -44,6 +44,14 @@ from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
     required_semiconductor_rotation_history_lookback,
 )
+from quant_platform_kit.common.strategy_plugins import (
+    build_strategy_plugin_alert_messages,
+    build_strategy_plugin_notification_lines,
+    build_strategy_plugin_report_payload,
+    load_configured_strategy_plugin_signals,
+    parse_strategy_plugin_mounts,
+)
+from quant_platform_kit.notifications.email import send_smtp_email
 from quant_platform_kit.notifications.events import NotificationPublisher, RenderedNotification
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
@@ -162,6 +170,101 @@ def _publish_cycle_notification(
     return True
 
 
+def load_strategy_plugin_signals(
+    raw_mounts,
+    *,
+    strategy_profile: str,
+    parse_mounts_fn=parse_strategy_plugin_mounts,
+    load_signals_fn=load_configured_strategy_plugin_signals,
+):
+    if not raw_mounts:
+        return (), None
+    try:
+        mounts = parse_mounts_fn(raw_mounts)
+        if not mounts:
+            return (), None
+        return load_signals_fn(mounts, strategy_profile=strategy_profile), None
+    except Exception as exc:
+        return (), f"{type(exc).__name__}: {exc}"
+
+
+def attach_strategy_plugin_result(
+    result: dict[str, Any],
+    *,
+    signals,
+    error: str | None,
+    translator: Callable[..., str],
+) -> dict[str, Any]:
+    if signals:
+        result.update(build_strategy_plugin_report_payload(signals))
+        notification_lines = build_strategy_plugin_notification_lines(
+            signals,
+            translator=translator,
+        )
+        if notification_lines:
+            result["strategy_plugin_lines"] = notification_lines
+    if error:
+        result["strategy_plugin_error"] = error
+    return result
+
+
+def _call_log_message(log_message: Callable[..., Any], text: str) -> None:
+    try:
+        log_message(text, flush=True)
+    except TypeError:
+        log_message(text)
+
+
+def send_crisis_alert_email(
+    alert_message,
+    *,
+    settings: PlatformRuntimeSettings,
+    smtp_module=None,
+    log_message: Callable[..., Any] = print,
+) -> bool:
+    send_kwargs: dict[str, Any] = {}
+    if smtp_module is not None:
+        send_kwargs["smtp_module"] = smtp_module
+    return send_smtp_email(
+        subject=alert_message.subject,
+        body=alert_message.body,
+        smtp_host=getattr(settings, "crisis_alert_smtp_host", None),
+        smtp_port=getattr(settings, "crisis_alert_smtp_port", 587),
+        sender=getattr(settings, "crisis_alert_email_from", None),
+        recipients=getattr(settings, "crisis_alert_email_to", ()),
+        username=getattr(settings, "crisis_alert_smtp_username", None),
+        password=getattr(settings, "crisis_alert_smtp_password", None),
+        use_starttls=getattr(settings, "crisis_alert_smtp_starttls", True),
+        use_ssl=getattr(settings, "crisis_alert_smtp_ssl", False),
+        printer=lambda text, **_kwargs: _call_log_message(log_message, text),
+        **send_kwargs,
+    )
+
+
+def publish_strategy_plugin_alerts(
+    signals,
+    *,
+    settings: PlatformRuntimeSettings,
+    translator: Callable[..., str],
+    log_message: Callable[..., Any] = print,
+) -> int:
+    sent_count = 0
+    for alert_message in build_strategy_plugin_alert_messages(
+        signals,
+        translator=translator,
+        strategy_label=settings.strategy_profile,
+    ):
+        if send_crisis_alert_email(
+            alert_message,
+            settings=settings,
+            log_message=log_message,
+        ):
+            sent_count += 1
+    if sent_count:
+        _call_log_message(log_message, f"strategy_plugin_alert_email_sent count={sent_count}")
+    return sent_count
+
+
 def _runtime_metadata_with_execution_policy(
     metadata: Mapping[str, Any] | None,
     *,
@@ -186,6 +289,11 @@ def run_strategy_cycle(
 ) -> dict[str, Any]:
     now = _utcnow()
     settings = runtime_settings or load_platform_runtime_settings(project_id_resolver=get_project_id)
+    translator = build_translator(settings.notify_lang)
+    strategy_plugin_signals, strategy_plugin_error = load_strategy_plugin_signals(
+        settings.strategy_plugin_mounts_json,
+        strategy_profile=settings.strategy_profile,
+    )
     resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
     store = state_store or build_gcs_state_store_from_env(env_reader)
     persist_strategy_runs = bool(settings.persist_strategy_runs and store is not None)
@@ -227,7 +335,7 @@ def run_strategy_cycle(
         available_inputs=available_inputs,
         market_inputs=market_inputs,
         portfolio_snapshot=snapshot,
-        translator=build_translator(settings.notify_lang),
+        translator=translator,
     )
     evaluation = strategy_runtime.evaluate(**evaluation_inputs)
     plan = map_strategy_decision_to_plan(
@@ -258,7 +366,7 @@ def run_strategy_cycle(
             run_period=run_period,
         )
         if is_duplicate_live_run(existing_run):
-            return {
+            result = {
                 "ok": True,
                 "api_kind": "unofficial-reverse-engineered",
                 "account": masked_account,
@@ -280,7 +388,24 @@ def run_strategy_cycle(
                     }
                 ],
                 "action_done": False,
+                "strategy_plugin_alert_email_sent_count": 0,
             }
+            return attach_strategy_plugin_result(
+                result,
+                signals=strategy_plugin_signals,
+                error=strategy_plugin_error,
+                translator=translator,
+            )
+    strategy_plugin_alert_email_sent_count = 0
+    strategy_plugin_alert_email_error = None
+    try:
+        strategy_plugin_alert_email_sent_count = publish_strategy_plugin_alerts(
+            strategy_plugin_signals,
+            settings=settings,
+            translator=translator,
+        )
+    except Exception as exc:
+        strategy_plugin_alert_email_error = f"{type(exc).__name__}: {exc}"
     strategy_run_persisted = False
     strategy_run_persistence_error = None
     if persist_strategy_runs:
@@ -357,6 +482,15 @@ def run_strategy_cycle(
         result["funding_blocked"] = True
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
+    result["strategy_plugin_alert_email_sent_count"] = strategy_plugin_alert_email_sent_count
+    if strategy_plugin_alert_email_error:
+        result["strategy_plugin_alert_email_error"] = strategy_plugin_alert_email_error
+    attach_strategy_plugin_result(
+        result,
+        signals=strategy_plugin_signals,
+        error=strategy_plugin_error,
+        translator=translator,
+    )
     if persist_strategy_runs:
         completed_state = build_strategy_run_state(
             stage=strategy_run_stage,

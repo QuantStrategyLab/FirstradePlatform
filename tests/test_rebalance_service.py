@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -189,6 +190,98 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "Target changes: AAA +50.00 USD" in messages[0]
     assert "🧾 Execution details" in messages[0]
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+
+
+def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
+    monkeypatch,
+    tmp_path,
+):
+    signal_path = tmp_path / "latest_signal.json"
+    signal_path.write_text(
+        json.dumps(
+            {
+                "strategy": "tqqq_growth_income",
+                "plugin": "crisis_response_shadow",
+                "mode": "shadow",
+                "configured_mode": "shadow",
+                "effective_mode": "shadow",
+                "schema_version": "1.0",
+                "as_of": "2026-05-24",
+                "canonical_route": "true_crisis",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "execution_controls": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    mount_config = json.dumps(
+        {
+            "strategy_plugins": [
+                {
+                    "strategy": "tqqq_growth_income",
+                    "plugin": "crisis_response_shadow",
+                    "signal_path": str(signal_path),
+                }
+            ]
+        }
+    )
+    settings = _runtime_settings_with_persistence(
+        strategy_plugin_mounts_json=mount_config,
+        crisis_alert_email_to=("risk@example.com",),
+        crisis_alert_email_from="bot@example.com",
+        crisis_alert_smtp_host="smtp.example.com",
+    )
+    messages = []
+    observed_alerts = []
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service.send_crisis_alert_email",
+        lambda alert_message, **_kwargs: observed_alerts.append(alert_message) or True,
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeFirstradeClient,
+        notification_sender=messages.append,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["strategy_plugins"][0]["canonical_route"] == "true_crisis"
+    assert result["strategy_plugin_alert_email_sent_count"] == 1
+    assert result["strategy_plugin_lines"] == (
+        "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend",
+    )
+    assert len(observed_alerts) == 1
+    assert observed_alerts[0].subject == "🚨 Crisis plugin alert: Crisis Watch Notice | true crisis"
+    assert "Would trade if enabled: true" in observed_alerts[0].body
+    assert "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend" in messages[0]
+
+
+def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypatch):
+    settings = _runtime_settings_with_persistence(strategy_plugin_mounts_json="{bad-json")
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeFirstradeClient,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["ok"] is True
+    assert result["action_done"] is True
+    assert result["strategy_plugin_error"].startswith("JSONDecodeError:")
+    assert result["strategy_plugin_alert_email_sent_count"] == 0
 
 
 def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):

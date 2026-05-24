@@ -84,6 +84,15 @@ commit credentials.
 | `NOTIFY_LANG` | Optional | Notification language, `en` or `zh` |
 | `TELEGRAM_TOKEN` | Optional | Telegram bot token for strategy-cycle summaries |
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
+| `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
+| `CRISIS_ALERT_EMAIL_TO` | Optional | Comma, semicolon, or newline separated recipients for escalated strategy plugin email alerts |
+| `CRISIS_ALERT_EMAIL_FROM` | Optional | SMTP sender address for escalated strategy plugin email alerts |
+| `CRISIS_ALERT_SMTP_HOST` | Optional | SMTP host for escalated strategy plugin email alerts |
+| `CRISIS_ALERT_SMTP_PORT` | Optional | SMTP port. Defaults to `587` |
+| `CRISIS_ALERT_SMTP_USERNAME` | Optional | SMTP username when authentication is required |
+| `CRISIS_ALERT_SMTP_PASSWORD` | Optional | SMTP password, preferably supplied from Secret Manager in Cloud Run |
+| `CRISIS_ALERT_SMTP_STARTTLS` | Optional | Enable STARTTLS for SMTP. Defaults to `true` |
+| `CRISIS_ALERT_SMTP_SSL` | Optional | Use SMTP over SSL. Defaults to `false` |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
@@ -165,10 +174,13 @@ full guarded strategy cycle:
 - connect to Firstrade with the unofficial client
 - read the selected account, balances, positions, quotes, and OHLC history
 - load the selected shared `UsEquityStrategies` runtime
+- load configured shared strategy plugin signal artifacts without changing core strategy logic
 - map the strategy decision into a value-target Firstrade plan
 - route generated orders through the local safety layer
 - publish a compact Telegram summary when `TELEGRAM_TOKEN` and
   `GLOBAL_TELEGRAM_CHAT_ID` are configured
+- send independent SMTP email alerts for escalated strategy plugin signals when
+  `CRISIS_ALERT_*` is configured
 
 The default mode remains dry-run. A live HTTP-triggered strategy order requires
 all of these gates:
@@ -299,6 +311,8 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 - dry-run / preview 下单验证
 - `/run` 执行通用美股策略的 dry-run 调仓闭环
 - 配置 `TELEGRAM_TOKEN` 和 `GLOBAL_TELEGRAM_CHAT_ID` 后发送运行摘要
+- 读取通用策略插件信号，并在危机类插件触发时通过 `CRISIS_ALERT_*`
+  配置发送独立邮件告警
 - 在你再次确认后，才允许极小金额实盘验证
 - 通用 `us_equity` 策略 profile 的平台层接入
 
