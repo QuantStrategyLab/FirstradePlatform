@@ -8,7 +8,9 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
     workflow = workflow_path.read_text(encoding="utf-8")
 
     for name in (
+        "CRISIS_ALERT_GOOGLE_VOICE_TO",
         "CRISIS_ALERT_EMAIL_TO",
+        "CRISIS_ALERT_SMTP_FROM",
         "CRISIS_ALERT_EMAIL_FROM",
         "CRISIS_ALERT_SMTP_HOST",
         "CRISIS_ALERT_SMTP_PORT",

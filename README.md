@@ -85,9 +85,11 @@ commit credentials.
 | `TELEGRAM_TOKEN` | Optional | Telegram bot token for strategy-cycle summaries |
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
-| `CRISIS_ALERT_EMAIL_TO` | Optional | Comma, semicolon, or newline separated recipients for escalated strategy plugin email alerts |
-| `CRISIS_ALERT_EMAIL_FROM` | Optional | SMTP sender address for escalated strategy plugin email alerts |
-| `CRISIS_ALERT_SMTP_HOST` | Optional | SMTP host for escalated strategy plugin email alerts |
+| `CRISIS_ALERT_GOOGLE_VOICE_TO` | Optional | Google Voice SMS gateway recipients, usually ending in `@txt.voice.google.com` |
+| `CRISIS_ALERT_EMAIL_TO` | Optional | Ordinary email recipients that receive the same escalated alert; also accepted as a legacy recipient list |
+| `CRISIS_ALERT_SMTP_FROM` | Optional | SMTP sender address for Google Voice alerts; falls back to `CRISIS_ALERT_EMAIL_FROM` |
+| `CRISIS_ALERT_EMAIL_FROM` | Optional | Legacy SMTP sender alias; prefer `CRISIS_ALERT_SMTP_FROM` |
+| `CRISIS_ALERT_SMTP_HOST` | Optional | SMTP host for Google Voice alerts |
 | `CRISIS_ALERT_SMTP_PORT` | Optional | SMTP port. Defaults to `587` |
 | `CRISIS_ALERT_SMTP_USERNAME` | Optional | SMTP username when authentication is required |
 | `CRISIS_ALERT_SMTP_PASSWORD` | Optional | SMTP password, preferably supplied from Secret Manager in Cloud Run |
@@ -179,9 +181,9 @@ full guarded strategy cycle:
 - route generated orders through the local safety layer
 - publish a compact Telegram summary when `TELEGRAM_TOKEN` and
   `GLOBAL_TELEGRAM_CHAT_ID` are configured
-- send independent SMTP email alerts for escalated strategy plugin signals when
+- send independent Google Voice alerts for escalated strategy plugin signals when
   `CRISIS_ALERT_*` is configured
-- write email alert results into the response and suppress duplicate plugin
+- write Google Voice alert results into the response and suppress duplicate plugin
   alert keys through `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`, `EXECUTION_REPORT_GCS_URI`,
   or the configured Firstrade state bucket
 
@@ -315,8 +317,8 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 - `/run` 执行通用美股策略的 dry-run 调仓闭环
 - 配置 `TELEGRAM_TOKEN` 和 `GLOBAL_TELEGRAM_CHAT_ID` 后发送运行摘要
 - 读取通用策略插件信号，并在危机类插件触发时通过 `CRISIS_ALERT_*`
-  配置发送独立邮件告警
-- 在响应中写入邮件告警结果，并通过 `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`、
+  配置发送独立 Google Voice 告警
+- 在响应中写入 Google Voice 告警结果，并通过 `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`、
   `EXECUTION_REPORT_GCS_URI` 或已配置的 Firstrade state bucket 抑制重复插件告警 key
 - 在你再次确认后，才允许极小金额实盘验证
 - 通用 `us_equity` 策略 profile 的平台层接入

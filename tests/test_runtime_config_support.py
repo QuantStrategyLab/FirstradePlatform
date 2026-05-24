@@ -53,6 +53,8 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
+    assert settings.crisis_alert_google_voice_to == ()
+    assert settings.crisis_alert_smtp_from is None
     assert settings.crisis_alert_email_to == ()
     assert settings.crisis_alert_smtp_port == 587
     assert settings.crisis_alert_smtp_starttls is True
@@ -70,9 +72,11 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
     assert settings.reserved_cash_ratio == 0.025
 
 
-def test_crisis_alert_email_settings_load_from_env(monkeypatch):
+def test_crisis_alert_google_voice_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_TO", "gateway@txt.voice.google.com")
     monkeypatch.setenv("CRISIS_ALERT_EMAIL_TO", "risk@example.com;ops@example.com,risk@example.com")
+    monkeypatch.setenv("CRISIS_ALERT_SMTP_FROM", "smtp-from@example.com")
     monkeypatch.setenv("CRISIS_ALERT_EMAIL_FROM", "bot@example.com")
     monkeypatch.setenv("CRISIS_ALERT_SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("CRISIS_ALERT_SMTP_PORT", "465")
@@ -83,6 +87,8 @@ def test_crisis_alert_email_settings_load_from_env(monkeypatch):
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
+    assert settings.crisis_alert_google_voice_to == ("gateway@txt.voice.google.com",)
+    assert settings.crisis_alert_smtp_from == "smtp-from@example.com"
     assert settings.crisis_alert_email_to == ("risk@example.com", "ops@example.com")
     assert settings.crisis_alert_email_from == "bot@example.com"
     assert settings.crisis_alert_smtp_host == "smtp.example.com"
