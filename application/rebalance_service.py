@@ -45,14 +45,17 @@ from quant_platform_kit.common.runtime_inputs import (
     required_semiconductor_rotation_history_lookback,
 )
 from quant_platform_kit.common.strategy_plugins import (
-    build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
 )
-from quant_platform_kit.notifications.email import send_smtp_email
 from quant_platform_kit.notifications.events import NotificationPublisher, RenderedNotification
+from quant_platform_kit.notifications.strategy_plugin_email import (
+    StrategyPluginEmailAlertMarkerStore,
+    build_strategy_plugin_alert_context_label as build_email_alert_context_label,
+    publish_strategy_plugin_email_alerts,
+)
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
 from strategy_runtime import load_strategy_runtime
@@ -208,36 +211,30 @@ def attach_strategy_plugin_result(
     return result
 
 
-def _call_log_message(log_message: Callable[..., Any], text: str) -> None:
-    try:
-        log_message(text, flush=True)
-    except TypeError:
-        log_message(text)
+def build_strategy_plugin_alert_context_label(settings: PlatformRuntimeSettings) -> str:
+    return build_email_alert_context_label(
+        platform_id="firstrade",
+        strategy_profile=settings.strategy_profile,
+        account_scope=settings.account_region or settings.account_prefix,
+        service_name=settings.account_prefix,
+        runtime_target=settings.runtime_target,
+    )
 
 
-def send_crisis_alert_email(
-    alert_message,
-    *,
+def build_strategy_plugin_alert_store(
     settings: PlatformRuntimeSettings,
-    smtp_module=None,
-    log_message: Callable[..., Any] = print,
-) -> bool:
-    send_kwargs: dict[str, Any] = {}
-    if smtp_module is not None:
-        send_kwargs["smtp_module"] = smtp_module
-    return send_smtp_email(
-        subject=alert_message.subject,
-        body=alert_message.body,
-        smtp_host=getattr(settings, "crisis_alert_smtp_host", None),
-        smtp_port=getattr(settings, "crisis_alert_smtp_port", 587),
-        sender=getattr(settings, "crisis_alert_email_from", None),
-        recipients=getattr(settings, "crisis_alert_email_to", ()),
-        username=getattr(settings, "crisis_alert_smtp_username", None),
-        password=getattr(settings, "crisis_alert_smtp_password", None),
-        use_starttls=getattr(settings, "crisis_alert_smtp_starttls", True),
-        use_ssl=getattr(settings, "crisis_alert_smtp_ssl", False),
-        printer=lambda text, **_kwargs: _call_log_message(log_message, text),
-        **send_kwargs,
+    *,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+):
+    explicit_gcs_uri = env_reader("STRATEGY_PLUGIN_ALERT_STATE_GCS_URI", None)
+    report_gcs_uri = env_reader("EXECUTION_REPORT_GCS_URI", None)
+    state_bucket = env_reader("FIRSTRADE_GCS_STATE_BUCKET", None)
+    state_prefix = env_reader("FIRSTRADE_STATE_PREFIX", "firstrade-platform") or "firstrade-platform"
+    state_gcs_uri = f"gs://{state_bucket}/{state_prefix}" if state_bucket else None
+    return StrategyPluginEmailAlertMarkerStore(
+        local_dir=env_reader("STRATEGY_PLUGIN_ALERT_STATE_DIR", None) or "/tmp/quant_strategy_plugin_alerts",
+        gcs_prefix_uri=explicit_gcs_uri or report_gcs_uri or state_gcs_uri,
+        gcp_project_id=settings.project_id,
     )
 
 
@@ -247,22 +244,17 @@ def publish_strategy_plugin_alerts(
     settings: PlatformRuntimeSettings,
     translator: Callable[..., str],
     log_message: Callable[..., Any] = print,
-) -> int:
-    sent_count = 0
-    for alert_message in build_strategy_plugin_alert_messages(
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+):
+    return publish_strategy_plugin_email_alerts(
         signals,
+        email_settings=settings,
         translator=translator,
         strategy_label=settings.strategy_profile,
-    ):
-        if send_crisis_alert_email(
-            alert_message,
-            settings=settings,
-            log_message=log_message,
-        ):
-            sent_count += 1
-    if sent_count:
-        _call_log_message(log_message, f"strategy_plugin_alert_email_sent count={sent_count}")
-    return sent_count
+        context_label=build_strategy_plugin_alert_context_label(settings),
+        alert_store=build_strategy_plugin_alert_store(settings, env_reader=env_reader),
+        log_message=log_message,
+    )
 
 
 def _runtime_metadata_with_execution_policy(
@@ -388,7 +380,11 @@ def run_strategy_cycle(
                     }
                 ],
                 "action_done": False,
+                "strategy_plugin_alert_email_attempted_count": 0,
                 "strategy_plugin_alert_email_sent_count": 0,
+                "strategy_plugin_alert_email_skipped_count": 0,
+                "strategy_plugin_alert_email_failed_count": 0,
+                "strategy_plugin_alert_email_deliveries": [],
             }
             return attach_strategy_plugin_result(
                 result,
@@ -396,13 +392,14 @@ def run_strategy_cycle(
                 error=strategy_plugin_error,
                 translator=translator,
             )
-    strategy_plugin_alert_email_sent_count = 0
+    strategy_plugin_alert_email_result = None
     strategy_plugin_alert_email_error = None
     try:
-        strategy_plugin_alert_email_sent_count = publish_strategy_plugin_alerts(
+        strategy_plugin_alert_email_result = publish_strategy_plugin_alerts(
             strategy_plugin_signals,
             settings=settings,
             translator=translator,
+            env_reader=env_reader,
         )
     except Exception as exc:
         strategy_plugin_alert_email_error = f"{type(exc).__name__}: {exc}"
@@ -482,7 +479,18 @@ def run_strategy_cycle(
         result["funding_blocked"] = True
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
-    result["strategy_plugin_alert_email_sent_count"] = strategy_plugin_alert_email_sent_count
+    if strategy_plugin_alert_email_result is not None:
+        result.update(strategy_plugin_alert_email_result.to_report_fields())
+    else:
+        result.update(
+            {
+                "strategy_plugin_alert_email_attempted_count": 0,
+                "strategy_plugin_alert_email_sent_count": 0,
+                "strategy_plugin_alert_email_skipped_count": 0,
+                "strategy_plugin_alert_email_failed_count": 0,
+                "strategy_plugin_alert_email_deliveries": [],
+            }
+        )
     if strategy_plugin_alert_email_error:
         result["strategy_plugin_alert_email_error"] = strategy_plugin_alert_email_error
     attach_strategy_plugin_result(

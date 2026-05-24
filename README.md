@@ -181,6 +181,9 @@ full guarded strategy cycle:
   `GLOBAL_TELEGRAM_CHAT_ID` are configured
 - send independent SMTP email alerts for escalated strategy plugin signals when
   `CRISIS_ALERT_*` is configured
+- write email alert results into the response and suppress duplicate plugin
+  alert keys through `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`, `EXECUTION_REPORT_GCS_URI`,
+  or the configured Firstrade state bucket
 
 The default mode remains dry-run. A live HTTP-triggered strategy order requires
 all of these gates:
@@ -313,6 +316,8 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 - 配置 `TELEGRAM_TOKEN` 和 `GLOBAL_TELEGRAM_CHAT_ID` 后发送运行摘要
 - 读取通用策略插件信号，并在危机类插件触发时通过 `CRISIS_ALERT_*`
   配置发送独立邮件告警
+- 在响应中写入邮件告警结果，并通过 `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`、
+  `EXECUTION_REPORT_GCS_URI` 或已配置的 Firstrade state bucket 抑制重复插件告警 key
 - 在你再次确认后，才允许极小金额实盘验证
 - 通用 `us_equity` 策略 profile 的平台层接入
 

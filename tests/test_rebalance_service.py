@@ -239,10 +239,23 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
         "application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
-    monkeypatch.setattr(
-        "application.rebalance_service.send_crisis_alert_email",
-        lambda alert_message, **_kwargs: observed_alerts.append(alert_message) or True,
-    )
+
+    def fake_publish(signals, **kwargs):
+        observed_alerts.append((tuple(signals), kwargs))
+        return SimpleNamespace(
+            sent_count=1,
+            to_report_fields=lambda: {
+                "strategy_plugin_alert_email_attempted_count": 1,
+                "strategy_plugin_alert_email_sent_count": 1,
+                "strategy_plugin_alert_email_skipped_count": 0,
+                "strategy_plugin_alert_email_failed_count": 0,
+                "strategy_plugin_alert_email_deliveries": [
+                    {"subject": "Crisis plugin alert", "status": "sent"}
+                ],
+            },
+        )
+
+    monkeypatch.setattr("application.rebalance_service.publish_strategy_plugin_email_alerts", fake_publish)
 
     result = run_strategy_cycle(
         runtime_settings=settings,
@@ -258,8 +271,9 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
         "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend",
     )
     assert len(observed_alerts) == 1
-    assert observed_alerts[0].subject == "🚨 Crisis plugin alert: Crisis Watch Notice | true crisis"
-    assert "Would trade if enabled: true" in observed_alerts[0].body
+    assert observed_alerts[0][0][0].canonical_route == "true_crisis"
+    assert "firstrade" in observed_alerts[0][1]["context_label"]
+    assert result["strategy_plugin_alert_email_deliveries"][0]["status"] == "sent"
     assert "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend" in messages[0]
 
 
