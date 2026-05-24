@@ -48,7 +48,7 @@ class FirstradeBrokerAdapters:
     clock: Callable[[], datetime] = _utcnow
     live_orders: bool = False
     live_order_ack: bool = False
-    max_order_notional_usd: float = 25.0
+    max_order_notional_usd: float | None = None
 
     def normalize_symbol(self, symbol: str) -> str:
         value = str(symbol or "").strip().upper()
@@ -195,11 +195,16 @@ class FirstradeBrokerAdapters:
                 price_type=str(order_intent.order_type or "market").lower(),
                 duration=str(order_intent.time_in_force or "day").lower(),
                 limit_price=order_intent.limit_price,
-                max_notional_usd=float(
-                    (getattr(order_intent, "metadata", {}) or {}).get(
-                        "max_notional_usd",
-                        self.max_order_notional_usd,
+                max_notional_usd=(
+                    float(max_notional)
+                    if (
+                        max_notional := (getattr(order_intent, "metadata", {}) or {}).get(
+                            "max_notional_usd",
+                            self.max_order_notional_usd,
+                        )
                     )
+                    is not None
+                    else None
                 ),
             )
             raw = self.client.place_stock_order(
@@ -227,7 +232,7 @@ def build_runtime_broker_adapters(
     clock: Callable[[], datetime] = _utcnow,
     live_orders: bool = False,
     live_order_ack: bool = False,
-    max_order_notional_usd: float = 25.0,
+    max_order_notional_usd: float | None = None,
 ) -> FirstradeBrokerAdapters:
     return FirstradeBrokerAdapters(
         client=client,

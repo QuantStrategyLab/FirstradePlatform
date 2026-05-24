@@ -65,14 +65,17 @@ def _sell_budget(
     target_value: float,
     sellable_quantity: float,
     price: float,
-    order_notional_cap: float,
+    order_notional_cap: float | None,
 ) -> float:
     sellable_notional = max(0.0, float(sellable_quantity or 0.0)) * max(0.0, float(price or 0.0))
     if sellable_notional <= 0.0:
         return 0.0
     value_delta_budget = max(0.0, abs(float(delta_value or 0.0)))
     position_budget = max(0.0, sellable_notional - max(0.0, float(target_value or 0.0)))
-    return min(max(value_delta_budget, position_budget), sellable_notional, max(0.0, float(order_notional_cap or 0.0)))
+    budget = min(max(value_delta_budget, position_budget), sellable_notional)
+    if order_notional_cap is not None:
+        budget = min(budget, max(0.0, float(order_notional_cap or 0.0)))
+    return budget
 
 
 def _safe_haven_cash_symbols(*, portfolio: dict[str, Any], allocation: dict[str, Any]) -> tuple[str, ...]:
@@ -168,8 +171,11 @@ def _submit_order(
     side: str,
     quantity: int,
     limit_price: float,
-    max_notional_usd: float,
+    max_notional_usd: float | None,
 ) -> dict[str, Any]:
+    metadata = {}
+    if max_notional_usd is not None:
+        metadata["max_notional_usd"] = float(max_notional_usd)
     report = execution_port.submit_order(
         OrderIntent(
             symbol=symbol,
@@ -178,7 +184,7 @@ def _submit_order(
             order_type="limit",
             limit_price=round(float(limit_price), 2),
             time_in_force="day",
-            metadata={"max_notional_usd": float(max_notional_usd)},
+            metadata=metadata,
         )
     )
     return {
@@ -201,7 +207,7 @@ def execute_value_target_plan(
     dry_run_only: bool,
     limit_sell_discount: float = 0.995,
     limit_buy_premium: float = 1.005,
-    max_order_notional_usd: float = 25.0,
+    max_order_notional_usd: float | None = None,
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
@@ -234,7 +240,11 @@ def execute_value_target_plan(
         0.0,
         float(execution.get("investable_cash") or portfolio.get("liquid_cash") or 0.0),
     )
-    order_notional_cap = max(0.0, float(max_order_notional_usd or 0.0))
+    order_notional_cap = (
+        max(0.0, float(max_order_notional_usd))
+        if max_order_notional_usd is not None and float(max_order_notional_usd) > 0.0
+        else None
+    )
 
     submitted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -275,7 +285,11 @@ def execute_value_target_plan(
                     {
                         "symbol": symbol,
                         "reason": "sell_quantity_zero",
-                        "max_order_notional_usd": round(order_notional_cap, 2),
+                        **(
+                            {"max_order_notional_usd": round(order_notional_cap, 2)}
+                            if order_notional_cap is not None
+                            else {}
+                        ),
                     }
                 )
                 continue
@@ -292,14 +306,20 @@ def execute_value_target_plan(
             continue
 
     for symbol, delta_value, price in [item for item in tradable_deltas if item[1] > 0]:
-        buy_budget = min(float(delta_value), investable_cash, order_notional_cap)
+        buy_budget = min(float(delta_value), investable_cash)
+        if order_notional_cap is not None:
+            buy_budget = min(buy_budget, order_notional_cap)
         quantity = _floor_quantity(buy_budget / price)
         if quantity <= 0:
             skipped.append(
                 {
                     "symbol": symbol,
                     "reason": "buy_quantity_zero",
-                    "max_order_notional_usd": round(order_notional_cap, 2),
+                    **(
+                        {"max_order_notional_usd": round(order_notional_cap, 2)}
+                        if order_notional_cap is not None
+                        else {}
+                    ),
                 }
             )
             continue

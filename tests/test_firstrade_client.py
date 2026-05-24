@@ -105,6 +105,24 @@ def test_notional_live_order_rejects_size_above_local_cap():
         )
 
 
+def test_live_order_has_no_default_notional_cap_when_unset():
+    request = StockOrderRequest(
+        account="12345678",
+        symbol="SPY",
+        side="buy",
+        quantity=10,
+        price_type="limit",
+        limit_price=100,
+    )
+
+    validate_stock_order(
+        request,
+        dry_run=False,
+        live_trading_enabled=True,
+        explicit_live_ack=True,
+    )
+
+
 def test_live_order_requires_environment_gate_and_ack():
     request = StockOrderRequest(
         account="12345678",

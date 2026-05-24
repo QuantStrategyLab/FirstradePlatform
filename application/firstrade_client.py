@@ -103,7 +103,7 @@ class StockOrderRequest:
     duration: str = "day"
     limit_price: float | None = None
     stop_price: float | None = None
-    max_notional_usd: float = 25.0
+    max_notional_usd: float | None = None
 
 
 def is_live_trading_enabled(env: Callable[[str, str | None], str | None] = os.getenv) -> bool:
@@ -156,7 +156,7 @@ def validate_stock_order(
     if request.quantity is not None and int(request.quantity) <= 0:
         raise FirstradeSafetyError("quantity must be a positive integer.")
     notional_usd = _coerce_positive_float(request.notional_usd, "notional_usd")
-    max_notional_usd = _coerce_positive_float(request.max_notional_usd, "max_notional_usd") or 25.0
+    max_notional_usd = _coerce_positive_float(request.max_notional_usd, "max_notional_usd")
 
     price_type = str(request.price_type or "").strip().lower()
     if price_type not in {"market", "limit", "stop", "stop_limit"}:
@@ -169,7 +169,7 @@ def validate_stock_order(
             raise FirstradeSafetyError("Notional orders are restricted to buy-side validation.")
         if price_type != "market":
             raise FirstradeSafetyError("Notional validation only supports market preview/orders.")
-        if notional_usd > max_notional_usd:
+        if max_notional_usd is not None and notional_usd > max_notional_usd:
             raise FirstradeSafetyError(
                 f"notional_usd {notional_usd:.2f} exceeds max_notional_usd {max_notional_usd:.2f}."
             )
@@ -190,7 +190,7 @@ def validate_stock_order(
         if request.limit_price is None:
             raise FirstradeSafetyError("Live quantity orders must use a limit price for local notional checks.")
         estimated_notional = int(request.quantity) * float(request.limit_price)
-        if estimated_notional > max_notional_usd:
+        if max_notional_usd is not None and estimated_notional > max_notional_usd:
             raise FirstradeSafetyError(
                 f"estimated order notional {estimated_notional:.2f} exceeds max_notional_usd "
                 f"{max_notional_usd:.2f}."

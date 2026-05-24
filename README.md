@@ -90,7 +90,7 @@ commit credentials.
 | `FIRSTRADE_SESSION_CHECK_INCLUDE_POSITIONS` | Optional | Include compact symbol/quantity/market-value positions in `/session-check` funds snapshots. Defaults to `false` |
 | `FIRSTRADE_RUN_STRATEGY_ON_HTTP` | Optional | Must be `true` before `/run` performs strategy evaluation and order routing |
 | `FIRSTRADE_LIVE_ORDER_ACK` | Optional | Must be `true` before `/run` can submit live orders |
-| `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` | Optional | Single-order cap for strategy-generated orders, default `25` |
+| `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` | Optional | Optional single-order cap for strategy-generated orders. Unset means no platform-side notional cap |
 | `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` | Optional | Safe-haven/cash-sweep target values below this USD amount are kept as cash instead of buying BOXX/BIL. Default `1000`. |
 
 ## Local Validation
@@ -128,8 +128,7 @@ Dry-run order preview for a tiny notional buy:
   --preview-order \
   --symbol YOUR_SYMBOL \
   --side buy \
-  --notional-usd 5 \
-  --max-notional-usd 25
+  --notional-usd 5
 ```
 
 Live order validation requires all of the following:
@@ -137,7 +136,7 @@ Live order validation requires all of the following:
 - `FIRSTRADE_ENABLE_LIVE_TRADING=true`
 - `--live-order`
 - `--yes-i-understand-unofficial-api-risk`
-- order notional at or below `--max-notional-usd`
+- order notional at or below `--max-notional-usd` when that optional cap is set
 
 Example shape:
 
@@ -148,7 +147,6 @@ FIRSTRADE_ENABLE_LIVE_TRADING=true \
   --symbol YOUR_SYMBOL \
   --side buy \
   --notional-usd 5 \
-  --max-notional-usd 25 \
   --yes-i-understand-unofficial-api-risk
 ```
 
@@ -176,7 +174,7 @@ all of these gates:
 - `FIRSTRADE_DRY_RUN_ONLY=false`
 - `FIRSTRADE_ENABLE_LIVE_TRADING=true`
 - `FIRSTRADE_LIVE_ORDER_ACK=true`
-- order value at or below `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
+- order value at or below `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` when that optional cap is set
 
 The strategy execution service uses whole-share limit orders for generated
 strategy orders. If the notional cap is below the current price of a target
@@ -298,18 +296,18 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 - 设置 `FIRSTRADE_ENABLE_LIVE_TRADING=true`
 - CLI 使用 `--live-order`
 - CLI 使用 `--yes-i-understand-unofficial-api-risk`
-- 金额不超过 `--max-notional-usd`
+- 如果设置了 `--max-notional-usd`，金额不超过该上限
 
 HTTP 策略闭环实盘还必须额外满足：
 
 - `FIRSTRADE_RUN_STRATEGY_ON_HTTP=true`
 - `FIRSTRADE_DRY_RUN_ONLY=false`
 - `FIRSTRADE_LIVE_ORDER_ACK=true`
-- 单笔金额不超过 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
+- 如果设置了 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`，单笔金额不超过该上限
 - `BOXX`/`BIL` 等避险现金替代标的目标金额低于 `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` 时保留现金，默认门槛 `1000` USD
 
-策略闭环生成的是整数股限价单。如果 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
-低于目标标的当前价格，本轮会跳过该订单，而不是放大金额。
+策略闭环生成的是整数股限价单。如果设置了 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
+且它低于目标标的当前价格，本轮会跳过该订单，而不是放大金额。
 
 请不要把 Firstrade 登录凭据、MFA secret、cookie 文件提交到 Git。`.env`、
 `.runtime/` 和 `ft_cookies*.json` 已经在 `.gitignore` 中。

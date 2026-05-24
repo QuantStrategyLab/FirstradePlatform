@@ -41,7 +41,7 @@ class PlatformRuntimeSettings:
     live_trading_enabled: bool
     run_strategy_on_http: bool
     live_order_ack: bool
-    max_order_notional_usd: float
+    max_order_notional_usd: float | None
     persist_strategy_runs: bool = False
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD
     debug_position_snapshot: bool = False
@@ -109,9 +109,9 @@ def load_platform_runtime_settings(
         run_strategy_on_http=resolve_bool_value(os.getenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP")),
         live_order_ack=resolve_bool_value(os.getenv("FIRSTRADE_LIVE_ORDER_ACK")),
         persist_strategy_runs=resolve_bool_value(os.getenv("FIRSTRADE_PERSIST_STRATEGY_RUNS")),
-        max_order_notional_usd=(
-            resolve_optional_float_env(os.environ, "FIRSTRADE_MAX_ORDER_NOTIONAL_USD")
-            or 25.0
+        max_order_notional_usd=resolve_optional_float_env(
+            os.environ,
+            "FIRSTRADE_MAX_ORDER_NOTIONAL_USD",
         ),
         safe_haven_cash_substitute_threshold_usd=(
             max(0.0, safe_haven_cash_substitute_threshold_usd)
