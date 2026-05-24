@@ -185,6 +185,7 @@ def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):
     assert stages == ["ORDERS_PLANNED", "DRY_RUN_COMPLETED"]
     assert result["strategy_run_persisted"] is True
     assert result["strategy_run_period"]
+    assert result["strategy_run_stage"] == "DRY_RUN_COMPLETED"
     latest_payload = store.writes[-2][1]
     assert latest_payload["stage"] == "DRY_RUN_COMPLETED"
     assert latest_payload["submitted_orders"][0]["symbol"] == "AAA"
@@ -263,6 +264,7 @@ def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_sta
     assert result["ok"] is False
     assert result["execution_blocked"] is True
     assert result["execution_block_retryable"] is True
+    assert result["strategy_run_stage"] == "EXECUTION_BLOCKED"
     assert latest_payload["stage"] == "EXECUTION_BLOCKED"
 
 
@@ -315,6 +317,7 @@ def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch)
     assert result["execution_blocked"] is True
     assert result["execution_block_retryable"] is False
     assert result["funding_blocked"] is True
+    assert result["strategy_run_stage"] == "FUNDING_BLOCKED"
     assert result["skipped_orders"][0]["reason"] == "insufficient_cash_for_whole_share"
     assert latest_payload["stage"] == "FUNDING_BLOCKED"
 
@@ -383,6 +386,7 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
     assert result["action_done"] is True
     assert result["ok"] is False
     assert result["execution_blocked"] is True
+    assert result["strategy_run_stage"] == "PARTIAL_SUBMITTED"
     assert latest_payload["stage"] == "PARTIAL_SUBMITTED"
 
 
@@ -525,7 +529,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     assert "targets:" not in message
 
 
-def test_render_cycle_summary_shows_execution_blocked_banner():
+def test_render_cycle_summary_shows_funding_blocked_banner():
     message = render_cycle_summary(
         {
             "account": "****1234",
@@ -533,6 +537,8 @@ def test_render_cycle_summary_shows_execution_blocked_banner():
             "strategy_display_name": "Mega Cap Leader Rotation Top50 Balanced",
             "dry_run_only": False,
             "execution_blocked": True,
+            "execution_block_retryable": False,
+            "funding_blocked": True,
             "execution_blocking_skips": [
                 {"symbol": "NVDA", "reason": "insufficient_cash_for_whole_share"}
             ],
@@ -553,4 +559,36 @@ def test_render_cycle_summary_shows_execution_blocked_banner():
         lang="zh",
     )
 
-    assert "⚠️ 执行阻塞: 现金不足以买入一整股:NVDA" in message
+    assert "⚠️ 资金不足，本周期不再自动重试: 现金不足以买入一整股:NVDA" in message
+
+
+def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+            "strategy_display_name": "Mega Cap Leader Rotation Top50 Balanced",
+            "dry_run_only": False,
+            "execution_blocked": True,
+            "execution_block_retryable": True,
+            "execution_blocking_skips": [
+                {"symbol": "NVDA", "reason": "quote_unavailable"}
+            ],
+            "portfolio": {
+                "total_equity": 500.0,
+                "liquid_cash": 500.0,
+                "portfolio_rows": (("NVDA",),),
+                "market_values": {"NVDA": 0.0},
+                "quantities": {"NVDA": 0},
+            },
+            "allocation": {"targets": {"NVDA": 500.0}},
+            "execution": {},
+            "submitted_orders": [],
+            "skipped_orders": [
+                {"symbol": "NVDA", "reason": "quote_unavailable"}
+            ],
+        },
+        lang="en",
+    )
+
+    assert "⚠️ Execution blocked; retryable within window: quote unavailable:NVDA" in message
