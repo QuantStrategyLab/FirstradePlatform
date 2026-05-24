@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from application.firstrade_client import FirstradeCredentials
-from application.rebalance_service import run_strategy_cycle
+from application.rebalance_service import _runtime_metadata_with_execution_policy, run_strategy_cycle
 from notifications.telegram import I18N, build_translator, render_cycle_summary
 from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
 from runtime_config_support import PlatformRuntimeSettings
@@ -34,6 +34,32 @@ def _runtime_settings_with_persistence(**overrides) -> PlatformRuntimeSettings:
     values = dict(base.__dict__)
     values.update(overrides)
     return PlatformRuntimeSettings(**values)
+
+
+def test_runtime_metadata_uses_platform_execution_policy_over_strategy_metadata():
+    metadata = {
+        "signal": "ok",
+        "firstrade_execution_policy": {
+            "reserved_cash_floor_usd": 1.0,
+            "reserved_cash_ratio": 0.0,
+        },
+    }
+
+    result = _runtime_metadata_with_execution_policy(
+        metadata,
+        settings=_runtime_settings_with_persistence(
+            reserved_cash_floor_usd=250.0,
+            reserved_cash_ratio=0.03,
+        ),
+    )
+
+    assert result == {
+        "signal": "ok",
+        "firstrade_execution_policy": {
+            "reserved_cash_floor_usd": 250.0,
+            "reserved_cash_ratio": 0.03,
+        },
+    }
 
 
 class FakeFirstradeClient:

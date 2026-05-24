@@ -92,6 +92,8 @@ commit credentials.
 | `FIRSTRADE_RUN_STRATEGY_ON_HTTP` | Optional | Must be `true` before `/run` performs strategy evaluation and order routing |
 | `FIRSTRADE_LIVE_ORDER_ACK` | Optional | Must be `true` before `/run` can submit live orders |
 | `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` | Optional | Optional single-order cap for strategy-generated orders. Unset means no platform-side notional cap |
+| `FIRSTRADE_MIN_RESERVED_CASH_USD` | Optional | Platform-level minimum cash reserve in USD. Defaults to `0`; the effective reserve is the max of this floor, `FIRSTRADE_RESERVED_CASH_RATIO * total equity`, and any strategy-provided reserve. |
+| `FIRSTRADE_RESERVED_CASH_RATIO` | Optional | Platform-level minimum cash reserve ratio in `[0,1]`. Defaults to `0`; it can raise but not lower a strategy-provided reserve. |
 | `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` | Optional | Safe-haven/cash-sweep target values below this USD amount are kept as cash instead of buying BOXX/BIL. Default `1000`. |
 
 ## Local Validation
@@ -176,6 +178,7 @@ all of these gates:
 - `FIRSTRADE_ENABLE_LIVE_TRADING=true`
 - `FIRSTRADE_LIVE_ORDER_ACK=true`
 - order value at or below `FIRSTRADE_MAX_ORDER_NOTIONAL_USD` when that optional cap is set
+- `FIRSTRADE_MIN_RESERVED_CASH_USD` / `FIRSTRADE_RESERVED_CASH_RATIO` may set a platform-level minimum cash reserve; defaults are `0`, and the effective reserve is the max of platform floor, platform ratio, and strategy reserve
 
 The strategy execution service uses whole-share limit orders for generated
 strategy orders. If the notional cap is below the current price of a target
@@ -324,6 +327,7 @@ HTTP 策略闭环实盘还必须额外满足：
 - `FIRSTRADE_DRY_RUN_ONLY=false`
 - `FIRSTRADE_LIVE_ORDER_ACK=true`
 - 如果设置了 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`，单笔金额不超过该上限
+- `FIRSTRADE_MIN_RESERVED_CASH_USD` / `FIRSTRADE_RESERVED_CASH_RATIO` 可设置平台级最低预留现金；默认都是 `0`，实际预留取平台下限、平台比例和策略预留中的最大值
 - `BOXX`/`BIL` 等避险现金替代标的目标金额低于 `FIRSTRADE_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD` 时保留现金，默认门槛 `1000` USD
 
 策略闭环生成的是整数股限价单。如果设置了 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`

@@ -162,6 +162,19 @@ def _publish_cycle_notification(
     return True
 
 
+def _runtime_metadata_with_execution_policy(
+    metadata: Mapping[str, Any] | None,
+    *,
+    settings: PlatformRuntimeSettings,
+) -> dict[str, Any]:
+    runtime_metadata = dict(metadata or {})
+    runtime_metadata["firstrade_execution_policy"] = {
+        "reserved_cash_floor_usd": float(settings.reserved_cash_floor_usd or 0.0),
+        "reserved_cash_ratio": float(settings.reserved_cash_ratio or 0.0),
+    }
+    return runtime_metadata
+
+
 def run_strategy_cycle(
     *,
     runtime_settings: PlatformRuntimeSettings | None = None,
@@ -221,7 +234,10 @@ def run_strategy_cycle(
         evaluation.decision,
         snapshot=snapshot,
         strategy_profile=settings.strategy_profile,
-        runtime_metadata=getattr(evaluation, "metadata", None),
+        runtime_metadata=_runtime_metadata_with_execution_policy(
+            getattr(evaluation, "metadata", None),
+            settings=settings,
+        ),
     )
     plan = substitute_small_safe_haven_targets_with_cash(
         plan,

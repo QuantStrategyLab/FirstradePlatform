@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,8 @@ from strategy_registry import (
 from us_equity_strategies import get_strategy_catalog
 
 DEFAULT_ACCOUNT_REGION = "US"
+DEFAULT_RESERVED_CASH_FLOOR_USD = 0.0
+DEFAULT_RESERVED_CASH_RATIO = 0.0
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 
 
@@ -42,6 +45,8 @@ class PlatformRuntimeSettings:
     run_strategy_on_http: bool
     live_order_ack: bool
     max_order_notional_usd: float | None
+    reserved_cash_floor_usd: float = DEFAULT_RESERVED_CASH_FLOOR_USD
+    reserved_cash_ratio: float = DEFAULT_RESERVED_CASH_RATIO
     persist_strategy_runs: bool = False
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD
     debug_position_snapshot: bool = False
@@ -113,6 +118,14 @@ def load_platform_runtime_settings(
             os.environ,
             "FIRSTRADE_MAX_ORDER_NOTIONAL_USD",
         ),
+        reserved_cash_floor_usd=_resolve_non_negative_float_env(
+            "FIRSTRADE_MIN_RESERVED_CASH_USD",
+            default=DEFAULT_RESERVED_CASH_FLOOR_USD,
+        ),
+        reserved_cash_ratio=_resolve_ratio_env(
+            "FIRSTRADE_RESERVED_CASH_RATIO",
+            default=DEFAULT_RESERVED_CASH_RATIO,
+        ),
         safe_haven_cash_substitute_threshold_usd=(
             max(0.0, safe_haven_cash_substitute_threshold_usd)
             if safe_haven_cash_substitute_threshold_usd is not None
@@ -169,6 +182,24 @@ def _qqqi_income_ratio_env() -> float | None:
     value = resolve_optional_float_env(os.environ, "QQQI_INCOME_RATIO")
     if value is not None and not (0.0 <= value <= 1.0):
         raise ValueError(f"QQQI_INCOME_RATIO must be in [0,1], got {value}")
+    return value
+
+
+def _resolve_non_negative_float_env(name: str, *, default: float) -> float:
+    value = resolve_optional_float_env(os.environ, name)
+    if value is None:
+        return float(default)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative, got {value}")
+    return float(value)
+
+
+def _resolve_ratio_env(name: str, *, default: float) -> float:
+    value = _resolve_non_negative_float_env(name, default=default)
+    if value > 1.0:
+        raise ValueError(f"{name} must be in [0,1], got {value}")
     return value
 
 
