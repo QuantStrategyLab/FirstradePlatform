@@ -2,6 +2,6 @@ flask
 gunicorn
 firstrade==0.0.38
 quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@9c4ea7878a08fb2f518c74c99bda68d8ef8fd0bb
-us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@4d5cd0f5dc389edebc648028202fd116934ca325
+us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@ce7887482eeab7f519484610ee8b20cb7bc886a0
 requests
 pytest
