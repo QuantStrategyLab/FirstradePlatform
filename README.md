@@ -77,6 +77,7 @@ commit credentials.
 | `FIRSTRADE_GCS_STATE_BUCKET` | Optional | GCS bucket for runtime state JSON, including persisted session cache and account funds snapshots |
 | `FIRSTRADE_STATE_PREFIX` | Optional | Object prefix within `FIRSTRADE_GCS_STATE_BUCKET`, default `firstrade-platform` |
 | `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT` | Optional | Persist compact masked account funds snapshots from `/session-check`. Defaults to `false` |
+| `FIRSTRADE_PERSIST_STRATEGY_RUNS` | Optional | Persist `/run` strategy state, plans, and submitted/skipped order results to GCS. Defaults to `false` |
 | `ACCOUNT_PREFIX` | Optional | Alert/log prefix, default `FIRSTRADE` |
 | `ACCOUNT_REGION` | Optional | Runtime account scope, default `US` |
 | `NOTIFY_LANG` | Optional | Notification language, `en` or `zh` |
@@ -197,6 +198,15 @@ to `accounts/<masked-account>/funds/latest.json` plus a timestamped history path
 under the configured GCS prefix. Raw account IDs and login secrets are not
 included in the snapshot.
 
+When `FIRSTRADE_PERSIST_STRATEGY_RUNS=true` and a GCS state bucket is configured,
+`/run` writes strategy state to
+`strategy-runs/<masked-account>/<strategy-profile>/<yyyy-mm>/latest.json` plus a
+timestamped history path. The record includes the planned targets, compact
+portfolio snapshot, evaluation metadata, submitted orders, skipped orders, and
+stage (`ORDERS_PLANNED`, `DRY_RUN_COMPLETED`, or `SUBMITTED`). For live runs,
+an existing terminal record in the same account/profile/month blocks duplicate
+order submission.
+
 ## Cloud Run Shape
 
 `main.py` exposes:
@@ -230,6 +240,7 @@ runtime service account object read/write access, and set:
 - `FIRSTRADE_REUSE_SESSION=true`
 - `FIRSTRADE_PERSIST_SESSION_CACHE=true`
 - `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`
+- `FIRSTRADE_PERSIST_STRATEGY_RUNS=true`
 - `FIRSTRADE_GCS_STATE_BUCKET=<bucket-name>`
 - `FIRSTRADE_STATE_PREFIX=firstrade-platform`
 - `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP=true`

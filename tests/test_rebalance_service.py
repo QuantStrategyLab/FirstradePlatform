@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from application.firstrade_client import FirstradeCredentials
@@ -26,6 +27,13 @@ def _runtime_settings() -> PlatformRuntimeSettings:
         live_order_ack=False,
         max_order_notional_usd=25.0,
     )
+
+
+def _runtime_settings_with_persistence(**overrides) -> PlatformRuntimeSettings:
+    base = _runtime_settings()
+    values = dict(base.__dict__)
+    values.update(overrides)
+    return PlatformRuntimeSettings(**values)
 
 
 class FakeFirstradeClient:
@@ -79,6 +87,20 @@ class FakeStrategyRuntime:
             ),
             metadata={"strategy_profile": self.profile},
         )
+
+
+class FakeStateStore:
+    def __init__(self):
+        self.payloads = {}
+        self.writes = []
+
+    def read_json(self, key):
+        return self.payloads.get(key)
+
+    def write_json(self, key, payload):
+        self.payloads[key] = dict(payload)
+        self.writes.append((key, dict(payload)))
+        return True
 
 
 def test_notification_i18n_keys_are_aligned():
@@ -141,6 +163,76 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "Target changes: AAA +50.00 USD" in messages[0]
     assert "🧾 Execution details" in messages[0]
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+
+
+def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):
+    store = FakeStateStore()
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(persist_strategy_runs=True),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeFirstradeClient,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    stages = [payload["stage"] for _key, payload in store.writes if _key.endswith("latest.json")]
+    assert stages == ["ORDERS_PLANNED", "DRY_RUN_COMPLETED"]
+    assert result["strategy_run_persisted"] is True
+    assert result["strategy_run_period"]
+    latest_payload = store.writes[-2][1]
+    assert latest_payload["stage"] == "DRY_RUN_COMPLETED"
+    assert latest_payload["submitted_orders"][0]["symbol"] == "AAA"
+    assert latest_payload["plan"]["allocation"]["targets"]["AAA"] == 50.0
+
+
+def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
+    store = FakeStateStore()
+    settings = _runtime_settings_with_persistence(
+        dry_run_only=False,
+        live_trading_enabled=True,
+        live_order_ack=True,
+        persist_strategy_runs=True,
+    )
+    key = "strategy-runs/____5678/tqqq_growth_income/2026_05/latest.json"
+    store.payloads[key] = {
+        "stage": "SUBMITTED",
+        "as_of": "2026-05-01T01:02:03+00:00",
+        "dry_run_only": False,
+    }
+    observed = {}
+
+    def fake_client_factory(*args, **kwargs):
+        client = FakeFirstradeClient(*args, **kwargs)
+        observed["client"] = client
+        return client
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=fake_client_factory,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["idempotency_skipped"] is True
+    assert result["action_done"] is False
+    assert observed["client"].orders == []
+    assert store.writes == []
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
