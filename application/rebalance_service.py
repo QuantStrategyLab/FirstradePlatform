@@ -168,13 +168,10 @@ def _runtime_metadata_with_execution_policy(
     settings: PlatformRuntimeSettings,
 ) -> dict[str, Any]:
     runtime_metadata = dict(metadata or {})
-    runtime_metadata.setdefault(
-        "firstrade_execution_policy",
-        {
-            "reserved_cash_floor_usd": float(settings.reserved_cash_floor_usd or 0.0),
-            "reserved_cash_ratio": float(settings.reserved_cash_ratio or 0.0),
-        },
-    )
+    runtime_metadata["firstrade_execution_policy"] = {
+        "reserved_cash_floor_usd": float(settings.reserved_cash_floor_usd or 0.0),
+        "reserved_cash_ratio": float(settings.reserved_cash_ratio or 0.0),
+    }
     return runtime_metadata
 
 
