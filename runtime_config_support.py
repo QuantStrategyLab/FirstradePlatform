@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -188,6 +189,8 @@ def _resolve_non_negative_float_env(name: str, *, default: float) -> float:
     value = resolve_optional_float_env(os.environ, name)
     if value is None:
         return float(default)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
     if value < 0:
         raise ValueError(f"{name} must be non-negative, got {value}")
     return float(value)

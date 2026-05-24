@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from runtime_config_support import (
+    _resolve_non_negative_float_env,
     _resolve_ratio_env,
     _runtime_execution_window_trading_days_env,
     load_platform_runtime_settings,
@@ -69,6 +70,22 @@ def test_reserved_cash_ratio_rejects_invalid_env(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RESERVED_CASH_RATIO", "1.25")
 
     with pytest.raises(ValueError, match="FIRSTRADE_RESERVED_CASH_RATIO"):
+        _resolve_ratio_env("FIRSTRADE_RESERVED_CASH_RATIO", default=0.0)
+
+
+@pytest.mark.parametrize("raw_value", ["nan", "inf", "-inf"])
+def test_reserved_cash_floor_rejects_non_finite_env(monkeypatch, raw_value):
+    monkeypatch.setenv("FIRSTRADE_MIN_RESERVED_CASH_USD", raw_value)
+
+    with pytest.raises(ValueError, match="FIRSTRADE_MIN_RESERVED_CASH_USD must be finite"):
+        _resolve_non_negative_float_env("FIRSTRADE_MIN_RESERVED_CASH_USD", default=0.0)
+
+
+@pytest.mark.parametrize("raw_value", ["nan", "inf", "-inf"])
+def test_reserved_cash_ratio_rejects_non_finite_env(monkeypatch, raw_value):
+    monkeypatch.setenv("FIRSTRADE_RESERVED_CASH_RATIO", raw_value)
+
+    with pytest.raises(ValueError, match="FIRSTRADE_RESERVED_CASH_RATIO must be finite"):
         _resolve_ratio_env("FIRSTRADE_RESERVED_CASH_RATIO", default=0.0)
 
 
