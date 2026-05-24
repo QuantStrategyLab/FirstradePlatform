@@ -148,7 +148,10 @@ def _build_runtime_overrides(profile: str, runtime_settings: PlatformRuntimeSett
             overrides["income_threshold_usd"] = runtime_settings.income_threshold_usd
         if runtime_settings.qqqi_income_ratio is not None:
             overrides["qqqi_income_ratio"] = runtime_settings.qqqi_income_ratio
-    if profile == "tech_communication_pullback_enhancement":
+    if profile in {
+        "mega_cap_leader_rotation_top50_balanced",
+        "tech_communication_pullback_enhancement",
+    }:
         if runtime_settings.runtime_execution_window_trading_days is not None:
             overrides["runtime_execution_window_trading_days"] = (
                 runtime_settings.runtime_execution_window_trading_days
@@ -187,4 +190,3 @@ def load_strategy_runtime(
         merged_runtime_config=merged_runtime_config,
         logger=logger,
     )
-

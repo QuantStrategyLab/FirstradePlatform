@@ -71,6 +71,7 @@ commit credentials.
 | `FIRSTRADE_ACCOUNT` | Optional | Required when multiple accounts are returned |
 | `STRATEGY_PROFILE` | Yes for runtime | Shared US equity strategy profile |
 | `FIRSTRADE_DRY_RUN_ONLY` | Optional | Defaults to `true` for platform runtime |
+| `FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS` | Optional | Override the supported strategy runtime execution window in trading days. Unset uses the strategy default |
 | `FIRSTRADE_REUSE_SESSION` | Optional | Try cached Firstrade session headers before logging in again. Defaults to `false` |
 | `FIRSTRADE_SESSION_CACHE_TTL_SECONDS` | Optional | Max age for local session header reuse when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `21600` |
 | `FIRSTRADE_PERSIST_SESSION_CACHE` | Optional | Persist Firstrade session headers to the configured GCS state bucket when `FIRSTRADE_REUSE_SESSION=true`. Defaults to `false` |

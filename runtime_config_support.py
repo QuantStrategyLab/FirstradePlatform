@@ -173,19 +173,17 @@ def _qqqi_income_ratio_env() -> float | None:
 
 
 def _runtime_execution_window_trading_days_env(strategy_profile: str) -> int | None:
-    if strategy_profile != "tech_communication_pullback_enhancement":
-        return None
-    raw_value = os.getenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
+    raw_value = os.getenv("FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
+    env_name = "FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS"
+    if raw_value is None and strategy_profile == "tech_communication_pullback_enhancement":
+        raw_value = os.getenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
+        env_name = "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS"
     if raw_value is None or not str(raw_value).strip():
         return None
     try:
         value = int(str(raw_value).strip())
     except ValueError as exc:
-        raise ValueError(
-            "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS must be a positive integer"
-        ) from exc
+        raise ValueError(f"{env_name} must be a positive integer") from exc
     if value <= 0:
-        raise ValueError(
-            "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS must be a positive integer"
-        )
+        raise ValueError(f"{env_name} must be a positive integer")
     return value

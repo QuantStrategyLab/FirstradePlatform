@@ -262,7 +262,74 @@ def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_sta
     assert result["action_done"] is False
     assert result["ok"] is False
     assert result["execution_blocked"] is True
+    assert result["execution_block_retryable"] is True
     assert latest_payload["stage"] == "EXECUTION_BLOCKED"
+
+
+def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch):
+    store = FakeStateStore()
+    settings = _runtime_settings_with_persistence(
+        dry_run_only=False,
+        live_trading_enabled=True,
+        live_order_ack=True,
+        persist_strategy_runs=True,
+        max_order_notional_usd=None,
+    )
+
+    class FundingBlockedClient(FakeFirstradeClient):
+        def get_balances(self, _account):
+            return {"total_value": "150.00", "cash": "50.00", "buying_power": "50.00"}
+
+        def get_quote(self, _account, symbol):
+            return {"symbol": symbol, "last": "100.00", "bid": "99.90", "ask": "100.10"}
+
+    class FundingBlockedRuntime(FakeStrategyRuntime):
+        def evaluate(self, **inputs):
+            assert "portfolio_snapshot" in inputs
+            return SimpleNamespace(
+                decision=StrategyDecision(
+                    positions=(
+                        PositionTarget(symbol="AAA", target_value=150.0, role="risk"),
+                    ),
+                    diagnostics={"execution_annotations": {"trade_threshold_value": 1.0}},
+                ),
+                metadata={"strategy_profile": self.profile},
+            )
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FundingBlockedRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FundingBlockedClient,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    latest_payload = store.writes[-2][1]
+    assert result["action_done"] is False
+    assert result["ok"] is False
+    assert result["execution_blocked"] is True
+    assert result["execution_block_retryable"] is False
+    assert result["funding_blocked"] is True
+    assert result["skipped_orders"][0]["reason"] == "insufficient_cash_for_whole_share"
+    assert latest_payload["stage"] == "FUNDING_BLOCKED"
+
+    write_count = len(store.writes)
+    second_result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FundingBlockedClient,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert second_result["idempotency_skipped"] is True
+    assert second_result["existing_strategy_run_stage"] == "FUNDING_BLOCKED"
+    assert len(store.writes) == write_count
 
 
 def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(monkeypatch):

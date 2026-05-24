@@ -53,6 +53,7 @@ EXECUTION_BLOCKING_SKIP_REASONS = frozenset(
         "sell_quantity_zero",
     }
 )
+TERMINAL_FUNDING_BLOCK_SKIP_REASONS = frozenset({"insufficient_cash_for_whole_share"})
 
 
 def _utcnow() -> datetime:
@@ -69,6 +70,15 @@ def _execution_blocking_skips(skipped_orders: list[dict[str, Any]]) -> list[dict
         for item in skipped_orders
         if str(item.get("reason") or "") in EXECUTION_BLOCKING_SKIP_REASONS
     ]
+
+
+def _is_terminal_funding_block(blocking_skips: list[dict[str, Any]]) -> bool:
+    if not blocking_skips:
+        return False
+    return all(
+        str(item.get("reason") or "") in TERMINAL_FUNDING_BLOCK_SKIP_REASONS
+        for item in blocking_skips
+    )
 
 
 def _series_from_price_history(market_data_port, symbol: str) -> pd.Series:
@@ -304,6 +314,8 @@ def run_strategy_cycle(
     skipped_orders = list(execution_result.skipped_orders)
     blocking_skips = _execution_blocking_skips(skipped_orders)
     execution_blocked = bool(blocking_skips)
+    funding_blocked = _is_terminal_funding_block(blocking_skips)
+    terminal_funding_block = funding_blocked and not execution_result.action_done
     result = {
         "ok": not execution_blocked,
         "api_kind": "unofficial-reverse-engineered",
@@ -324,14 +336,19 @@ def run_strategy_cycle(
     }
     if execution_blocked:
         result["execution_blocked"] = True
+        result["execution_block_retryable"] = not terminal_funding_block
         result["execution_blocking_skips"] = blocking_skips
         result["error"] = "Strategy execution blocked; see execution_blocking_skips."
+    if funding_blocked:
+        result["funding_blocked"] = True
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
     if persist_strategy_runs:
         stage = "DRY_RUN_COMPLETED"
         if not settings.dry_run_only:
-            if execution_blocked and execution_result.action_done:
+            if terminal_funding_block and not execution_result.action_done:
+                stage = "FUNDING_BLOCKED"
+            elif execution_blocked and execution_result.action_done:
                 stage = "PARTIAL_SUBMITTED"
             elif execution_blocked:
                 stage = "EXECUTION_BLOCKED"

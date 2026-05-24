@@ -10,7 +10,7 @@ from typing import Any
 
 from application.state_persistence import GcsStateStore
 
-LIVE_TERMINAL_STAGES = frozenset({"SUBMITTED", "RECONCILED", "COMPLETED"})
+LIVE_TERMINAL_STAGES = frozenset({"SUBMITTED", "FUNDING_BLOCKED", "RECONCILED", "COMPLETED"})
 
 
 def utcnow() -> datetime:
