@@ -142,6 +142,36 @@ def test_execute_value_target_plan_has_no_default_order_notional_cap():
     assert execution_port.orders[0].metadata == {}
 
 
+def test_execute_value_target_plan_reports_insufficient_cash_for_whole_share():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"SPY": 500.0}},
+            "portfolio": {
+                "market_values": {"SPY": 0.0},
+                "sellable_quantities": {},
+                "liquid_cash": 50.0,
+            },
+            "execution": {"current_min_trade": 1.0, "investable_cash": 50.0},
+        },
+        market_data_port=FakeMarketDataPort({"SPY": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+    )
+
+    assert result.action_done is False
+    assert execution_port.orders == []
+    assert result.skipped_orders == (
+        {
+            "symbol": "SPY",
+            "reason": "insufficient_cash_for_whole_share",
+            "price": 100.0,
+            "investable_cash": 50.0,
+            "required_cash_for_one_share": 100.0,
+        },
+    )
+
+
 def test_execute_value_target_plan_leaves_small_safe_haven_target_as_cash():
     execution_port = FakeExecutionPort()
     plan = {

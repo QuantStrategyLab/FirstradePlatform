@@ -235,7 +235,7 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
     assert store.writes == []
 
 
-def test_run_strategy_cycle_persists_live_no_action_without_duplicate_terminal_stage(monkeypatch):
+def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_stage(monkeypatch):
     store = FakeStateStore()
     settings = _runtime_settings_with_persistence(
         dry_run_only=False,
@@ -260,7 +260,63 @@ def test_run_strategy_cycle_persists_live_no_action_without_duplicate_terminal_s
 
     latest_payload = store.writes[-2][1]
     assert result["action_done"] is False
-    assert latest_payload["stage"] == "NO_ACTION"
+    assert result["ok"] is False
+    assert result["execution_blocked"] is True
+    assert latest_payload["stage"] == "EXECUTION_BLOCKED"
+
+
+def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(monkeypatch):
+    store = FakeStateStore()
+    settings = _runtime_settings_with_persistence(
+        dry_run_only=False,
+        live_trading_enabled=True,
+        live_order_ack=True,
+        persist_strategy_runs=True,
+        max_order_notional_usd=1000.0,
+    )
+
+    class PartialRuntime(FakeStrategyRuntime):
+        managed_symbols = ("AAA", "BBB")
+
+        def evaluate(self, **inputs):
+            assert "portfolio_snapshot" in inputs
+            return SimpleNamespace(
+                decision=StrategyDecision(
+                    positions=(
+                        PositionTarget(symbol="AAA", target_value=50.0, role="risk"),
+                        PositionTarget(symbol="BBB", target_value=150.0, role="risk"),
+                    ),
+                    diagnostics={"execution_annotations": {"trade_threshold_value": 1.0}},
+                ),
+                metadata={"strategy_profile": self.profile},
+            )
+
+    class PartialClient(FakeFirstradeClient):
+        def get_balances(self, _account):
+            return {"total_value": "100.00", "cash": "60.00", "buying_power": "60.00"}
+
+        def get_quote(self, _account, symbol):
+            prices = {"AAA": "10.00", "BBB": "100.00"}
+            return {"symbol": symbol, "last": prices[symbol], "bid": "9.90", "ask": "10.10"}
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: PartialRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=PartialClient,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    latest_payload = store.writes[-2][1]
+    assert result["action_done"] is True
+    assert result["ok"] is False
+    assert result["execution_blocked"] is True
+    assert latest_payload["stage"] == "PARTIAL_SUBMITTED"
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
@@ -400,3 +456,34 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     assert "信号" not in message
     assert "profile:" not in message
     assert "targets:" not in message
+
+
+def test_render_cycle_summary_shows_execution_blocked_banner():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+            "strategy_display_name": "Mega Cap Leader Rotation Top50 Balanced",
+            "dry_run_only": False,
+            "execution_blocked": True,
+            "execution_blocking_skips": [
+                {"symbol": "NVDA", "reason": "insufficient_cash_for_whole_share"}
+            ],
+            "portfolio": {
+                "total_equity": 50.0,
+                "liquid_cash": 50.0,
+                "portfolio_rows": (("NVDA",),),
+                "market_values": {"NVDA": 0.0},
+                "quantities": {"NVDA": 0},
+            },
+            "allocation": {"targets": {"NVDA": 500.0}},
+            "execution": {},
+            "submitted_orders": [],
+            "skipped_orders": [
+                {"symbol": "NVDA", "reason": "insufficient_cash_for_whole_share"}
+            ],
+        },
+        lang="zh",
+    )
+
+    assert "⚠️ 执行阻塞: 现金不足以买入一整股:NVDA" in message

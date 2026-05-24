@@ -311,17 +311,28 @@ def execute_value_target_plan(
             buy_budget = min(buy_budget, order_notional_cap)
         quantity = _floor_quantity(buy_budget / price)
         if quantity <= 0:
-            skipped.append(
-                {
-                    "symbol": symbol,
-                    "reason": "buy_quantity_zero",
-                    **(
-                        {"max_order_notional_usd": round(order_notional_cap, 2)}
-                        if order_notional_cap is not None
-                        else {}
-                    ),
-                }
-            )
+            if order_notional_cap is None and investable_cash < price:
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "reason": "insufficient_cash_for_whole_share",
+                        "price": round(price, 2),
+                        "investable_cash": round(investable_cash, 2),
+                        "required_cash_for_one_share": round(price, 2),
+                    }
+                )
+            else:
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "reason": "buy_quantity_zero",
+                        **(
+                            {"max_order_notional_usd": round(order_notional_cap, 2)}
+                            if order_notional_cap is not None
+                            else {}
+                        ),
+                    }
+                )
             continue
         submitted.append(
             _submit_order(
