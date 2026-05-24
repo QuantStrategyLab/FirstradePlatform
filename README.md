@@ -212,6 +212,19 @@ trading-day execution window is still open. A pure insufficient-cash block is
 recorded as `FUNDING_BLOCKED` with the skipped-order reason and is not retried
 automatically for that period.
 
+中文说明：启用 `FIRSTRADE_PERSIST_STRATEGY_RUNS=true` 且配置 GCS state bucket
+后，`/run` 会把策略运行状态写入
+`strategy-runs/<masked-account>/<strategy-profile>/<yyyy-mm>/latest.json`，
+并写入带时间戳的历史路径。记录包含目标计划、脱敏后的组合快照、评估元数据、
+已提交订单、跳过订单和 stage。常见 stage 包括 `ORDERS_PLANNED`、
+`DRY_RUN_COMPLETED`、`NO_ACTION`、`SUBMITTED`、`EXECUTION_BLOCKED`、
+`PARTIAL_SUBMITTED` 和 `FUNDING_BLOCKED`。实盘运行中，同一账户、同一
+profile、同一月份已有终态记录时，会阻止重复提交订单。终态包括 `SUBMITTED`、
+`FUNDING_BLOCKED`、`RECONCILED` 和 `COMPLETED`。例如报价不可用这类临时
+执行阻塞会保持非终态，scheduler 可在策略交易日执行窗口内重试；如果纯粹是现金
+不足以买入一整股，则记录为 `FUNDING_BLOCKED`，通知和日志会带跳过原因，
+同一周期不会自动重复重试。
+
 ## Cloud Run Shape
 
 `main.py` exposes:
