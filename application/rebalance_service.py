@@ -45,6 +45,14 @@ from strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
 LIMIT_BUY_PREMIUM = 1.005
+EXECUTION_BLOCKING_SKIP_REASONS = frozenset(
+    {
+        "buy_quantity_zero",
+        "insufficient_cash_for_whole_share",
+        "quote_unavailable",
+        "sell_quantity_zero",
+    }
+)
 
 
 def _utcnow() -> datetime:
@@ -53,6 +61,14 @@ def _utcnow() -> datetime:
 
 def get_project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT")
+
+
+def _execution_blocking_skips(skipped_orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in skipped_orders
+        if str(item.get("reason") or "") in EXECUTION_BLOCKING_SKIP_REASONS
+    ]
 
 
 def _series_from_price_history(market_data_port, symbol: str) -> pd.Series:
@@ -284,8 +300,12 @@ def run_strategy_cycle(
         max_order_notional_usd=settings.max_order_notional_usd,
         safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
     )
+    submitted_orders = list(execution_result.submitted_orders)
+    skipped_orders = list(execution_result.skipped_orders)
+    blocking_skips = _execution_blocking_skips(skipped_orders)
+    execution_blocked = bool(blocking_skips)
     result = {
-        "ok": True,
+        "ok": not execution_blocked,
         "api_kind": "unofficial-reverse-engineered",
         "account": mask_account_id(account),
         "strategy_profile": strategy_runtime.profile,
@@ -298,16 +318,25 @@ def run_strategy_cycle(
         "portfolio": plan.get("portfolio", {}),
         "allocation": plan.get("allocation", {}),
         "execution": plan.get("execution", {}),
-        "submitted_orders": list(execution_result.submitted_orders),
-        "skipped_orders": list(execution_result.skipped_orders),
+        "submitted_orders": submitted_orders,
+        "skipped_orders": skipped_orders,
         "action_done": execution_result.action_done,
     }
+    if execution_blocked:
+        result["execution_blocked"] = True
+        result["execution_blocking_skips"] = blocking_skips
+        result["error"] = "Strategy execution blocked; see execution_blocking_skips."
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
     if persist_strategy_runs:
         stage = "DRY_RUN_COMPLETED"
         if not settings.dry_run_only:
-            stage = "SUBMITTED" if execution_result.action_done else "NO_ACTION"
+            if execution_blocked and execution_result.action_done:
+                stage = "PARTIAL_SUBMITTED"
+            elif execution_blocked:
+                stage = "EXECUTION_BLOCKED"
+            else:
+                stage = "SUBMITTED" if execution_result.action_done else "NO_ACTION"
         completed_state = build_strategy_run_state(
             stage=stage,
             account=masked_account,
