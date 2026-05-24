@@ -305,8 +305,11 @@ def run_strategy_cycle(
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
     if persist_strategy_runs:
+        stage = "DRY_RUN_COMPLETED"
+        if not settings.dry_run_only:
+            stage = "SUBMITTED" if execution_result.action_done else "NO_ACTION"
         completed_state = build_strategy_run_state(
-            stage="DRY_RUN_COMPLETED" if settings.dry_run_only else "SUBMITTED",
+            stage=stage,
             account=masked_account,
             strategy_profile=strategy_runtime.profile,
             strategy_display_name=strategy_runtime.display_name,

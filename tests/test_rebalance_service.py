@@ -235,6 +235,34 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
     assert store.writes == []
 
 
+def test_run_strategy_cycle_persists_live_no_action_without_duplicate_terminal_stage(monkeypatch):
+    store = FakeStateStore()
+    settings = _runtime_settings_with_persistence(
+        dry_run_only=False,
+        live_trading_enabled=True,
+        live_order_ack=True,
+        persist_strategy_runs=True,
+        max_order_notional_usd=1.0,
+    )
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeFirstradeClient,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    latest_payload = store.writes[-2][1]
+    assert result["action_done"] is False
+    assert latest_payload["stage"] == "NO_ACTION"
+
+
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
     message = render_cycle_summary(
         {

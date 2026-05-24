@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration", choices=["day", "day_ext", "overnight", "gt90"], default="day")
     parser.add_argument("--limit-price", type=float)
     parser.add_argument("--stop-price", type=float)
-    parser.add_argument("--max-notional-usd", type=float, default=25.0)
+    parser.add_argument("--max-notional-usd", type=float, default=None)
     parser.add_argument(
         "--yes-i-understand-unofficial-api-risk",
         action="store_true",

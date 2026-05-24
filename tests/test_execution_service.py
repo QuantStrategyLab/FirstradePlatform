@@ -36,7 +36,7 @@ class FakeExecutionPort:
             status="previewed",
             raw_payload={
                 "limit_price": order_intent.limit_price,
-                "max_notional_usd": order_intent.metadata["max_notional_usd"],
+                "max_notional_usd": order_intent.metadata.get("max_notional_usd"),
             },
         )
 
@@ -116,6 +116,30 @@ def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
     assert result.skipped_orders == (
         {"symbol": "SPY", "reason": "buy_quantity_zero", "max_order_notional_usd": 25.0},
     )
+
+
+def test_execute_value_target_plan_has_no_default_order_notional_cap():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"SPY": 500.0}},
+            "portfolio": {
+                "market_values": {"SPY": 0.0},
+                "sellable_quantities": {},
+                "liquid_cash": 500.0,
+            },
+            "execution": {"current_min_trade": 1.0, "investable_cash": 500.0},
+        },
+        market_data_port=FakeMarketDataPort({"SPY": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("buy", "SPY", 5.0),
+    ]
+    assert execution_port.orders[0].metadata == {}
 
 
 def test_execute_value_target_plan_leaves_small_safe_haven_target_as_cash():
