@@ -86,8 +86,11 @@ commit credentials.
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
 | `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS` | Optional | Email-form recipients. Use a normal mailbox for email-only delivery, or a Google Voice mailbox/address to also trigger GV prompts |
-| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER` | Optional | Gmail address used as the sender for Google Voice notification mail |
-| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD` | Optional | Gmail App Password for the sender account, preferably supplied from Secret Manager in Cloud Run |
+| `CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL` | Optional | Sender email address used for Google Voice notification mail. Gmail is the default transport, but the sender naming is provider-neutral |
+| `CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD` | Optional | Sender SMTP password or app password, preferably supplied from Secret Manager in Cloud Run |
+| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_HOST` | Optional | SMTP host override. Defaults to Gmail SMTP when unset |
+| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_PORT` | Optional | SMTP port override. Defaults to `465` when unset |
+| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_SECURITY` | Optional | SMTP security override: `ssl`, `starttls`, or `none`. Defaults to `ssl` when unset |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
