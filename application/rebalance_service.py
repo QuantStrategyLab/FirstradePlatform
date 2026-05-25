@@ -56,6 +56,10 @@ from quant_platform_kit.notifications.strategy_plugin_email import (
     build_strategy_plugin_alert_context_label as build_email_alert_context_label,
     publish_strategy_plugin_email_alerts,
 )
+from quant_platform_kit.notifications.strategy_plugin_sms import (
+    StrategyPluginSmsAlertMarkerStore,
+    publish_strategy_plugin_sms_alerts,
+)
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
 from strategy_runtime import load_strategy_runtime
@@ -238,6 +242,35 @@ def build_strategy_plugin_alert_store(
     )
 
 
+def build_strategy_plugin_sms_alert_store(
+    settings: PlatformRuntimeSettings,
+    *,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+):
+    explicit_gcs_uri = env_reader("STRATEGY_PLUGIN_ALERT_STATE_GCS_URI", None)
+    report_gcs_uri = env_reader("EXECUTION_REPORT_GCS_URI", None)
+    state_bucket = env_reader("FIRSTRADE_GCS_STATE_BUCKET", None)
+    state_prefix = env_reader("FIRSTRADE_STATE_PREFIX", "firstrade-platform") or "firstrade-platform"
+    state_gcs_uri = f"gs://{state_bucket}/{state_prefix}" if state_bucket else None
+    return StrategyPluginSmsAlertMarkerStore(
+        local_dir=env_reader("STRATEGY_PLUGIN_ALERT_STATE_DIR", None) or "/tmp/quant_strategy_plugin_alerts",
+        gcs_prefix_uri=explicit_gcs_uri or report_gcs_uri or state_gcs_uri,
+        gcp_project_id=settings.project_id,
+    )
+
+
+class StrategyPluginAlertPublishResults:
+    def __init__(self, *, email_result, sms_result):
+        self.email_result = email_result
+        self.sms_result = sms_result
+
+    def to_report_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        fields.update(self.email_result.to_report_fields())
+        fields.update(self.sms_result.to_report_fields())
+        return fields
+
+
 def publish_strategy_plugin_alerts(
     signals,
     *,
@@ -246,7 +279,7 @@ def publish_strategy_plugin_alerts(
     log_message: Callable[..., Any] = print,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ):
-    return publish_strategy_plugin_email_alerts(
+    email_result = publish_strategy_plugin_email_alerts(
         signals,
         email_settings=settings,
         translator=translator,
@@ -255,6 +288,16 @@ def publish_strategy_plugin_alerts(
         alert_store=build_strategy_plugin_alert_store(settings, env_reader=env_reader),
         log_message=log_message,
     )
+    sms_result = publish_strategy_plugin_sms_alerts(
+        signals,
+        sms_settings=settings,
+        translator=translator,
+        strategy_label=settings.strategy_profile,
+        context_label=build_strategy_plugin_alert_context_label(settings),
+        alert_store=build_strategy_plugin_sms_alert_store(settings, env_reader=env_reader),
+        log_message=log_message,
+    )
+    return StrategyPluginAlertPublishResults(email_result=email_result, sms_result=sms_result)
 
 
 def _runtime_metadata_with_execution_policy(
@@ -385,6 +428,11 @@ def run_strategy_cycle(
                 "strategy_plugin_alert_email_skipped_count": 0,
                 "strategy_plugin_alert_email_failed_count": 0,
                 "strategy_plugin_alert_email_deliveries": [],
+                "strategy_plugin_alert_sms_attempted_count": 0,
+                "strategy_plugin_alert_sms_sent_count": 0,
+                "strategy_plugin_alert_sms_skipped_count": 0,
+                "strategy_plugin_alert_sms_failed_count": 0,
+                "strategy_plugin_alert_sms_deliveries": [],
             }
             return attach_strategy_plugin_result(
                 result,
@@ -489,6 +537,11 @@ def run_strategy_cycle(
                 "strategy_plugin_alert_email_skipped_count": 0,
                 "strategy_plugin_alert_email_failed_count": 0,
                 "strategy_plugin_alert_email_deliveries": [],
+                "strategy_plugin_alert_sms_attempted_count": 0,
+                "strategy_plugin_alert_sms_sent_count": 0,
+                "strategy_plugin_alert_sms_skipped_count": 0,
+                "strategy_plugin_alert_sms_failed_count": 0,
+                "strategy_plugin_alert_sms_deliveries": [],
             }
         )
     if strategy_plugin_alert_email_error:
