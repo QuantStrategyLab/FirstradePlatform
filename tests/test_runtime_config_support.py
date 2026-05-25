@@ -53,6 +53,7 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
+    assert settings.crisis_alert_channels == ()
     assert settings.crisis_alert_email_recipients == ()
     assert settings.crisis_alert_email_sender_email is None
     assert settings.crisis_alert_email_sender_password is None
@@ -67,6 +68,15 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
     assert settings.crisis_alert_sms_messaging_service_id is None
     assert settings.crisis_alert_sms_api_base_url is None
     assert settings.crisis_alert_sms_body_max_chars is None
+    assert settings.crisis_alert_push_recipients == ()
+    assert settings.crisis_alert_push_provider is None
+    assert settings.crisis_alert_push_app_token is None
+    assert settings.crisis_alert_push_access_token is None
+    assert settings.crisis_alert_push_api_base_url is None
+    assert settings.crisis_alert_push_device is None
+    assert settings.crisis_alert_push_priority is None
+    assert settings.crisis_alert_push_tags is None
+    assert settings.crisis_alert_push_body_max_chars is None
 
 
 def test_reserved_cash_policy_loads_from_env(monkeypatch):
@@ -120,6 +130,33 @@ def test_crisis_alert_sms_settings_load_from_env(monkeypatch):
     assert settings.crisis_alert_sms_messaging_service_id == "MG123"
     assert settings.crisis_alert_sms_api_base_url == "https://twilio.example.test"
     assert settings.crisis_alert_sms_body_max_chars == "160"
+
+
+def test_crisis_alert_channels_and_push_settings_load_from_env(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("CRISIS_ALERT_CHANNELS", "email;push")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_RECIPIENTS", "risk-topic; backup-topic")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_PROVIDER", "ntfy")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_APP_TOKEN", "app-token")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_ACCESS_TOKEN", "access-token")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_API_BASE_URL", "https://ntfy.example.test")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_DEVICE", "iphone")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_PRIORITY", "5")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_TAGS", "warning")
+    monkeypatch.setenv("CRISIS_ALERT_PUSH_BODY_MAX_CHARS", "300")
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.crisis_alert_channels == ("email", "push")
+    assert settings.crisis_alert_push_recipients == ("risk-topic", "backup-topic")
+    assert settings.crisis_alert_push_provider == "ntfy"
+    assert settings.crisis_alert_push_app_token == "app-token"
+    assert settings.crisis_alert_push_access_token == "access-token"
+    assert settings.crisis_alert_push_api_base_url == "https://ntfy.example.test"
+    assert settings.crisis_alert_push_device == "iphone"
+    assert settings.crisis_alert_push_priority == "5"
+    assert settings.crisis_alert_push_tags == "warning"
+    assert settings.crisis_alert_push_body_max_chars == "300"
 
 
 def test_reserved_cash_ratio_rejects_invalid_env(monkeypatch):
