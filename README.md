@@ -85,12 +85,12 @@ commit credentials.
 | `TELEGRAM_TOKEN` | Optional | Telegram bot token for strategy-cycle summaries |
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
-| `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS` | Optional | Email-form recipients. Use a normal mailbox for email-only delivery, or a Google Voice mailbox/address to also trigger GV prompts |
-| `CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL` | Optional | Sender email address used for Google Voice notification mail. Gmail is the default transport, but the sender naming is provider-neutral |
-| `CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD` | Optional | Sender SMTP password or app password, preferably supplied from Secret Manager in Cloud Run |
-| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_HOST` | Optional | SMTP host override. Defaults to Gmail SMTP when unset |
-| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_PORT` | Optional | SMTP port override. Defaults to `465` when unset |
-| `CRISIS_ALERT_GOOGLE_VOICE_SMTP_SECURITY` | Optional | SMTP security override: `ssl`, `starttls`, or `none`. Defaults to `ssl` when unset |
+| `CRISIS_ALERT_EMAIL_RECIPIENTS` | Optional | Email-form recipients. Use a normal mailbox for email-only delivery, or a Google Voice-associated mailbox/address to also trigger Google Voice prompts |
+| `CRISIS_ALERT_EMAIL_SENDER_EMAIL` | Optional | Sender email address used for crisis alert email. Gmail is the default transport, but the sender naming is provider-neutral |
+| `CRISIS_ALERT_EMAIL_SENDER_PASSWORD` | Optional | Sender SMTP password or app password, preferably supplied from Secret Manager in Cloud Run |
+| `CRISIS_ALERT_EMAIL_SMTP_HOST` | Optional | SMTP host override. Defaults to Gmail SMTP when unset |
+| `CRISIS_ALERT_EMAIL_SMTP_PORT` | Optional | SMTP port override. Defaults to `465` when unset |
+| `CRISIS_ALERT_EMAIL_SMTP_SECURITY` | Optional | SMTP security override: `ssl`, `starttls`, or `none`. Defaults to `ssl` when unset |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
@@ -177,9 +177,9 @@ full guarded strategy cycle:
 - route generated orders through the local safety layer
 - publish a compact Telegram summary when `TELEGRAM_TOKEN` and
   `GLOBAL_TELEGRAM_CHAT_ID` are configured
-- send independent Google Voice alerts for escalated strategy plugin signals when
-  `CRISIS_ALERT_*` is configured
-- write Google Voice alert results into the response and suppress duplicate plugin
+- send independent email alerts for escalated strategy plugin signals when
+  `CRISIS_ALERT_EMAIL_*` is configured
+- write mail alert results into the response and suppress duplicate plugin
   alert keys through `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`, `EXECUTION_REPORT_GCS_URI`,
   or the configured Firstrade state bucket
 
@@ -312,9 +312,9 @@ Firstrade 登录、账户/行情读取、下单转换、安全闸和部署 wirin
 - dry-run / preview 下单验证
 - `/run` 执行通用美股策略的 dry-run 调仓闭环
 - 配置 `TELEGRAM_TOKEN` 和 `GLOBAL_TELEGRAM_CHAT_ID` 后发送运行摘要
-- 读取通用策略插件信号，并在危机类插件触发时通过 `CRISIS_ALERT_*`
-  配置发送独立 Google Voice 告警
-- 在响应中写入 Google Voice 告警结果，并通过 `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`、
+- 读取通用策略插件信号，并在危机类插件触发时通过 `CRISIS_ALERT_EMAIL_*`
+  配置发送独立邮件告警
+- 在响应中写入邮件告警结果，并通过 `STRATEGY_PLUGIN_ALERT_STATE_GCS_URI`、
   `EXECUTION_REPORT_GCS_URI` 或已配置的 Firstrade state bucket 抑制重复插件告警 key
 - 在你再次确认后，才允许极小金额实盘验证
 - 通用 `us_equity` 策略 profile 的平台层接入
