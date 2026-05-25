@@ -77,6 +77,12 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
     assert settings.crisis_alert_push_priority is None
     assert settings.crisis_alert_push_tags is None
     assert settings.crisis_alert_push_body_max_chars is None
+    assert settings.crisis_alert_telegram_chat_ids == ()
+    assert settings.crisis_alert_telegram_bot_token is None
+    assert settings.crisis_alert_telegram_api_base_url is None
+    assert settings.crisis_alert_telegram_parse_mode is None
+    assert settings.crisis_alert_telegram_disable_web_page_preview is None
+    assert settings.crisis_alert_telegram_body_max_chars is None
 
 
 def test_reserved_cash_policy_loads_from_env(monkeypatch):
@@ -134,7 +140,7 @@ def test_crisis_alert_sms_settings_load_from_env(monkeypatch):
 
 def test_crisis_alert_channels_and_push_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
-    monkeypatch.setenv("CRISIS_ALERT_CHANNELS", "email;push")
+    monkeypatch.setenv("CRISIS_ALERT_CHANNELS", "email;push;telegram")
     monkeypatch.setenv("CRISIS_ALERT_PUSH_RECIPIENTS", "risk-topic; backup-topic")
     monkeypatch.setenv("CRISIS_ALERT_PUSH_PROVIDER", "ntfy")
     monkeypatch.setenv("CRISIS_ALERT_PUSH_APP_TOKEN", "app-token")
@@ -144,10 +150,16 @@ def test_crisis_alert_channels_and_push_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("CRISIS_ALERT_PUSH_PRIORITY", "5")
     monkeypatch.setenv("CRISIS_ALERT_PUSH_TAGS", "warning")
     monkeypatch.setenv("CRISIS_ALERT_PUSH_BODY_MAX_CHARS", "300")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_CHAT_IDS", "12345; @risk_channel")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_API_BASE_URL", "https://telegram.example.test")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_PARSE_MODE", "HTML")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_DISABLE_WEB_PAGE_PREVIEW", "false")
+    monkeypatch.setenv("CRISIS_ALERT_TELEGRAM_BODY_MAX_CHARS", "900")
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
-    assert settings.crisis_alert_channels == ("email", "push")
+    assert settings.crisis_alert_channels == ("email", "push", "telegram")
     assert settings.crisis_alert_push_recipients == ("risk-topic", "backup-topic")
     assert settings.crisis_alert_push_provider == "ntfy"
     assert settings.crisis_alert_push_app_token == "app-token"
@@ -157,6 +169,12 @@ def test_crisis_alert_channels_and_push_settings_load_from_env(monkeypatch):
     assert settings.crisis_alert_push_priority == "5"
     assert settings.crisis_alert_push_tags == "warning"
     assert settings.crisis_alert_push_body_max_chars == "300"
+    assert settings.crisis_alert_telegram_chat_ids == ("12345", "@risk_channel")
+    assert settings.crisis_alert_telegram_bot_token == "telegram-token"
+    assert settings.crisis_alert_telegram_api_base_url == "https://telegram.example.test"
+    assert settings.crisis_alert_telegram_parse_mode == "HTML"
+    assert settings.crisis_alert_telegram_disable_web_page_preview == "false"
+    assert settings.crisis_alert_telegram_body_max_chars == "900"
 
 
 def test_reserved_cash_ratio_rejects_invalid_env(monkeypatch):

@@ -28,6 +28,11 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
         "CRISIS_ALERT_PUSH_PRIORITY",
         "CRISIS_ALERT_PUSH_TAGS",
         "CRISIS_ALERT_PUSH_BODY_MAX_CHARS",
+        "CRISIS_ALERT_TELEGRAM_CHAT_IDS",
+        "CRISIS_ALERT_TELEGRAM_API_BASE_URL",
+        "CRISIS_ALERT_TELEGRAM_PARSE_MODE",
+        "CRISIS_ALERT_TELEGRAM_DISABLE_WEB_PAGE_PREVIEW",
+        "CRISIS_ALERT_TELEGRAM_BODY_MAX_CHARS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
         assert f"add_optional_env {name}" in workflow
@@ -69,6 +74,18 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
     assert (
         "add_optional_secret CRISIS_ALERT_PUSH_ACCESS_TOKEN "
         "CRISIS_ALERT_PUSH_ACCESS_TOKEN_SECRET_NAME CRISIS_ALERT_PUSH_ACCESS_TOKEN"
+    ) in workflow
+    assert (
+        "CRISIS_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME: "
+        "${{ vars.CRISIS_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME }}"
+    ) in workflow
+    assert (
+        "CRISIS_ALERT_TELEGRAM_BOT_TOKEN: "
+        "${{ secrets.CRISIS_ALERT_TELEGRAM_BOT_TOKEN }}"
+    ) in workflow
+    assert (
+        "add_optional_secret CRISIS_ALERT_TELEGRAM_BOT_TOKEN "
+        "CRISIS_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME CRISIS_ALERT_TELEGRAM_BOT_TOKEN"
     ) in workflow
     assert '"CRISIS_ALERT_GOOGLE_VOICE_TO"' in workflow
     assert '"CRISIS_ALERT_GOOGLE_VOICE_GATEWAY"' in workflow

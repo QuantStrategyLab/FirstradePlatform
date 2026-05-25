@@ -85,13 +85,15 @@ commit credentials.
 | `TELEGRAM_TOKEN` | Optional | Telegram bot token for strategy-cycle summaries |
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
-| `CRISIS_ALERT_CHANNELS` | Optional | Crisis alert channel list: `email`, `sms`, and/or `push` |
+| `CRISIS_ALERT_CHANNELS` | Optional | Crisis alert channel list: `email`, `sms`, `push`, and/or `telegram` |
 | `CRISIS_ALERT_EMAIL_RECIPIENTS` | Optional | Email-form recipients. Use a normal mailbox for email-only delivery, or a Google Voice-associated mailbox/address to also trigger Google Voice prompts |
 | `CRISIS_ALERT_EMAIL_SENDER_EMAIL` | Optional | Sender email address used for crisis alert email. Gmail is the default transport, but the sender naming is provider-neutral |
 | `CRISIS_ALERT_EMAIL_SENDER_PASSWORD` | Optional | Sender SMTP password or app password, preferably supplied from Secret Manager in Cloud Run |
 | `CRISIS_ALERT_EMAIL_SMTP_HOST` | Optional | SMTP host override. Defaults to Gmail SMTP when unset |
 | `CRISIS_ALERT_EMAIL_SMTP_PORT` | Optional | SMTP port override. Defaults to `465` when unset |
 | `CRISIS_ALERT_EMAIL_SMTP_SECURITY` | Optional | SMTP security override: `ssl`, `starttls`, or `none`. Defaults to `ssl` when unset |
+| `CRISIS_ALERT_TELEGRAM_CHAT_IDS` | Optional | Dedicated crisis-alert Telegram chat IDs, separate from the strategy-cycle Telegram chat |
+| `CRISIS_ALERT_TELEGRAM_BOT_TOKEN` | Optional | Dedicated crisis-alert Telegram bot token. Prefer `CRISIS_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` in env sync |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
