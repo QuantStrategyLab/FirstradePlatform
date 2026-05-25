@@ -53,7 +53,7 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
-    assert settings.crisis_alert_google_voice_gateway == ()
+    assert settings.crisis_alert_google_voice_recipients == ()
     assert settings.crisis_alert_google_voice_gmail_user is None
     assert settings.crisis_alert_google_voice_gmail_app_password is None
 
@@ -71,13 +71,13 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
 
 def test_crisis_alert_google_voice_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
-    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GATEWAY", "gateway@txt.voice.google.com")
+    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS", "alerts@example.com; voice@example.com")
     monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER", "sender@gmail.com")
     monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD", "secret")
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
-    assert settings.crisis_alert_google_voice_gateway == ("gateway@txt.voice.google.com",)
+    assert settings.crisis_alert_google_voice_recipients == ("alerts@example.com", "voice@example.com")
     assert settings.crisis_alert_google_voice_gmail_user == "sender@gmail.com"
     assert settings.crisis_alert_google_voice_gmail_app_password == "secret"
 
