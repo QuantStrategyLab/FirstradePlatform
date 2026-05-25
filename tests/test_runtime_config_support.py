@@ -53,11 +53,9 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
-    assert settings.crisis_alert_google_voice_to == ()
-    assert settings.crisis_alert_smtp_from is None
-    assert settings.crisis_alert_smtp_port == 587
-    assert settings.crisis_alert_smtp_starttls is True
-    assert settings.crisis_alert_smtp_ssl is False
+    assert settings.crisis_alert_google_voice_gateway == ()
+    assert settings.crisis_alert_google_voice_gmail_user is None
+    assert settings.crisis_alert_google_voice_gmail_app_password is None
 
 
 def test_reserved_cash_policy_loads_from_env(monkeypatch):
@@ -73,25 +71,15 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
 
 def test_crisis_alert_google_voice_settings_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
-    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_TO", "gateway@txt.voice.google.com")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_FROM", "smtp-from@example.com")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_HOST", "smtp.example.com")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_PORT", "465")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_USERNAME", "bot")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_PASSWORD", "secret")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_STARTTLS", "false")
-    monkeypatch.setenv("CRISIS_ALERT_SMTP_SSL", "true")
+    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GATEWAY", "gateway@txt.voice.google.com")
+    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER", "sender@gmail.com")
+    monkeypatch.setenv("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD", "secret")
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
-    assert settings.crisis_alert_google_voice_to == ("gateway@txt.voice.google.com",)
-    assert settings.crisis_alert_smtp_from == "smtp-from@example.com"
-    assert settings.crisis_alert_smtp_host == "smtp.example.com"
-    assert settings.crisis_alert_smtp_port == 465
-    assert settings.crisis_alert_smtp_username == "bot"
-    assert settings.crisis_alert_smtp_password == "secret"
-    assert settings.crisis_alert_smtp_starttls is False
-    assert settings.crisis_alert_smtp_ssl is True
+    assert settings.crisis_alert_google_voice_gateway == ("gateway@txt.voice.google.com",)
+    assert settings.crisis_alert_google_voice_gmail_user == "sender@gmail.com"
+    assert settings.crisis_alert_google_voice_gmail_app_password == "secret"
 
 
 def test_reserved_cash_ratio_rejects_invalid_env(monkeypatch):
