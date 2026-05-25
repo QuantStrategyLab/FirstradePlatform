@@ -8,6 +8,7 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
     workflow = workflow_path.read_text(encoding="utf-8")
 
     for name in (
+        "CRISIS_ALERT_CHANNELS",
         "CRISIS_ALERT_EMAIL_RECIPIENTS",
         "CRISIS_ALERT_EMAIL_SENDER_EMAIL",
         "CRISIS_ALERT_EMAIL_SMTP_HOST",
@@ -20,6 +21,13 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
         "CRISIS_ALERT_SMS_MESSAGING_SERVICE_ID",
         "CRISIS_ALERT_SMS_API_BASE_URL",
         "CRISIS_ALERT_SMS_BODY_MAX_CHARS",
+        "CRISIS_ALERT_PUSH_RECIPIENTS",
+        "CRISIS_ALERT_PUSH_PROVIDER",
+        "CRISIS_ALERT_PUSH_API_BASE_URL",
+        "CRISIS_ALERT_PUSH_DEVICE",
+        "CRISIS_ALERT_PUSH_PRIORITY",
+        "CRISIS_ALERT_PUSH_TAGS",
+        "CRISIS_ALERT_PUSH_BODY_MAX_CHARS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
         assert f"add_optional_env {name}" in workflow
@@ -41,6 +49,26 @@ def test_sync_cloud_run_env_workflow_syncs_crisis_alert_settings():
     assert (
         "add_optional_secret CRISIS_ALERT_SMS_AUTH_TOKEN "
         "CRISIS_ALERT_SMS_AUTH_TOKEN_SECRET_NAME CRISIS_ALERT_SMS_AUTH_TOKEN"
+    ) in workflow
+    assert (
+        "CRISIS_ALERT_PUSH_APP_TOKEN_SECRET_NAME: "
+        "${{ vars.CRISIS_ALERT_PUSH_APP_TOKEN_SECRET_NAME }}"
+    ) in workflow
+    assert (
+        "CRISIS_ALERT_PUSH_ACCESS_TOKEN_SECRET_NAME: "
+        "${{ vars.CRISIS_ALERT_PUSH_ACCESS_TOKEN_SECRET_NAME }}"
+    ) in workflow
+    assert "CRISIS_ALERT_PUSH_APP_TOKEN: ${{ secrets.CRISIS_ALERT_PUSH_APP_TOKEN }}" in workflow
+    assert (
+        "CRISIS_ALERT_PUSH_ACCESS_TOKEN: ${{ secrets.CRISIS_ALERT_PUSH_ACCESS_TOKEN }}"
+    ) in workflow
+    assert (
+        "add_optional_secret CRISIS_ALERT_PUSH_APP_TOKEN "
+        "CRISIS_ALERT_PUSH_APP_TOKEN_SECRET_NAME CRISIS_ALERT_PUSH_APP_TOKEN"
+    ) in workflow
+    assert (
+        "add_optional_secret CRISIS_ALERT_PUSH_ACCESS_TOKEN "
+        "CRISIS_ALERT_PUSH_ACCESS_TOKEN_SECRET_NAME CRISIS_ALERT_PUSH_ACCESS_TOKEN"
     ) in workflow
     assert '"CRISIS_ALERT_GOOGLE_VOICE_TO"' in workflow
     assert '"CRISIS_ALERT_GOOGLE_VOICE_GATEWAY"' in workflow
