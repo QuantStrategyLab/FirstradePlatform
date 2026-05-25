@@ -59,6 +59,14 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
     assert settings.crisis_alert_email_smtp_host is None
     assert settings.crisis_alert_email_smtp_port is None
     assert settings.crisis_alert_email_smtp_security is None
+    assert settings.crisis_alert_sms_recipients == ()
+    assert settings.crisis_alert_sms_provider is None
+    assert settings.crisis_alert_sms_account_id is None
+    assert settings.crisis_alert_sms_auth_token is None
+    assert settings.crisis_alert_sms_sender is None
+    assert settings.crisis_alert_sms_messaging_service_id is None
+    assert settings.crisis_alert_sms_api_base_url is None
+    assert settings.crisis_alert_sms_body_max_chars is None
 
 
 def test_reserved_cash_policy_loads_from_env(monkeypatch):
@@ -89,6 +97,29 @@ def test_crisis_alert_email_settings_load_from_env(monkeypatch):
     assert settings.crisis_alert_email_smtp_host == "smtp.example.com"
     assert settings.crisis_alert_email_smtp_port == "587"
     assert settings.crisis_alert_email_smtp_security == "starttls"
+
+
+def test_crisis_alert_sms_settings_load_from_env(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("CRISIS_ALERT_SMS_RECIPIENTS", "+15165480265;(516) 548-0265")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_PROVIDER", "twilio")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_ACCOUNT_ID", "AC123")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_AUTH_TOKEN", "secret")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_SENDER", "+15551234567")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_MESSAGING_SERVICE_ID", "MG123")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_API_BASE_URL", "https://twilio.example.test")
+    monkeypatch.setenv("CRISIS_ALERT_SMS_BODY_MAX_CHARS", "160")
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.crisis_alert_sms_recipients == ("+15165480265", "(516) 548-0265")
+    assert settings.crisis_alert_sms_provider == "twilio"
+    assert settings.crisis_alert_sms_account_id == "AC123"
+    assert settings.crisis_alert_sms_auth_token == "secret"
+    assert settings.crisis_alert_sms_sender == "+15551234567"
+    assert settings.crisis_alert_sms_messaging_service_id == "MG123"
+    assert settings.crisis_alert_sms_api_base_url == "https://twilio.example.test"
+    assert settings.crisis_alert_sms_body_max_chars == "160"
 
 
 def test_reserved_cash_ratio_rejects_invalid_env(monkeypatch):

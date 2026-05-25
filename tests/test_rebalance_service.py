@@ -233,15 +233,16 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
         crisis_alert_email_sender_password="app-password",
     )
     messages = []
-    observed_alerts = []
+    observed_email_alerts = []
+    observed_sms_alerts = []
 
     monkeypatch.setattr(
         "application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
-    def fake_publish(signals, **kwargs):
-        observed_alerts.append((tuple(signals), kwargs))
+    def fake_email_publish(signals, **kwargs):
+        observed_email_alerts.append((tuple(signals), kwargs))
         return SimpleNamespace(
             sent_count=1,
             to_report_fields=lambda: {
@@ -255,7 +256,23 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
             },
         )
 
-    monkeypatch.setattr("application.rebalance_service.publish_strategy_plugin_email_alerts", fake_publish)
+    def fake_sms_publish(signals, **kwargs):
+        observed_sms_alerts.append((tuple(signals), kwargs))
+        return SimpleNamespace(
+            sent_count=1,
+            to_report_fields=lambda: {
+                "strategy_plugin_alert_sms_attempted_count": 1,
+                "strategy_plugin_alert_sms_sent_count": 1,
+                "strategy_plugin_alert_sms_skipped_count": 0,
+                "strategy_plugin_alert_sms_failed_count": 0,
+                "strategy_plugin_alert_sms_deliveries": [
+                    {"subject": "Crisis plugin alert", "status": "sent"}
+                ],
+            },
+        )
+
+    monkeypatch.setattr("application.rebalance_service.publish_strategy_plugin_email_alerts", fake_email_publish)
+    monkeypatch.setattr("application.rebalance_service.publish_strategy_plugin_sms_alerts", fake_sms_publish)
 
     result = run_strategy_cycle(
         runtime_settings=settings,
@@ -267,13 +284,18 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
 
     assert result["strategy_plugins"][0]["canonical_route"] == "true_crisis"
     assert result["strategy_plugin_alert_email_sent_count"] == 1
+    assert result["strategy_plugin_alert_sms_sent_count"] == 1
     assert result["strategy_plugin_lines"] == (
         "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend",
     )
-    assert len(observed_alerts) == 1
-    assert observed_alerts[0][0][0].canonical_route == "true_crisis"
-    assert "firstrade" in observed_alerts[0][1]["context_label"]
+    assert len(observed_email_alerts) == 1
+    assert len(observed_sms_alerts) == 1
+    assert observed_email_alerts[0][0][0].canonical_route == "true_crisis"
+    assert observed_sms_alerts[0][0][0].canonical_route == "true_crisis"
+    assert "firstrade" in observed_email_alerts[0][1]["context_label"]
+    assert "firstrade" in observed_sms_alerts[0][1]["context_label"]
     assert result["strategy_plugin_alert_email_deliveries"][0]["status"] == "sent"
+    assert result["strategy_plugin_alert_sms_deliveries"][0]["status"] == "sent"
     assert "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend" in messages[0]
 
 
@@ -296,6 +318,7 @@ def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypat
     assert result["action_done"] is True
     assert result["strategy_plugin_error"].startswith("JSONDecodeError:")
     assert result["strategy_plugin_alert_email_sent_count"] == 0
+    assert result["strategy_plugin_alert_sms_sent_count"] == 0
 
 
 def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):
