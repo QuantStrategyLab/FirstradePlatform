@@ -85,9 +85,9 @@ commit credentials.
 | `TELEGRAM_TOKEN` | Optional | Telegram bot token for strategy-cycle summaries |
 | `GLOBAL_TELEGRAM_CHAT_ID` | Optional | Telegram chat ID for strategy-cycle summaries |
 | `FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON` | Optional | JSON sidecar plugin mount config. Overrides global `STRATEGY_PLUGIN_MOUNTS_JSON` for this platform |
-| `CRISIS_ALERT_GOOGLE_VOICE_GATEWAY` | Optional | Google Voice SMS gateway recipients, usually ending in `@txt.voice.google.com` |
-| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER` | Optional | Gmail address used to send Google Voice gateway alerts |
-| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD` | Optional | Gmail App Password, preferably supplied from Secret Manager in Cloud Run |
+| `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS` | Optional | Email-form recipients. Use a normal mailbox for email-only delivery, or a Google Voice mailbox/address to also trigger GV prompts |
+| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER` | Optional | Gmail address used as the sender for Google Voice notification mail |
+| `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD` | Optional | Gmail App Password for the sender account, preferably supplied from Secret Manager in Cloud Run |
 | `FIRSTRADE_COOKIE_DIR` | Optional | Cookie cache directory, default `.runtime/firstrade-cookies` |
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |

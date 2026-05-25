@@ -228,7 +228,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     )
     settings = _runtime_settings_with_persistence(
         strategy_plugin_mounts_json=mount_config,
-        crisis_alert_google_voice_gateway=("gateway@txt.voice.google.com",),
+        crisis_alert_google_voice_recipients=("voice@example.com",),
         crisis_alert_google_voice_gmail_user="bot@example.com",
         crisis_alert_google_voice_gmail_app_password="app-password",
     )
