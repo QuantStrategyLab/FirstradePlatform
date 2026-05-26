@@ -278,9 +278,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     assert result["strategy_plugins"][0]["canonical_route"] == "true_crisis"
     assert result["strategy_plugin_alert_email_sent_count"] == 1
     assert result["strategy_plugin_alert_sms_sent_count"] == 1
-    assert result["strategy_plugin_lines"] == (
-        "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend",
-    )
+    assert "strategy_plugin_lines" not in result
     assert len(observed_alerts) == 1
     assert observed_alerts[0][0][0].canonical_route == "true_crisis"
     assert "firstrade" in observed_alerts[0][1]["context_label"]
@@ -288,7 +286,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     assert observed_alerts[0][1]["state_settings"] is not None
     assert result["strategy_plugin_alert_email_deliveries"][0]["status"] == "sent"
     assert result["strategy_plugin_alert_sms_deliveries"][0]["status"] == "sent"
-    assert "🧩 Plugin: Crisis Watch Notice | status: true crisis | notice: defend" in messages[0]
+    assert "🧩 Plugin:" not in messages[0]
 
 
 def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypatch):

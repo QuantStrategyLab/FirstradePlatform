@@ -635,7 +635,6 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         lines.extend(dashboard_lines)
     lines.extend(_format_timing_lines(execution, translator=translator))
     lines.extend(_format_signal_lines(execution, translator=translator))
-    lines.extend(str(line).strip() for line in result.get("strategy_plugin_lines") or ())
     lines.append(SEPARATOR)
     lines.extend(target_diff_lines)
     if submitted:
