@@ -45,7 +45,6 @@ from quant_platform_kit.common.runtime_inputs import (
     required_semiconductor_rotation_history_lookback,
 )
 from quant_platform_kit.common.strategy_plugins import (
-    build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
@@ -198,14 +197,9 @@ def attach_strategy_plugin_result(
     error: str | None,
     translator: Callable[..., str],
 ) -> dict[str, Any]:
+    del translator
     if signals:
         result.update(build_strategy_plugin_report_payload(signals))
-        notification_lines = build_strategy_plugin_notification_lines(
-            signals,
-            translator=translator,
-        )
-        if notification_lines:
-            result["strategy_plugin_lines"] = notification_lines
     if error:
         result["strategy_plugin_error"] = error
     return result
