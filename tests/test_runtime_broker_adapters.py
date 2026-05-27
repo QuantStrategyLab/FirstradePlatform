@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 
 
+def _timestamp_ms(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
+
+
 class FakeClient:
+    def __init__(self, *, quote_payload=None, quote_error: Exception | None = None, ohlc=None):
+        self.quote_payload = quote_payload or {"last": "10.50", "bid": "10.40", "ask": "10.60"}
+        self.quote_error = quote_error
+        self.ohlc = ohlc or [(1700000000000, 9, 11, 8, 10, 1000)]
+
     def get_quote(self, _account, symbol):
-        return {"symbol": symbol, "last": "10.50", "bid": "10.40", "ask": "10.60"}
+        if self.quote_error is not None:
+            raise self.quote_error
+        return {"symbol": symbol, **self.quote_payload}
 
     def get_ohlc(self, _symbol, _range):
-        return [(1700000000000, 9, 11, 8, 10, 1000)]
+        return self.ohlc
 
     def get_balances(self, _account):
         return {"total_value": "120.00", "cash": "20.00", "buying_power": "30.00"}
@@ -33,3 +46,75 @@ def test_runtime_adapters_build_quote_and_portfolio_ports():
     assert portfolio.total_equity == 120.0
     assert portfolio.cash_balance == 20.0
     assert portfolio.positions[0].symbol == "SPY"
+
+
+def test_price_series_appends_live_quote_when_history_lags_today():
+    adapters = build_runtime_broker_adapters(
+        client=FakeClient(
+            quote_payload={"last": "12.00", "bid": "11.90", "ask": "12.10"},
+            ohlc=[
+                (
+                    _timestamp_ms(datetime(2026, 5, 26, 4, tzinfo=timezone.utc)),
+                    9,
+                    11,
+                    8,
+                    10,
+                    1000,
+                )
+            ],
+        ),
+        account="12345678",
+        clock=lambda: datetime(2026, 5, 27, 19, 45, tzinfo=timezone.utc),
+    )
+
+    series = adapters.build_market_data_port().get_price_series("SPY")
+
+    assert [point.close for point in series.points] == [10.0, 12.0]
+
+
+def test_price_series_replaces_same_day_history_with_live_quote():
+    adapters = build_runtime_broker_adapters(
+        client=FakeClient(
+            quote_payload={"last": "12.00", "bid": "11.90", "ask": "12.10"},
+            ohlc=[
+                (
+                    _timestamp_ms(datetime(2026, 5, 27, 4, tzinfo=timezone.utc)),
+                    9,
+                    11,
+                    8,
+                    10,
+                    1000,
+                )
+            ],
+        ),
+        account="12345678",
+        clock=lambda: datetime(2026, 5, 27, 19, 45, tzinfo=timezone.utc),
+    )
+
+    series = adapters.build_market_data_port().get_price_series("SPY")
+
+    assert [point.close for point in series.points] == [12.0]
+
+
+def test_price_series_falls_back_to_history_when_quote_unavailable():
+    adapters = build_runtime_broker_adapters(
+        client=FakeClient(
+            quote_error=RuntimeError("quote unavailable"),
+            ohlc=[
+                (
+                    _timestamp_ms(datetime(2026, 5, 26, 4, tzinfo=timezone.utc)),
+                    9,
+                    11,
+                    8,
+                    10,
+                    1000,
+                )
+            ],
+        ),
+        account="12345678",
+        clock=lambda: datetime(2026, 5, 27, 19, 45, tzinfo=timezone.utc),
+    )
+
+    series = adapters.build_market_data_port().get_price_series("SPY")
+
+    assert [point.close for point in series.points] == [10.0]
