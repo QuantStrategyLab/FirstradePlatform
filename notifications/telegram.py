@@ -9,6 +9,55 @@ from typing import Any
 from quant_platform_kit.common.notification_localization import (
     localize_notification_text as _base_localize_notification_text,
 )
+try:
+    from quant_platform_kit.common.small_account_compatibility import (
+        format_small_account_cash_substitution_notes,
+    )
+except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
+    def format_small_account_cash_substitution_notes(
+        notes,
+        *,
+        translator,
+        wrapper_key="buy_deferred",
+        detail_key="buy_deferred_small_account_cash_substitution",
+        cash_label_key="cash_label",
+        symbol_suffix=".US",
+    ):
+        messages = []
+        seen_keys = set()
+        for note in tuple(notes or ()):
+            if not isinstance(note, Mapping):
+                continue
+            symbol = str(note.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            target_value = max(0.0, float(note.get("target_value") or 0.0))
+            price = max(0.0, float(note.get("price") or 0.0))
+            if target_value <= 0.0 or price <= 0.0:
+                continue
+            cash_symbols = tuple(
+                dict.fromkeys(
+                    str(cash_symbol or "").strip().upper()
+                    for cash_symbol in tuple(note.get("cash_symbols") or ())
+                    if str(cash_symbol or "").strip()
+                )
+            )
+            cash_symbols_text = ", ".join(f"{cash_symbol}{symbol_suffix}" for cash_symbol in cash_symbols)
+            if not cash_symbols_text:
+                cash_symbols_text = translator(cash_label_key)
+            note_key = (symbol, f"{target_value:.2f}", cash_symbols_text)
+            if note_key in seen_keys:
+                continue
+            seen_keys.add(note_key)
+            detail = translator(
+                detail_key,
+                symbol=f"{symbol}{symbol_suffix}",
+                diff=f"{target_value:.2f}",
+                price=f"{price:.2f}",
+                cash_symbols=cash_symbols_text,
+            )
+            messages.append(translator(wrapper_key, detail=detail))
+        return tuple(messages)
 
 
 SEPARATOR = "━━━━━━━━━━━━━━━━━━"
@@ -31,6 +80,7 @@ I18N = {
         "buying_power": "购买力",
         "reserved_cash": "预留现金",
         "investable_cash": "可投资现金",
+        "cash_label": "现金",
         "holdings_title": "💼 策略持仓",
         "holding_line": "{symbol}: {market_value} / {quantity}",
         "quantity_share": "{quantity}股",
@@ -90,6 +140,8 @@ I18N = {
         "no_rebalance_needed": "✅ 无需调仓",
         "no_trades": "✅ 无需调仓",
         "no_executable_orders": "无可执行订单",
+        "buy_deferred": "ℹ️ [买入说明] {detail}",
+        "buy_deferred_small_account_cash_substitution": "{symbol} 目标金额 ${diff} 低于 1 股价格 ${price}；为避免超过目标仓位，小账户本轮保留现金，不回补 {cash_symbols}",
         "signal_state_hold": "趋势持有",
         "signal_state_entry": "入场信号",
         "signal_state_reduce": "减仓信号",
@@ -143,6 +195,7 @@ I18N = {
         "buying_power": "Buying power",
         "reserved_cash": "Reserved cash",
         "investable_cash": "Investable cash",
+        "cash_label": "Cash",
         "holdings_title": "💼 Strategy Holdings",
         "holding_line": "{symbol}: {market_value} / {quantity}",
         "quantity_share": "{quantity} share",
@@ -202,6 +255,8 @@ I18N = {
         "no_rebalance_needed": "✅ No rebalance needed",
         "no_trades": "✅ No rebalance needed",
         "no_executable_orders": "no executable orders",
+        "buy_deferred": "ℹ️ [Buy note] {detail}",
+        "buy_deferred_small_account_cash_substitution": "{symbol} target ${diff} is below the 1-share price ${price}; to avoid exceeding the target allocation, this small account keeps cash this cycle and does not rebuy {cash_symbols}",
         "signal_state_hold": "Trend Hold",
         "signal_state_entry": "Entry Signal",
         "signal_state_reduce": "Reduce Signal",
@@ -637,6 +692,8 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     lines.extend(_format_signal_lines(execution, translator=translator))
     lines.append(SEPARATOR)
     lines.extend(target_diff_lines)
+    execution_notes = tuple(result.get("execution_notes") or allocation.get("small_account_whole_share_cash_notes") or ())
+    lines.extend(format_small_account_cash_substitution_notes(execution_notes, translator=translator))
     if submitted:
         lines.append(translator("order_logs_title"))
         lines.extend(_format_order_lines(submitted, dry_run_only=dry_run_only, translator=translator))
