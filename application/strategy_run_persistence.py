@@ -143,6 +143,7 @@ def build_strategy_run_state(
     plan: Mapping[str, Any] | None = None,
     submitted_orders: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     skipped_orders: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    execution_notes: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     action_done: bool = False,
     error: str | None = None,
     now: datetime | None = None,
@@ -163,6 +164,7 @@ def build_strategy_run_state(
         "plan": dict(plan or {}),
         "submitted_orders": list(submitted_orders),
         "skipped_orders": list(skipped_orders),
+        "execution_notes": list(execution_notes),
         "action_done": action_done,
     }
     if error:

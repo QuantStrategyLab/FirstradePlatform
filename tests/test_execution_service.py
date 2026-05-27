@@ -267,6 +267,14 @@ def test_execute_value_target_plan_keeps_safe_haven_cash_when_only_risk_target_i
 
     assert result.action_done is False
     assert execution_port.orders == []
+    assert result.execution_notes == (
+        {
+            "symbol": "SOXX",
+            "target_value": 194.10,
+            "price": 525.0,
+            "cash_symbols": ("BOXX",),
+        },
+    )
 
 
 def test_execute_value_target_plan_uses_cash_sweep_symbol_for_small_safe_haven_cash():

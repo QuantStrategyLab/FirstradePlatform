@@ -628,6 +628,46 @@ def test_render_cycle_summary_localizes_strategy_signal_codes():
     assert "small_account_warning_note" not in message
 
 
+def test_render_cycle_summary_includes_small_account_cash_note_zh():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "soxl_soxx_trend_income",
+            "strategy_display_name": "SOXL/SOXX 半导体趋势收益",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 1294.0,
+                "liquid_cash": 1294.0,
+                "portfolio_rows": (("SOXL", "SOXX"), ("BOXX",)),
+                "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0},
+                "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 0},
+            },
+            "allocation": {"targets": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0}},
+            "execution": {
+                "reserved_cash": 38.82,
+                "investable_cash": 1255.18,
+                "signal_date": "2026-05-26",
+                "effective_date": "2026-05-27",
+                "execution_timing_contract": "next_trading_day",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [],
+            "execution_notes": [
+                {
+                    "symbol": "SOXX",
+                    "target_value": 194.10,
+                    "price": 525.0,
+                    "cash_symbols": ("BOXX",),
+                }
+            ],
+        },
+        lang="zh",
+    )
+
+    assert "ℹ️ [买入说明] SOXX.US 目标金额 $194.10 低于 1 股价格 $525.00" in message
+    assert "小账户本轮保留现金，不回补 BOXX.US" in message
+
+
 def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template():
     message = render_cycle_summary(
         {

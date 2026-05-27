@@ -448,6 +448,7 @@ def run_strategy_cycle(
     )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)
+    execution_notes = list(execution_result.execution_notes)
     blocking_skips = filter_execution_blocking_skips(skipped_orders)
     execution_blocked = bool(blocking_skips)
     funding_blocked = is_terminal_funding_block(blocking_skips)
@@ -475,6 +476,7 @@ def run_strategy_cycle(
         "execution": plan.get("execution", {}),
         "submitted_orders": submitted_orders,
         "skipped_orders": skipped_orders,
+        "execution_notes": execution_notes,
         "action_done": execution_result.action_done,
     }
     if execution_blocked:
@@ -513,6 +515,7 @@ def run_strategy_cycle(
             plan=plan,
             submitted_orders=list(execution_result.submitted_orders),
             skipped_orders=list(execution_result.skipped_orders),
+            execution_notes=list(execution_result.execution_notes),
             action_done=execution_result.action_done,
             now=now,
         )
