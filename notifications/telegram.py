@@ -517,6 +517,37 @@ def _format_timing_lines(execution: Mapping[str, Any], *, translator: Callable[.
     return [translator("timing_line", value=value)]
 
 
+def _format_signal_snapshot_line(snapshot: Any, *, lang: str) -> str:
+    if not isinstance(snapshot, Mapping):
+        return ""
+    market_date = str(snapshot.get("market_date") or snapshot.get("signal_as_of") or "").strip()
+    source = str(snapshot.get("latest_price_source") or "").strip()
+    overlay = snapshot.get("quote_overlay_used")
+    warning = snapshot.get("data_freshness_warning")
+    if not market_date and not source and overlay is None and warning in (None, "", False):
+        return ""
+    use_zh = str(lang or "").lower().startswith("zh")
+    if use_zh:
+        overlay_text = "是" if overlay is True else "否" if overlay is False else "未知"
+        parts = [
+            f"日期 {market_date or '未知'}",
+            f"数据源 {source or '未知'}",
+            f"报价覆盖 {overlay_text}",
+        ]
+        if warning not in (None, "", False):
+            parts.append(f"提示 {warning}")
+        return "🧾 信号快照: " + " | ".join(parts)
+    overlay_text = "yes" if overlay is True else "no" if overlay is False else "unknown"
+    parts = [
+        f"date {market_date or 'unknown'}",
+        f"source {source or 'unknown'}",
+        f"quote overlay {overlay_text}",
+    ]
+    if warning not in (None, "", False):
+        parts.append(f"warning {warning}")
+    return "🧾 Signal snapshot: " + " | ".join(parts)
+
+
 def _first_summary(value: Any, *, translator: Callable[..., str]) -> str:
     text = str(value or "").strip()
     if not text:
@@ -689,6 +720,9 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         lines.append(SEPARATOR)
         lines.extend(dashboard_lines)
     lines.extend(_format_timing_lines(execution, translator=translator))
+    signal_snapshot_line = _format_signal_snapshot_line(result.get("signal_snapshot"), lang=lang)
+    if signal_snapshot_line:
+        lines.append(signal_snapshot_line)
     lines.extend(_format_signal_lines(execution, translator=translator))
     lines.append(SEPARATOR)
     lines.extend(target_diff_lines)

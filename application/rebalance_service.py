@@ -8,6 +8,7 @@ through Firstrade-specific ports.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from application.firstrade_client import (
     mask_account_id,
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
+from application.signal_snapshot import build_signal_snapshot
 from application.state_persistence import GcsStateStore, build_gcs_state_store_from_env
 from application.strategy_run_persistence import (
     build_strategy_run_state,
@@ -459,6 +461,17 @@ def run_strategy_cycle(
         terminal_funding_block=terminal_funding_block,
         action_done=execution_result.action_done,
     )
+    signal_snapshot = build_signal_snapshot(
+        platform="firstrade",
+        strategy_profile=strategy_runtime.profile,
+        execution={
+            **dict(plan.get("execution", {}) or {}),
+            "latest_price_source": "firstrade_ohlc_with_live_quote_overlay",
+        },
+        allocation=plan.get("allocation", {}),
+        metadata=getattr(evaluation, "metadata", None),
+    )
+    print("signal_snapshot " + json.dumps(signal_snapshot, ensure_ascii=False), flush=True)
     result = {
         "ok": not execution_blocked,
         "api_kind": "unofficial-reverse-engineered",
@@ -474,6 +487,7 @@ def run_strategy_cycle(
         "portfolio": plan.get("portfolio", {}),
         "allocation": plan.get("allocation", {}),
         "execution": plan.get("execution", {}),
+        "signal_snapshot": signal_snapshot,
         "submitted_orders": submitted_orders,
         "skipped_orders": skipped_orders,
         "execution_notes": execution_notes,
