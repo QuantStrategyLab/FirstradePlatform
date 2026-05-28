@@ -9,6 +9,57 @@ from typing import Any
 from quant_platform_kit.common.notification_localization import (
     localize_notification_text as _base_localize_notification_text,
 )
+
+try:
+    from quant_platform_kit.common.notification_localization import (
+        localize_price_source_label as _localize_price_source_label,
+        localize_quote_overlay_state as _localize_quote_overlay_state,
+    )
+except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
+    _PRICE_SOURCE_LABELS = {
+        "longbridge_candlesticks": ("LongBridge 日线K线", "LongBridge daily candlesticks"),
+        "schwab_daily_history_with_live_quote_overlay": (
+            "Schwab 日线历史 + 实时报价覆盖",
+            "Schwab daily history + live quote overlay",
+        ),
+        "firstrade_ohlc_with_live_quote_overlay": (
+            "Firstrade OHLC + 实时报价覆盖",
+            "Firstrade OHLC + live quote overlay",
+        ),
+        "market_quote": ("实时行情报价", "market quote"),
+        "mixed_market_quote_snapshot_close": (
+            "实时行情报价 + 快照收盘价回补",
+            "market quote + snapshot close fallback",
+        ),
+        "mixed_market_quote_historical_close": (
+            "实时行情报价 + 历史收盘价回补",
+            "market quote + historical close fallback",
+        ),
+        "snapshot_close": ("快照收盘价", "snapshot close"),
+        "historical_close": ("历史收盘价", "historical close"),
+        "market_data": ("市场数据", "market data"),
+    }
+
+    def _locale_uses_zh(locale: str | None) -> bool:
+        return str(locale or "").strip().lower().startswith("zh")
+
+    def _localize_price_source_label(value, *, translator=None, locale=None):
+        source = str(value or "").strip()
+        use_zh = _locale_uses_zh(locale)
+        if not source:
+            return "未知" if use_zh else "unknown"
+        label = _PRICE_SOURCE_LABELS.get(source)
+        if label is not None:
+            return label[0] if use_zh else label[1]
+        return source.replace("_", " ")
+
+    def _localize_quote_overlay_state(value, *, translator=None, locale=None):
+        use_zh = _locale_uses_zh(locale)
+        if value is True:
+            return "是" if use_zh else "yes"
+        if value is False:
+            return "否" if use_zh else "no"
+        return "未知" if use_zh else "unknown"
 try:
     from quant_platform_kit.common.small_account_compatibility import (
         format_small_account_cash_substitution_notes,
@@ -528,20 +579,18 @@ def _format_signal_snapshot_line(snapshot: Any, *, lang: str) -> str:
         return ""
     use_zh = str(lang or "").lower().startswith("zh")
     if use_zh:
-        overlay_text = "是" if overlay is True else "否" if overlay is False else "未知"
         parts = [
             f"日期 {market_date or '未知'}",
-            f"数据源 {source or '未知'}",
-            f"报价覆盖 {overlay_text}",
+            f"数据源 {_localize_price_source_label(source, locale=lang)}",
+            f"报价覆盖 {_localize_quote_overlay_state(overlay, locale=lang)}",
         ]
         if warning not in (None, "", False):
-            parts.append(f"提示 {warning}")
+            parts.append(f"提示 {_base_localize_notification_text(warning, translator=build_translator(lang))}")
         return "🧾 信号快照: " + " | ".join(parts)
-    overlay_text = "yes" if overlay is True else "no" if overlay is False else "unknown"
     parts = [
         f"date {market_date or 'unknown'}",
-        f"source {source or 'unknown'}",
-        f"quote overlay {overlay_text}",
+        f"source {_localize_price_source_label(source, locale=lang)}",
+        f"quote overlay {_localize_quote_overlay_state(overlay, locale=lang)}",
     ]
     if warning not in (None, "", False):
         parts.append(f"warning {warning}")
