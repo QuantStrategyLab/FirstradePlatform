@@ -47,6 +47,7 @@ from quant_platform_kit.common.runtime_inputs import (
     required_semiconductor_rotation_history_lookback,
 )
 from quant_platform_kit.common.strategy_plugins import (
+    attach_strategy_plugin_metadata,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
@@ -327,6 +328,7 @@ def run_strategy_cycle(
     portfolio_port = broker_adapters.build_portfolio_port()
     execution_port = broker_adapters.build_execution_port()
     snapshot = portfolio_port.get_portfolio_snapshot()
+    snapshot = attach_strategy_plugin_metadata(snapshot, strategy_plugin_signals)
 
     available_inputs = set(strategy_runtime.runtime_adapter.available_inputs)
     benchmark_symbol = str(strategy_runtime.merged_runtime_config.get("benchmark_symbol", "QQQ"))
