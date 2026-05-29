@@ -553,6 +553,22 @@ def _localize_timing_contract(contract: Any, *, translator: Callable[..., str]) 
     return value
 
 
+def _infer_quote_overlay_used(source: str, overlay):
+    if overlay is not None:
+        return overlay
+    normalized_source = str(source or "").strip().lower()
+    if "with_live_quote_overlay" in normalized_source:
+        return True
+    if normalized_source in {
+        "longbridge_candlesticks",
+        "historical_close",
+        "snapshot_close",
+        "market_quote",
+    }:
+        return False
+    return None
+
+
 def _format_timing_lines(execution: Mapping[str, Any], *, translator: Callable[..., str]) -> list[str]:
     signal_date = str(execution.get("signal_date") or "").strip()
     effective_date = str(execution.get("effective_date") or "").strip()
@@ -573,7 +589,7 @@ def _format_signal_snapshot_line(snapshot: Any, *, lang: str) -> str:
         return ""
     market_date = str(snapshot.get("market_date") or snapshot.get("signal_as_of") or "").strip()
     source = str(snapshot.get("latest_price_source") or "").strip()
-    overlay = snapshot.get("quote_overlay_used")
+    overlay = _infer_quote_overlay_used(source, snapshot.get("quote_overlay_used"))
     warning = snapshot.get("data_freshness_warning")
     if not market_date and not source and overlay is None and warning in (None, "", False):
         return ""
