@@ -205,7 +205,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
                 "mode": "shadow",
                 "configured_mode": "shadow",
                 "effective_mode": "shadow",
-                "schema_version": "1.0",
+                "schema_version": "crisis_response_shadow.v1",
                 "as_of": "2026-05-24",
                 "canonical_route": "true_crisis",
                 "suggested_action": "defend",
