@@ -24,6 +24,7 @@ jobs:
     env:
       ENABLE_GITHUB_CLOUD_RUN_DEPLOY: ${{ vars.ENABLE_GITHUB_CLOUD_RUN_DEPLOY }}
       ENABLE_GITHUB_ENV_SYNC: ${{ vars.ENABLE_GITHUB_ENV_SYNC }}
+      ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION: ${{ vars.ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION }}
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
       TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME }}
@@ -117,6 +118,12 @@ jobs:
         id: deploy_config
         run: |
           set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME:-}" = "push" ] && [ "${ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION:-}" != "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Cloud Run deploy on push because ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION is not true." >&2
+            exit 0
+          fi
 
           if [ "${ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-true}" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
