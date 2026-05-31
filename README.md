@@ -1,5 +1,7 @@
 # Firstrade Platform
 
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+
 Firstrade platform layer for QuantStrategyLab-style US equity runtimes.
 
 This repository wraps the unofficial `firstrade` Python package and exposes a
