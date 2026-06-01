@@ -246,6 +246,22 @@ profile、同一月份已有终态记录时，会阻止重复提交订单。终�
 不足以买入一整股，则记录为 `FUNDING_BLOCKED`，通知和日志会带跳过原因，
 同一周期不会自动重复重试。
 
+
+## GitHub-managed Cloud Run deploy and env sync
+
+This repo includes `.github/workflows/sync-cloud-run-env.yml` for GitHub-managed
+Cloud Run automation. Use these repository variables together when GitHub should
+own the deployed runtime:
+
+- `ENABLE_GITHUB_CLOUD_RUN_DEPLOY=true` to build, push, and deploy the Cloud Run image
+- `ENABLE_GITHUB_ENV_SYNC=true` to sync runtime env vars to the Cloud Run service
+- `ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION=true` to allow `main` pushes to run the
+  deploy/env-sync workflow; manual `workflow_dispatch` runs do not require this flag
+
+The main-push flag is an explicit automation ownership switch. Setting it to
+`true` keeps the deployed US runtime aligned with the latest `main` version while
+the live-order gates above still control whether `/run` can submit real orders.
+
 ## Cloud Run Shape
 
 `main.py` exposes:
@@ -354,6 +370,21 @@ HTTP 策略闭环实盘还必须额外满足：
 
 策略闭环生成的是整数股限价单。如果设置了 `FIRSTRADE_MAX_ORDER_NOTIONAL_USD`
 且它低于目标标的当前价格，本轮会跳过该订单，而不是放大金额。
+
+
+### GitHub 统一管理 Cloud Run 部署和环境变量
+
+这个仓库提供 `.github/workflows/sync-cloud-run-env.yml` 作为 GitHub 管理
+Cloud Run 的入口。如果希望 GitHub 接管已部署运行时，仓库级 Variables 建议一起设置：
+
+- `ENABLE_GITHUB_CLOUD_RUN_DEPLOY=true`：构建、推送并部署 Cloud Run 镜像
+- `ENABLE_GITHUB_ENV_SYNC=true`：把运行时环境变量同步到 Cloud Run 服务
+- `ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION=true`：允许 `main` push 触发
+  deploy/env-sync workflow；手动 `workflow_dispatch` 不要求这个开关
+
+`ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION` 是显式的主分支发布所有权开关。设为
+`true` 后，美股运行时会跟随最新 `main` 部署；是否允许 `/run` 提交真实订单仍由上面的
+live-order 安全闸控制。
 
 请不要把 Firstrade 登录凭据、MFA secret、cookie 文件提交到 Git。`.env`、
 `.runtime/` 和 `ft_cookies*.json` 已经在 `.gitignore` 中。
