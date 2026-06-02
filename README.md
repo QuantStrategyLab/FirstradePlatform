@@ -262,6 +262,36 @@ The main-push flag is an explicit automation ownership switch. Setting it to
 `true` keeps the deployed US runtime aligned with the latest `main` version while
 the live-order gates above still control whether `/run` can submit real orders.
 
+## Runtime Guard Alerting
+
+This repo also includes `.github/workflows/runtime-guard.yml`, a GitHub Actions
+guard for failures that happen outside the Flask handler. It reads Cloud Logging
+for recent Cloud Scheduler errors and Cloud Run request/runtime failures, then
+sends Telegram directly through `CRISIS_ALERT_TELEGRAM_BOT_TOKEN` +
+`CRISIS_ALERT_TELEGRAM_CHAT_IDS` or the fallback `TELEGRAM_TOKEN` +
+`GLOBAL_TELEGRAM_CHAT_ID`.
+
+The guard does not call `/run`, `/session-check`, or any trading endpoint. It is
+a second notification layer for cases where Cloud Scheduler cannot reach Cloud
+Run, OIDC/IAM/audience is wrong, Cloud Run returns 4xx/5xx, or the container
+fails before the app-level Telegram fallback can run.
+
+Required setup:
+
+- keep `CLOUD_RUN_SERVICE` or `RUNTIME_GUARD_CLOUD_RUN_SERVICES` set to the
+  deployed service name
+- give the GitHub deploy service account `roles/logging.viewer` on the GCP
+  project so it can read Cloud Logging
+- keep Telegram chat/token variables or secrets configured in GitHub
+- optionally set `RUNTIME_GUARD_SCHEDULER_JOB_PATTERN` to a regex that limits
+  Scheduler log checks to this service's jobs
+
+The scheduled guard checks every 30 minutes. To use it as a missed-run heartbeat,
+set `RUNTIME_GUARD_REQUIRE_SUCCESS=true` and choose
+`RUNTIME_GUARD_LOOKBACK_MINUTES` so the window covers the expected Firstrade
+Scheduler run. The default leaves that heartbeat check off to avoid false alerts
+outside trading windows.
+
 ## Cloud Run Shape
 
 `main.py` exposes:
@@ -385,6 +415,28 @@ Cloud Run 的入口。如果希望 GitHub 接管已部署运行时，仓库级 V
 `ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION` 是显式的主分支发布所有权开关。设为
 `true` 后，美股运行时会跟随最新 `main` 部署；是否允许 `/run` 提交真实订单仍由上面的
 live-order 安全闸控制。
+
+### Runtime Guard 告警
+
+仓库还提供 `.github/workflows/runtime-guard.yml`。这个 workflow 不会调用
+`/run`、`/session-check` 或任何交易入口，只读取 Cloud Logging 中最近的 Cloud
+Scheduler 错误和 Cloud Run 请求/运行失败，并直接用
+`CRISIS_ALERT_TELEGRAM_BOT_TOKEN` + `CRISIS_ALERT_TELEGRAM_CHAT_IDS` 或 fallback
+的 `TELEGRAM_TOKEN` + `GLOBAL_TELEGRAM_CHAT_ID` 发 Telegram。
+
+这层保护覆盖 Flask handler 还没来得及发通知的场景，例如 Scheduler 没打到 Cloud
+Run、OIDC/IAM/audience 配错、Cloud Run 返回 4xx/5xx，或容器启动/导入阶段已经失败。
+
+需要的配置：
+
+- `CLOUD_RUN_SERVICE` 或 `RUNTIME_GUARD_CLOUD_RUN_SERVICES` 指向已部署服务
+- GitHub deploy service account 需要项目级 `roles/logging.viewer`，用于读取 Cloud Logging
+- GitHub 中继续配置 Telegram chat/token 变量或 secrets
+- 可选设置 `RUNTIME_GUARD_SCHEDULER_JOB_PATTERN`，用正则把 Scheduler 日志限制到本服务的 job
+
+默认计划每 30 分钟检查一次。若要把它作为 missed-run 心跳检查，设置
+`RUNTIME_GUARD_REQUIRE_SUCCESS=true`，并把 `RUNTIME_GUARD_LOOKBACK_MINUTES` 设成覆盖
+Firstrade 预期 Scheduler 运行时间的窗口。默认不强制心跳，避免非交易窗口误报。
 
 请不要把 Firstrade 登录凭据、MFA secret、cookie 文件提交到 Git。`.env`、
 `.runtime/` 和 `ft_cookies*.json` 已经在 `.gitignore` 中。
