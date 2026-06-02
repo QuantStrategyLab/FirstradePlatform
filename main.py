@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import traceback
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 from application.firstrade_client import (
     FirstradeBrokerClient,
@@ -16,6 +17,7 @@ from application.firstrade_client import (
 )
 from application.rebalance_service import run_strategy_cycle
 from application.session_check_service import run_session_check
+from notifications.telegram import build_sender
 from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
@@ -23,6 +25,79 @@ app = Flask(__name__)
 
 def _flag(name: str, default: str = "false") -> bool:
     return (os.getenv(name, default) or "").strip().lower() == "true"
+
+
+def _split_env_list(value: str | None) -> tuple[str, ...]:
+    return tuple(
+        item.strip()
+        for item in str(value or "").replace(";", ",").split(",")
+        if item.strip()
+    )
+
+
+def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
+    targets: list[tuple[str, str]] = []
+    main_token = os.getenv("TELEGRAM_TOKEN")
+    main_chat_id = os.getenv("GLOBAL_TELEGRAM_CHAT_ID")
+    if main_token and main_chat_id:
+        targets.append((main_token, main_chat_id))
+
+    crisis_token = os.getenv("CRISIS_ALERT_TELEGRAM_BOT_TOKEN")
+    for chat_id in _split_env_list(os.getenv("CRISIS_ALERT_TELEGRAM_CHAT_IDS")):
+        if crisis_token and chat_id:
+            targets.append((crisis_token, chat_id))
+
+    seen: set[tuple[str, str]] = set()
+    unique_targets: list[tuple[str, str]] = []
+    for target in targets:
+        if target in seen:
+            continue
+        seen.add(target)
+        unique_targets.append(target)
+    return tuple(unique_targets)
+
+
+def _runtime_error_notification_message(exc: Exception) -> str:
+    error_text = f"{type(exc).__name__}: {exc}"
+    if len(error_text) > 1200:
+        error_text = error_text[:1197] + "..."
+    return "\n".join(
+        (
+            "Firstrade strategy run failed",
+            f"service: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
+            f"revision: {os.getenv('K_REVISION') or '<unknown>'}",
+            f"route: {request.method} {request.path}",
+            f"strategy: {os.getenv('STRATEGY_PROFILE') or '<unset>'}",
+            f"account_scope: {os.getenv('ACCOUNT_REGION') or '<unset>'}",
+            f"error: {error_text}",
+        )
+    )
+
+
+def _notify_runtime_error(exc: Exception) -> bool:
+    targets = _telegram_notification_targets()
+    if not targets:
+        print(
+            "Firstrade runtime error notification skipped: no Telegram target configured.",
+            flush=True,
+        )
+        return False
+
+    message = _runtime_error_notification_message(exc)
+    attempted = False
+    for token, chat_id in targets:
+        attempted = True
+        try:
+            build_sender(token, chat_id)(message)
+        except Exception as send_exc:  # pragma: no cover - build_sender normally handles this.
+            print(f"Firstrade runtime error Telegram send failed: {send_exc}", flush=True)
+    return attempted
+
+
+def _handle_strategy_run_exception(exc: Exception) -> bool:
+    print(f"Firstrade strategy run failed: {type(exc).__name__}: {exc}", flush=True)
+    traceback.print_exc()
+    return _notify_runtime_error(exc)
 
 
 @app.get("/")
@@ -128,9 +203,29 @@ def run_strategy():
     try:
         return jsonify(run_strategy_cycle())
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        notification_attempted = _handle_strategy_run_exception(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
     except Exception as exc:
-        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        notification_attempted = _handle_strategy_run_exception(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
 
 
 @app.post("/precheck")
