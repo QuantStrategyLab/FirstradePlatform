@@ -292,6 +292,14 @@ set `RUNTIME_GUARD_REQUIRE_SUCCESS=true` and choose
 Scheduler run. The default leaves that heartbeat check off to avoid false alerts
 outside trading windows.
 
+`Execution Report Heartbeat` (`.github/workflows/execution-report-heartbeat.yml`)
+is the stricter completion check. It runs on weekdays after the expected US
+window and verifies that a recent strategy-run JSON exists under
+`FIRSTRADE_GCS_STATE_BUCKET` / `FIRSTRADE_STATE_PREFIX`. It reads the latest
+report status/stage and alerts if no recent report exists or the latest reports
+are error-like. The deploy service account needs object read/list access on the
+state bucket.
+
 ## Cloud Run Shape
 
 `main.py` exposes:
@@ -437,6 +445,12 @@ Run、OIDC/IAM/audience 配错、Cloud Run 返回 4xx/5xx，或容器启动/导�
 默认计划每 30 分钟检查一次。若要把它作为 missed-run 心跳检查，设置
 `RUNTIME_GUARD_REQUIRE_SUCCESS=true`，并把 `RUNTIME_GUARD_LOOKBACK_MINUTES` 设成覆盖
 Firstrade 预期 Scheduler 运行时间的窗口。默认不强制心跳，避免非交易窗口误报。
+
+更严格的完成检查是 `Execution Report Heartbeat`
+（`.github/workflows/execution-report-heartbeat.yml`）。它会在工作日美股预期窗口后检查
+`FIRSTRADE_GCS_STATE_BUCKET` / `FIRSTRADE_STATE_PREFIX` 下最近的 strategy-run JSON，
+读取 `status/stage/errors`，如果没有近期 report 或 report 呈错误状态就发 Telegram。
+GitHub deploy service account 需要对 state bucket 有对象读取/列举权限。
 
 请不要把 Firstrade 登录凭据、MFA secret、cookie 文件提交到 Git。`.env`、
 `.runtime/` 和 `ft_cookies*.json` 已经在 `.gitignore` 中。
