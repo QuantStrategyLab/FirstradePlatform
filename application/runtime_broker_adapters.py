@@ -41,11 +41,76 @@ def _utcnow() -> datetime:
 
 
 _NEW_YORK_TZ = ZoneInfo("America/New_York")
+_TOTAL_EQUITY_KEYWORD_GROUPS = (
+    ("total", "value"),
+    ("total", "equity"),
+    ("account", "value"),
+    ("account", "equity"),
+    ("net", "liquid"),
+    ("liquidation",),
+    ("equity",),
+)
+_BUYING_POWER_KEYWORD_GROUPS = (
+    ("buying", "power"),
+    ("buying",),
+    ("bp",),
+)
+_CASH_BALANCE_KEYWORD_GROUPS = (
+    ("cash", "balance"),
+    ("available", "cash"),
+    ("cash", "available"),
+    ("cash",),
+)
 
 
 def _market_date(value: datetime) -> date:
     normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     return normalized.astimezone(_NEW_YORK_TZ).date()
+
+
+def _first_numeric_by_keyword_groups(payload, keyword_groups: tuple[tuple[str, ...], ...]) -> float | None:
+    for keywords in keyword_groups:
+        value = first_numeric_by_keywords(payload, keywords)
+        if value is not None:
+            return value
+    return None
+
+
+def _positive_or_none(value: float | None) -> float | None:
+    if value is None:
+        return None
+    resolved = float(value)
+    return resolved if resolved > 0.0 else None
+
+
+def _resolve_total_equity(
+    *,
+    balances,
+    cash_balance: float | None,
+    buying_power: float | None,
+    position_market_value: float,
+) -> tuple[float, str]:
+    balance_total = _positive_or_none(
+        _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
+    )
+    if balance_total is not None:
+        return balance_total, "balance_total"
+
+    resolved_cash = _positive_or_none(cash_balance)
+    if resolved_cash is not None:
+        combined_value = resolved_cash + max(0.0, float(position_market_value))
+        if combined_value > 0.0:
+            return combined_value, "cash_plus_positions"
+
+    positive_position_value = _positive_or_none(position_market_value)
+    if positive_position_value is not None:
+        return positive_position_value, "positions"
+
+    positive_buying_power = _positive_or_none(buying_power)
+    if positive_buying_power is not None:
+        return positive_buying_power, "buying_power_fallback"
+
+    return 0.0, "unresolved"
 
 
 @dataclass(frozen=True)
@@ -184,22 +249,26 @@ class FirstradeBrokerAdapters:
                     account_id=mask_account_id(self.account),
                 )
             )
-        total_equity = (
-            first_numeric_by_keywords(balances, ("total", "value"))
-            or first_numeric_by_keywords(balances, ("equity",))
-            or sum(position.market_value for position in positions)
+        buying_power = _first_numeric_by_keyword_groups(balances, _BUYING_POWER_KEYWORD_GROUPS)
+        cash_balance = _first_numeric_by_keyword_groups(balances, _CASH_BALANCE_KEYWORD_GROUPS)
+        position_market_value = sum(position.market_value for position in positions)
+        total_equity, total_equity_source = _resolve_total_equity(
+            balances=balances,
+            cash_balance=cash_balance,
+            buying_power=buying_power,
+            position_market_value=position_market_value,
         )
         return PortfolioSnapshot(
             as_of=self.clock(),
-            total_equity=float(total_equity or 0.0),
-            buying_power=first_numeric_by_keywords(balances, ("buying",))
-            or first_numeric_by_keywords(balances, ("bp",)),
-            cash_balance=first_numeric_by_keywords(balances, ("cash",)),
+            total_equity=float(total_equity),
+            buying_power=buying_power,
+            cash_balance=cash_balance,
             positions=tuple(positions),
             metadata={
                 "broker": "firstrade",
                 "account_hash": self.account_hash or mask_account_id(self.account),
                 "api_kind": "unofficial-reverse-engineered",
+                "total_equity_source": total_equity_source,
             },
         )
 

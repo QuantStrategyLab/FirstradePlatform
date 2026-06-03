@@ -192,6 +192,93 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
 
 
+def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing(monkeypatch):
+    class CashOnlyClient(FakeFirstradeClient):
+        def get_balances(self, _account):
+            return {"cash_balance": "$1000.00", "buying_power": "$1000.00"}
+
+    class WeightTargetRuntime(FakeStrategyRuntime):
+        profile = "mega_cap_leader_rotation_top50_balanced"
+        display_name = "Mega Cap Leader Rotation Top50 Balanced"
+
+        def evaluate(self, **inputs):
+            assert "portfolio_snapshot" in inputs
+            return SimpleNamespace(
+                decision=StrategyDecision(
+                    positions=(
+                        PositionTarget(symbol="AAA", target_weight=0.5, role="risk"),
+                    ),
+                    diagnostics={},
+                ),
+                metadata={"strategy_profile": self.profile},
+            )
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: WeightTargetRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            strategy_profile="mega_cap_leader_rotation_top50_balanced",
+            strategy_display_name="Mega Cap Leader Rotation Top50 Balanced",
+        ),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=CashOnlyClient,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["ok"] is True
+    assert result["portfolio"]["total_equity"] == 1000.0
+    assert result["allocation"]["targets"]["AAA"] == 500.0
+    assert result["submitted_orders"][0]["symbol"] == "AAA"
+
+
+def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(monkeypatch):
+    class ZeroEquityClient(FakeFirstradeClient):
+        def get_balances(self, _account):
+            return {"total_value": "$0.00", "cash_balance": "$0.00", "buying_power": "$0.00"}
+
+    class WeightTargetRuntime(FakeStrategyRuntime):
+        profile = "mega_cap_leader_rotation_top50_balanced"
+        display_name = "Mega Cap Leader Rotation Top50 Balanced"
+
+        def evaluate(self, **inputs):
+            assert "portfolio_snapshot" in inputs
+            return SimpleNamespace(
+                decision=StrategyDecision(
+                    positions=(
+                        PositionTarget(symbol="AAA", target_weight=0.5, role="risk"),
+                    ),
+                    diagnostics={},
+                ),
+                metadata={"strategy_profile": self.profile},
+            )
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: WeightTargetRuntime(),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            strategy_profile="mega_cap_leader_rotation_top50_balanced",
+            strategy_display_name="Mega Cap Leader Rotation Top50 Balanced",
+        ),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=ZeroEquityClient,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["ok"] is True
+    assert result["portfolio"]["total_equity"] == 0.0
+    assert result["allocation"]["targets"]["AAA"] == 0.0
+    assert result["submitted_orders"] == []
+    assert result["skipped_orders"] == [
+        {"symbol": "AAA", "reason": "below_trade_threshold", "delta_value": 0.0}
+    ]
+
+
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     monkeypatch,
     tmp_path,

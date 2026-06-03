@@ -9,10 +9,19 @@ from typing import Any
 def float_or_none(value: Any) -> float | None:
     if value in (None, ""):
         return None
+    text = str(value).strip()
+    if not text:
+        return None
+    negative_parentheses = text.startswith("(") and text.endswith(")")
+    if negative_parentheses:
+        text = text[1:-1].strip()
+    if text.startswith("$"):
+        text = text[1:].strip()
     try:
-        return float(str(value).replace(",", ""))
+        number = float(text.replace(",", ""))
     except (TypeError, ValueError):
         return None
+    return -number if negative_parentheses else number
 
 
 def flatten_values(payload: Any, prefix: str = "") -> dict[str, Any]:
