@@ -40,12 +40,28 @@ class FakeClient:
 
 
 class FakeStateStore:
-    def __init__(self):
+    def __init__(self, reads=None):
+        self.payloads = dict(reads or {})
+        self.reads = []
         self.writes = []
+
+    def read_json(self, key):
+        self.reads.append(key)
+        return self.payloads.get(key)
 
     def write_json(self, key, payload):
         self.writes.append((key, payload))
+        self.payloads[key] = payload
         return True
+
+
+class ExplodingClient:
+    def __init__(self, *_args, **_kwargs):
+        raise AssertionError("client should not be created when session-check is skipped")
+
+
+def _env(values):
+    return lambda name, default=None: values.get(name, default)
 
 
 def test_build_account_funds_snapshot_masks_account_and_compacts_values():
@@ -91,3 +107,128 @@ def test_run_session_check_persists_funds_snapshot_when_enabled():
     assert store.writes[0][0] == "accounts/____5678/funds/latest.json"
     assert store.writes[1][0] == "accounts/____5678/funds/history/2026/05/23/20260523T010203Z.json"
     assert store.writes[0][1]["positions"][0]["symbol"] == "SPY"
+
+
+def test_monthly_session_check_skips_when_current_period_is_already_maintained():
+    now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
+    state_key = (
+        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+    )
+    store = FakeStateStore(
+        {
+            state_key: {
+                "checked_at": "2026-06-01T01:02:03+00:00",
+                "period": "2026-06",
+            }
+        }
+    )
+
+    result = run_session_check(
+        client_factory=ExplodingClient,
+        state_store=store,
+        env_reader=_env({"STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced"}),
+        now=now,
+    )
+
+    assert result["ok"] is True
+    assert result["session_check_skipped"] is True
+    assert result["session_check_policy"] == "auto"
+    assert result["session_check_period"] == "2026-06"
+    assert result["session_check_last_checked_at"] == "2026-06-01T01:02:03+00:00"
+    assert store.reads == [state_key]
+    assert store.writes == []
+
+
+def test_monthly_session_check_runs_and_persists_maintenance_state_when_due():
+    now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
+    store = FakeStateStore()
+
+    result = run_session_check(
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeClient,
+        state_store=store,
+        env_reader=_env({"STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced"}),
+        now=now,
+    )
+
+    assert result["ok"] is True
+    assert result["session_check_maintenance_state_persisted"] is True
+    state_key = (
+        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+    )
+    assert store.reads == [state_key]
+    assert store.writes == [
+        (
+            state_key,
+            {
+                "checked_at": "2026-06-03T01:02:03+00:00",
+                "account": "****5678",
+                "session_reused": True,
+                "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+                "strategy_cadence": "monthly",
+                "strategy_required_inputs": ["feature_snapshot"],
+                "period": "2026-06",
+                "policy": "auto",
+            },
+        )
+    ]
+
+
+def test_daily_session_check_runs_every_time_without_maintenance_state_lookup():
+    now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
+    store = FakeStateStore()
+
+    result = run_session_check(
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeClient,
+        state_store=store,
+        env_reader=_env({"STRATEGY_PROFILE": "tqqq_growth_income"}),
+        now=now,
+    )
+
+    assert result["ok"] is True
+    assert result["session_check_policy_reason"] == "daily_strategy"
+    assert result["session_check_maintenance_state_persisted"] is False
+    assert store.reads == []
+    assert store.writes == []
+
+
+def test_session_check_policy_always_overrides_monthly_throttle():
+    now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
+    state_key = (
+        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+    )
+    store = FakeStateStore({state_key: {"checked_at": "2026-06-01T01:02:03+00:00"}})
+
+    result = run_session_check(
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=FakeClient,
+        state_store=store,
+        env_reader=_env(
+            {
+                "STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced",
+                "FIRSTRADE_SESSION_CHECK_POLICY": "always",
+            }
+        ),
+        now=now,
+    )
+
+    assert result["ok"] is True
+    assert result["session_check_policy"] == "always"
+    assert result["session_check_policy_reason"] == "policy_always"
+    assert result["session_check_maintenance_state_persisted"] is False
+    assert store.reads == []
+    assert store.writes == []
+
+
+def test_session_check_policy_skip_does_not_require_credentials_or_client():
+    result = run_session_check(
+        client_factory=ExplodingClient,
+        env_reader=_env({"FIRSTRADE_SESSION_CHECK_POLICY": "skip"}),
+        now=datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc),
+    )
+
+    assert result["ok"] is True
+    assert result["session_check_skipped"] is True
+    assert result["session_check_policy"] == "skip"
+    assert result["session_check_policy_reason"] == "policy_skip"

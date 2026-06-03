@@ -100,6 +100,7 @@ commit credentials.
 | `FIRSTRADE_ENABLE_LIVE_TRADING` | Optional | Must be `true` before any live order can be submitted |
 | `FIRSTRADE_RUN_SMOKE_ON_HTTP` | Optional | Must be `true` before `/smoke` performs a real login/quote |
 | `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP` | Optional | Must be `true` before `/session-check` performs a read-only login/session/account-state check |
+| `FIRSTRADE_SESSION_CHECK_POLICY` | Optional | `/session-check` maintenance cadence: `auto`, `always`, or `skip`. Defaults to `auto`; monthly snapshot strategies run at most once per month when GCS state is available, while daily strategies run every check |
 | `FIRSTRADE_SESSION_CHECK_INCLUDE_POSITIONS` | Optional | Include compact symbol/quantity/market-value positions in `/session-check` funds snapshots. Defaults to `false` |
 | `FIRSTRADE_RUN_STRATEGY_ON_HTTP` | Optional | Must be `true` before `/run` performs strategy evaluation and order routing |
 | `FIRSTRADE_LIVE_ORDER_ACK` | Optional | Must be `true` before `/run` can submit live orders |
@@ -211,10 +212,16 @@ sessions from another device, or broker-side invalidation still fall back to a
 fresh login.
 
 `/session-check` is a read-only route for session keepalive experiments and
-account-state persistence. It connects to Firstrade, selects the account, reads
-balances, optionally reads positions, and returns a compact masked funds
-snapshot. With `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, it writes the snapshot
-to `accounts/<masked-account>/funds/latest.json` plus a timestamped history path
+account-state persistence. With `FIRSTRADE_SESSION_CHECK_POLICY=auto`, it reads
+the configured strategy cadence before connecting. Daily strategies and profiles
+with daily canary checks run every time. Monthly snapshot strategies run once per
+calendar month when `FIRSTRADE_GCS_STATE_BUCKET` is available; otherwise the
+route runs conservatively instead of skipping. A skipped check returns
+`session_check_skipped=true` and does not create a Firstrade client. When the
+check runs, it connects to Firstrade, selects the account, reads balances,
+optionally reads positions, and returns a compact masked funds snapshot. With
+`FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, it writes the snapshot to
+`accounts/<masked-account>/funds/latest.json` plus a timestamped history path
 under the configured GCS prefix. Raw account IDs and login secrets are not
 included in the snapshot.
 
@@ -337,11 +344,14 @@ runtime service account object read/write access, and set:
 - `FIRSTRADE_GCS_STATE_BUCKET=<bucket-name>`
 - `FIRSTRADE_STATE_PREFIX=firstrade-platform`
 - `FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP=true`
+- `FIRSTRADE_SESSION_CHECK_POLICY=auto`
 
 The `/session-check` scheduler can safely run more often than the strategy
-scheduler because it is read-only. A typical test schedule is every 30 minutes
-during US regular market hours. The route logs `session_reused=true|false` and
-writes the latest masked funds snapshot plus timestamped history to GCS.
+scheduler because it is read-only. With the default `auto` policy, monthly
+snapshot strategies only perform real session maintenance once per month after
+the first successful check writes its maintenance marker to GCS. Daily strategies
+still run every scheduler hit. The route logs `session_reused=true|false` for
+real checks and `Firstrade session-check skipped` for cadence-based skips.
 
 ## License And Upstream Compliance
 
