@@ -151,6 +151,26 @@ def test_client_order_preview_uses_dry_run_by_default():
     assert response["price"] == 5.0
 
 
+def test_get_balances_includes_account_list_total_value():
+    class BalancesWithoutTotalAccountData(FakeAccountData):
+        account_balances = {"12345678": "$987.65"}
+
+        def get_account_balances(self, account):
+            return {"account": account, "cash_balance": "$987.65"}
+
+    credentials = FirstradeCredentials(username="user", password="pass")
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=FakeSession,
+        account_data_factory=BalancesWithoutTotalAccountData,
+        order_factory=FakeOrder,
+    ).connect()
+
+    balances = client.get_balances("12345678")
+
+    assert balances["account_list_total_value"] == "$987.65"
+
+
 def test_select_account_requires_explicit_account_when_multiple():
     class MultiAccountData(FakeAccountData):
         account_numbers = ["11111111", "22222222"]

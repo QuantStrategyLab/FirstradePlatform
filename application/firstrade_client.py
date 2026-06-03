@@ -428,7 +428,12 @@ class FirstradeBrokerClient:
 
     def get_balances(self, account: str) -> dict[str, Any]:
         _, account_data = self.require_connected()
-        return dict(account_data.get_account_balances(account))
+        balances = dict(account_data.get_account_balances(account))
+        account_balances = dict(getattr(account_data, "account_balances", {}) or {})
+        account_list_total_value = account_balances.get(account)
+        if account_list_total_value is not None and "account_list_total_value" not in balances:
+            balances["account_list_total_value"] = account_list_total_value
+        return balances
 
     def get_positions(self, account: str) -> dict[str, Any]:
         _, account_data = self.require_connected()

@@ -48,6 +48,44 @@ def test_runtime_adapters_build_quote_and_portfolio_ports():
     assert portfolio.positions[0].symbol == "SPY"
 
 
+def test_portfolio_snapshot_uses_account_value_balance_key():
+    class AccountValueClient(FakeClient):
+        def get_balances(self, _account):
+            return {"account_value": "$1,234.56", "cash_balance": "$200.00"}
+
+    adapters = build_runtime_broker_adapters(
+        client=AccountValueClient(),
+        account="12345678",
+        strategy_symbols=("SPY",),
+    )
+
+    portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
+
+    assert portfolio.total_equity == 1234.56
+    assert portfolio.cash_balance == 200.0
+    assert portfolio.metadata["total_equity_source"] == "balance_total"
+
+
+def test_portfolio_snapshot_falls_back_to_cash_when_total_value_missing():
+    class CashOnlyClient(FakeClient):
+        def get_balances(self, _account):
+            return {"cash_balance": "$120.00", "buying_power": "$120.00"}
+
+        def get_positions(self, _account):
+            return {"items": []}
+
+    adapters = build_runtime_broker_adapters(
+        client=CashOnlyClient(),
+        account="12345678",
+        strategy_symbols=("SPY",),
+    )
+
+    portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
+
+    assert portfolio.total_equity == 120.0
+    assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
+
+
 def test_price_series_appends_live_quote_when_history_lags_today():
     adapters = build_runtime_broker_adapters(
         client=FakeClient(

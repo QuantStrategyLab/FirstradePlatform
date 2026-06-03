@@ -96,6 +96,31 @@ def _build_hold_current_value_decision(portfolio_inputs, *, diagnostics: Mapping
     )
 
 
+def _build_zero_equity_no_execute_decision(
+    decision: StrategyDecision,
+    *,
+    portfolio_inputs,
+    diagnostics: Mapping[str, Any],
+) -> StrategyDecision:
+    if portfolio_inputs.market_values:
+        return _build_hold_current_value_decision(portfolio_inputs, diagnostics=diagnostics)
+    positions = []
+    for position in decision.positions:
+        positions.append(
+            PositionTarget(
+                symbol=position.symbol,
+                target_value=0.0,
+                role=position.role or _symbol_role(position.symbol),
+                order_preference=position.order_preference,
+            )
+        )
+    return StrategyDecision(
+        positions=tuple(positions),
+        risk_flags=tuple(dict.fromkeys((*decision.risk_flags, "no_execute"))),
+        diagnostics=dict(diagnostics),
+    )
+
+
 def _build_weight_translation_annotations(
     decision: StrategyDecision,
     *,
@@ -185,14 +210,32 @@ def _normalize_to_value_decision(
     if target_mode == "value" and not no_execute:
         return decision, None
     if target_mode == "weight" and not no_execute:
+        total_equity = float(portfolio_inputs.total_equity)
+        if total_equity <= 0.0:
+            diagnostics = {
+                **dict(runtime_metadata or {}),
+                **dict(decision.diagnostics),
+                "execution_blocked_reason": "non_positive_total_equity",
+                "portfolio_total_equity": total_equity,
+            }
+            return _build_zero_equity_no_execute_decision(
+                decision,
+                portfolio_inputs=portfolio_inputs,
+                diagnostics=diagnostics,
+            ), _build_weight_translation_annotations(
+                decision,
+                total_equity=total_equity,
+                liquid_cash=float(portfolio_inputs.liquid_cash),
+                runtime_metadata=runtime_metadata,
+            )
         translated = translate_decision_to_target_mode(
             decision,
             target_mode="value",
-            total_equity=float(portfolio_inputs.total_equity),
+            total_equity=total_equity,
         )
         return translated, _build_weight_translation_annotations(
             decision,
-            total_equity=float(portfolio_inputs.total_equity),
+            total_equity=total_equity,
             liquid_cash=float(portfolio_inputs.liquid_cash),
             runtime_metadata=runtime_metadata,
         )
