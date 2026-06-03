@@ -2,62 +2,50 @@
 
 [Chinese README](README.zh-CN.md)
 
-> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+> Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
 
-## What this project does
+## What this repository is
 
-FirstradePlatform is an **Experimental execution platform** in the QuantStrategyLab ecosystem. It experimental Firstrade runtime for shared QuantStrategyLab US equity strategies.
+FirstradePlatform is a QuantStrategyLab experimental Firstrade execution platform. It experiments with Firstrade-compatible US equity runtime execution for shared strategy packages.
 
-## Who this is for
+It is an execution layer, not a strategy research repository. Strategy logic comes from `UsEquityStrategies`; snapshot and validation artifacts come from `UsEquitySnapshotPipelines` when a profile requires them.
 
-- Engineers and researchers who want to inspect, reproduce, or extend this part of the QuantStrategyLab stack.
-- Operators who need a clear entry point before reading the deeper runbooks or workflow files.
-- Reviewers who need to understand the repository purpose, safety boundary, and evidence requirements before enabling automation.
+## Runtime boundary
 
-## Current status
+- Loads only runtime-enabled strategy profiles exposed by the strategy packages.
+- Handles broker/API connectivity, dry-run checks, notifications, and deployment settings.
+- Must keep credentials in GitHub Secrets, cloud secret stores, or the broker-specific secret system, never in Git.
+- Should start with dry-run or paper mode before any live order path is enabled.
 
-Experimental platform; do not treat it as production-ready without additional validation.
+## Direct vs snapshot-backed profiles
+
+Direct runtime profiles can usually run from market history or portfolio state. Snapshot-backed profiles need a current artifact bundle from the matching snapshot pipeline before this platform should execute them. The platform should not invent strategy eligibility; it should consume the status and artifacts published by the strategy and snapshot repositories.
+
+## Deploy safely
+
+1. Configure secrets and runtime variables outside Git.
+2. Run the workflow or service in dry-run mode.
+3. Review generated orders, logs, notifications, and reconciliation output.
+4. Confirm rollback steps and artifact versions.
+5. Enable scheduled or live execution only after the above checks are clear.
 
 ## Repository layout
 
-- `application/`, `notifications/`: Python package code.
-- `tests/`: unit and contract tests.
-- `.github/workflows/`: CI, scheduled jobs, and deployment workflows.
+- `tests/`: unit, contract, and regression tests.
+- `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 - `scripts/`: operator scripts and local helpers.
 
 ## Quick start
-
-From a fresh clone:
 
 ```bash
 python -m pip install -e .
 python -m pytest -q
 ```
 
-If a command requires credentials, run it only after reading the relevant workflow or runbook and configuring secrets outside Git.
+## Useful docs
 
-## Deployment and operation
-
-Use isolated credentials and dry-run or paper-style checks first. Only expand scope after manual review of authentication, order generation, and broker responses.
-
-Prefer manual or dry-run execution first. Enable schedules or live execution only after logs, artifacts, permissions, and rollback steps are reviewed.
-
-## Strategy performance and evidence
-
-Execution experiments do not prove strategy performance. Use UsEquityStrategies and snapshot evidence for strategy return, drawdown, and benchmark checks.
-
-README files are intentionally not a source of dated performance promises. Re-run the relevant tests, backtests, or pipeline jobs before relying on any result.
-
-## Safety notes
-
-- Never commit API keys, broker credentials, OAuth tokens, cookies, or account identifiers.
-- Run new strategies and platform changes in dry-run or paper mode before any live execution.
-- Review generated orders, artifacts, and logs manually before enabling schedules.
-
-## Contributing
-
-Keep changes small, reproducible, and covered by the narrowest useful tests. For strategy-facing changes, include the evidence artifact or command used to validate behavior.
+- No separate `docs/` directory yet; start with this README and the workflow files.
 
 ## License
 
-See [LICENSE](LICENSE) if present in this repository.
+See [LICENSE](LICENSE).
