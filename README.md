@@ -1,5 +1,36 @@
 # Firstrade Platform
 
+<!-- qsl-doc-overview:start -->
+
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+
+## Open-source overview / 开源项目入口
+
+| Item | Description |
+| --- | --- |
+| Project type | execution platform |
+| What it does | Experimental Firstrade runtime for shared QuantStrategyLab US equity strategies. |
+| 中文说明 | Firstrade 实验性美股执行平台，用于验证共享美股策略在该券商上的运行适配。 |
+| Current status | Experimental execution platform. Prefer paper/dry-run until broker behavior is verified. |
+
+### Quick start
+
+- `python -m pip install -e '.[test]'`
+- `python -m pytest -q`
+
+### Deploy / operate safely
+
+Keep live disabled until dry-run, order sizing and broker constraints are reviewed for the target account.
+
+### Strategy performance / evidence boundary
+
+Strategy performance evidence comes from UsEquityStrategies/UsEquitySnapshotPipelines.
+
+> Detailed runbooks, migration notes, workflow internals, and historical decisions are kept below. Start with this overview before using the lower-level operational sections.
+
+<!-- qsl-doc-overview:end -->
+
 > Risk warning: this project is not investment advice and is provided for study and engineering validation only.
 
 Language: [English](README.md) | [中文](README.zh-CN.md)
