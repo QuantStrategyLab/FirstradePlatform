@@ -80,6 +80,8 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
+    monkeypatch.setenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", "plugin-token")
+    monkeypatch.setenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", "plugin-chat")
     monkeypatch.setenv("STRATEGY_PROFILE", "mega_cap_leader_rotation_top50_balanced")
     monkeypatch.setattr(main, "build_sender", fake_build_sender)
     monkeypatch.setattr(
@@ -108,8 +110,8 @@ def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
     monkeypatch.delenv("GLOBAL_TELEGRAM_CHAT_ID", raising=False)
-    monkeypatch.delenv("CRISIS_ALERT_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("CRISIS_ALERT_TELEGRAM_CHAT_IDS", raising=False)
+    monkeypatch.delenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", raising=False)
     monkeypatch.setattr(
         main,
         "run_strategy_cycle",

@@ -42,11 +42,6 @@ def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
     if main_token and main_chat_id:
         targets.append((main_token, main_chat_id))
 
-    crisis_token = os.getenv("CRISIS_ALERT_TELEGRAM_BOT_TOKEN")
-    for chat_id in _split_env_list(os.getenv("CRISIS_ALERT_TELEGRAM_CHAT_IDS")):
-        if crisis_token and chat_id:
-            targets.append((crisis_token, chat_id))
-
     seen: set[tuple[str, str]] = set()
     unique_targets: list[tuple[str, str]] = []
     for target in targets:
