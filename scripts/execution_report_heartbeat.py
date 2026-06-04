@@ -60,7 +60,9 @@ def _month_segments(start: dt.datetime, end: dt.datetime) -> list[str]:
     cursor = dt.datetime(start.year, start.month, 1, tzinfo=dt.timezone.utc)
     end_cursor = dt.datetime(end.year, end.month, 1, tzinfo=dt.timezone.utc)
     while cursor <= end_cursor:
-        months.append(f"{cursor.year:04d}-{cursor.month:02d}")
+        month = f"{cursor.year:04d}-{cursor.month:02d}"
+        months.append(month)
+        months.append(month.replace("-", "_"))
         if cursor.month == 12:
             cursor = dt.datetime(cursor.year + 1, 1, 1, tzinfo=dt.timezone.utc)
         else:
