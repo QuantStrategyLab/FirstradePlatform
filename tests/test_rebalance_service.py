@@ -469,6 +469,51 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
     assert store.writes == []
 
 
+def test_run_strategy_cycle_skips_duplicate_live_monthly_no_action(monkeypatch):
+    store = FakeStateStore()
+    settings = _runtime_settings_with_persistence(
+        dry_run_only=False,
+        live_trading_enabled=True,
+        live_order_ack=True,
+        persist_strategy_runs=True,
+    )
+    key = "strategy-runs/____5678/tqqq_growth_income/2026_05/latest.json"
+    store.payloads[key] = {
+        "stage": "NO_ACTION",
+        "as_of": "2026-05-01T01:02:03+00:00",
+        "dry_run_only": False,
+    }
+    observed = {}
+
+    def fake_client_factory(*args, **kwargs):
+        client = FakeFirstradeClient(*args, **kwargs)
+        observed["client"] = client
+        return client
+
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=fake_client_factory,
+        state_store=store,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert result["idempotency_skipped"] is True
+    assert result["existing_strategy_run_stage"] == "NO_ACTION"
+    assert result["action_done"] is False
+    assert observed["client"].orders == []
+    assert store.writes == []
+
+
 def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_stage(monkeypatch):
     store = FakeStateStore()
     settings = _runtime_settings_with_persistence(

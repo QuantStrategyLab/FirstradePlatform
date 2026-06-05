@@ -11,10 +11,16 @@ from typing import Any
 from application.state_persistence import GcsStateStore
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_TERMINAL_STRATEGY_RUN_STAGES,
+    STAGE_NO_ACTION,
     is_terminal_strategy_run_stage,
 )
 
-LIVE_TERMINAL_STAGES = DEFAULT_TERMINAL_STRATEGY_RUN_STAGES
+LIVE_TERMINAL_STAGES = frozenset(
+    {
+        *DEFAULT_TERMINAL_STRATEGY_RUN_STAGES,
+        STAGE_NO_ACTION,
+    }
+)
 
 
 def utcnow() -> datetime:
