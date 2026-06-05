@@ -108,6 +108,7 @@ SEPARATOR = "━━━━━━━━━━━━━━━━━━"
 
 _DETAIL_FIELD_SPLIT_RE = re.compile(r",\s*(?=[A-Za-z_][\w-]*\s*=)")
 _STRUCTURED_PAREN_RE = re.compile(r"^(?P<key>[A-Za-z_][\w-]*)\((?P<details>.*)\)$")
+_DASHBOARD_POSITION_LINE_RE = re.compile(r"^[A-Z][A-Z0-9./-]{0,12}\s*:")
 
 
 I18N = {
@@ -469,29 +470,74 @@ def _is_dashboard_signal_line(line: str) -> bool:
     )
 
 
-def _format_dashboard_lines(
+def _is_dashboard_account_title(line: str, *, translator: Callable[..., str]) -> bool:
+    text = str(line or "").strip()
+    account_titles = {
+        translator("account_overview_title"),
+        "📌 Strategy Account",
+        "📌 Strategy portfolio",
+        "📌 策略账户概览",
+    }
+    return text in account_titles
+
+
+def _is_dashboard_holdings_title(line: str, *, translator: Callable[..., str]) -> bool:
+    text = str(line or "").strip()
+    holdings_titles = {
+        translator("holdings_title"),
+        "💼 Strategy Holdings",
+        "💼 Strategy holdings",
+        "💼 策略持仓",
+    }
+    return text in holdings_titles
+
+
+def _is_dashboard_account_metric_line(line: str, *, translator: Callable[..., str]) -> bool:
+    text = str(line or "").strip()
+    lowered = text.lower()
+    if not text:
+        return False
+    if text.startswith((translator("dashboard_label"), "📊 Dashboard", "📊 资产看板")):
+        return True
+    if text.startswith(("Income:", "收益:", "收入:")):
+        return True
+    if _DASHBOARD_POSITION_LINE_RE.match(text) and (
+        "$" in text or "股" in text or "share" in lowered
+    ):
+        return True
+    metric_labels = {
+        translator("total_assets"),
+        translator("buying_power"),
+        translator("reserved_cash"),
+        translator("investable_cash"),
+        translator("equity"),
+        "Total assets (strategy symbols + cash)",
+        "Buying power",
+        "Reserved cash",
+        "Investable cash",
+        "Equity",
+        "总资产（策略标的+现金）",
+        "购买力",
+        "预留现金",
+        "可投资现金",
+        "净值",
+    }
+    return any(label and label.lower() in lowered for label in metric_labels)
+
+
+def _format_generated_dashboard_lines(
     portfolio: Mapping[str, Any],
     execution: Mapping[str, Any],
     *,
     translator: Callable[..., str],
 ) -> list[str]:
-    dashboard_text = str(execution.get("dashboard_text") or "").strip()
-    if dashboard_text:
-        has_signal_display = bool(str(execution.get("signal_display") or "").strip())
-        lines = []
-        for line in dashboard_text.splitlines():
-            if not line.strip():
-                continue
-            if has_signal_display and _is_dashboard_signal_line(line):
-                continue
-            lines.append(_base_localize_notification_text(line.rstrip(), translator=translator))
-        return lines
-
     lines = [translator("account_overview_title")]
     total_equity = _safe_float(portfolio.get("total_equity"))
     if total_equity is not None:
         lines.append(f"  - {translator('total_assets')}: {_format_money(total_equity)}")
-    buying_power = _safe_float(portfolio.get("liquid_cash"))
+    buying_power = _safe_float(portfolio.get("buying_power"))
+    if buying_power is None:
+        buying_power = _safe_float(portfolio.get("liquid_cash"))
     if buying_power is not None:
         lines.append(f"  - {translator('buying_power')}: {_format_money(buying_power)}")
     reserved_cash = _safe_float(execution.get("reserved_cash"))
@@ -531,6 +577,41 @@ def _format_dashboard_lines(
                 )
             )
     return lines
+
+
+def _format_dashboard_lines(
+    portfolio: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    *,
+    translator: Callable[..., str],
+) -> list[str]:
+    generated_lines = _format_generated_dashboard_lines(portfolio, execution, translator=translator)
+    dashboard_text = str(execution.get("dashboard_text") or "").strip()
+    if not dashboard_text:
+        return generated_lines
+
+    has_signal_display = bool(str(execution.get("signal_display") or "").strip())
+    extra_lines = []
+    skipping_dashboard_holdings = False
+    for raw_line in dashboard_text.splitlines():
+        if not raw_line.strip():
+            continue
+        localized = _base_localize_notification_text(raw_line.rstrip(), translator=translator)
+        if has_signal_display and _is_dashboard_signal_line(localized):
+            continue
+        if _is_dashboard_holdings_title(localized, translator=translator):
+            skipping_dashboard_holdings = True
+            continue
+        if skipping_dashboard_holdings:
+            if raw_line.startswith((" ", "\t", "-")):
+                continue
+            skipping_dashboard_holdings = False
+        if _is_dashboard_account_title(localized, translator=translator):
+            continue
+        if _is_dashboard_account_metric_line(localized, translator=translator):
+            continue
+        extra_lines.append(localized)
+    return [*generated_lines, *extra_lines]
 
 
 def _localize_timing_contract(contract: Any, *, translator: Callable[..., str]) -> str:
