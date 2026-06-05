@@ -6,6 +6,7 @@ from typing import Any
 
 from quant_platform_kit.strategy_contracts import (
     PositionTarget,
+    StrategyContractValidationError,
     StrategyDecision,
     ValueTargetExecutionAnnotations,
     build_value_target_execution_annotations,
@@ -244,7 +245,23 @@ def _normalize_to_value_decision(
 
 
 def _build_annotations(decision: StrategyDecision, *, portfolio_inputs) -> ValueTargetExecutionAnnotations:
-    annotations = build_value_target_execution_annotations(decision)
+    try:
+        annotations = build_value_target_execution_annotations(decision)
+    except StrategyContractValidationError as exc:
+        if "requires trade_threshold_value" not in str(exc):
+            raise
+        diagnostics = dict(decision.diagnostics)
+        raw_annotations = diagnostics.get("execution_annotations")
+        execution_annotations = (
+            dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+        )
+        execution_annotations["trade_threshold_value"] = _default_threshold_value(
+            float(portfolio_inputs.total_equity)
+        )
+        diagnostics["execution_annotations"] = execution_annotations
+        annotations = build_value_target_execution_annotations(
+            replace(decision, diagnostics=diagnostics)
+        )
     investable_cash = annotations.investable_cash
     if investable_cash is None:
         investable_cash = max(0.0, float(portfolio_inputs.liquid_cash) - annotations.reserved_cash)

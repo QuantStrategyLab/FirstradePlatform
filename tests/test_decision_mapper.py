@@ -70,3 +70,50 @@ def test_platform_reserved_cash_policy_does_not_lower_strategy_reserve():
 
     assert plan["execution"]["reserved_cash"] == 1200.0
     assert plan["execution"]["investable_cash"] == 1800.0
+
+
+def test_value_decision_without_threshold_uses_platform_default():
+    decision = StrategyDecision(
+        positions=(PositionTarget(symbol="AAA", target_value=500.0),),
+        diagnostics={"signal_display": "hold AAA"},
+    )
+    snapshot = PortfolioSnapshot(
+        as_of=datetime.now(timezone.utc),
+        total_equity=20000.0,
+        buying_power=3000.0,
+        positions=(),
+    )
+
+    plan = map_strategy_decision_to_plan(
+        decision,
+        snapshot=snapshot,
+        strategy_profile="mega_cap_leader_rotation_top50_balanced",
+    )
+
+    assert plan["execution"]["trade_threshold_value"] == 200.0
+    assert plan["execution"]["current_min_trade"] == 200.0
+    assert plan["allocation"]["targets"]["AAA"] == 500.0
+
+
+def test_no_execute_decision_without_threshold_holds_current_positions():
+    decision = StrategyDecision(
+        positions=(),
+        risk_flags=("no_execute",),
+        diagnostics={"signal_description": "no actionable signal"},
+    )
+    snapshot = PortfolioSnapshot(
+        as_of=datetime.now(timezone.utc),
+        total_equity=5000.0,
+        buying_power=1000.0,
+        positions=(Position(symbol="AAA", quantity=3, market_value=750.0),),
+    )
+
+    plan = map_strategy_decision_to_plan(
+        decision,
+        snapshot=snapshot,
+        strategy_profile="mega_cap_leader_rotation_top50_balanced",
+    )
+
+    assert plan["execution"]["trade_threshold_value"] == 100.0
+    assert plan["execution"]["current_min_trade"] == 100.0
+    assert plan["allocation"]["targets"]["AAA"] == 750.0
