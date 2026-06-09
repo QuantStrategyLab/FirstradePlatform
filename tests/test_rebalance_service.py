@@ -138,6 +138,46 @@ def test_notification_i18n_keys_are_aligned():
     assert set(I18N["zh"]) == set(I18N["en"])
     assert build_translator("zh")("account_label", account="****1234") == "🆔 账户: ****1234"
     assert build_translator("en")("account_label", account="****1234") == "🆔 Account: ****1234"
+    zh = build_translator("zh")
+    assert (
+        zh(
+            "blend_gate_reason_volatility_delever_dynamic",
+            symbol="SOXX",
+            window=10,
+            volatility="61.0%",
+            threshold="60.0%",
+            threshold_detail=zh(
+                "blend_gate_volatility_threshold_detail_dynamic",
+                percentile="p95",
+                lookback="252",
+                floor="50.0%",
+                cap="75.0%",
+                sample_count="252",
+            ),
+            redirect_symbol="SOXX",
+        )
+        == "SOXX 10 日年化波动率 61.0% 高于实际阈值 60.0%（动态 p95，252日窗口，范围 50.0%-75.0%，样本 252），SOXL 转向 SOXX"
+    )
+    en = build_translator("en")
+    assert (
+        en(
+            "blend_gate_reason_volatility_delever_dynamic",
+            symbol="SOXX",
+            window=10,
+            volatility="61.0%",
+            threshold="60.0%",
+            threshold_detail=en(
+                "blend_gate_volatility_threshold_detail_dynamic",
+                percentile="p95",
+                lookback="252",
+                floor="50.0%",
+                cap="75.0%",
+                sample_count="252",
+            ),
+            redirect_symbol="SOXX",
+        )
+        == "SOXX 10d annualized volatility 61.0% is above effective threshold 60.0% (dynamic p95, 252d lookback, bounded 50.0%-75.0%, samples 252); redirect SOXL to SOXX"
+    )
 
 
 def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
