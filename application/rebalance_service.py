@@ -373,6 +373,43 @@ def run_strategy_cycle(
             run_period=run_period,
         )
         if is_duplicate_live_run(existing_run):
+            duplicate_stage = str(existing_run.get("stage") or "NO_ACTION")
+            duplicate_skipped_orders = [
+                {
+                    "reason": "duplicate_live_strategy_run",
+                    "run_period": run_period,
+                }
+            ]
+            strategy_run_persisted = False
+            strategy_run_persistence_error = None
+            duplicate_state = build_strategy_run_state(
+                stage=duplicate_stage,
+                account=masked_account,
+                strategy_profile=strategy_runtime.profile,
+                strategy_display_name=strategy_runtime.display_name,
+                run_period=run_period,
+                dry_run_only=settings.dry_run_only,
+                live_trading_enabled=settings.live_trading_enabled,
+                session_reused=bool(getattr(client, "session_reused", False)),
+                portfolio_snapshot=plan.get("portfolio", {}),
+                evaluation_metadata=getattr(evaluation, "metadata", None),
+                plan=plan,
+                skipped_orders=duplicate_skipped_orders,
+                action_done=False,
+                now=now,
+            )
+            duplicate_state["idempotency_skipped"] = True
+            duplicate_state["existing_strategy_run_stage"] = existing_run.get("stage")
+            duplicate_state["existing_strategy_run_as_of"] = existing_run.get("as_of")
+            try:
+                strategy_run_persisted = persist_strategy_run_state(
+                    store=store,
+                    state=duplicate_state,
+                    now=now,
+                )
+            except Exception as exc:
+                strategy_run_persisted = False
+                strategy_run_persistence_error = f"{type(exc).__name__}: {exc}"
             result = {
                 "ok": True,
                 "api_kind": "unofficial-reverse-engineered",
@@ -383,20 +420,18 @@ def run_strategy_cycle(
                 "live_trading_enabled": settings.live_trading_enabled,
                 "session_reused": bool(getattr(client, "session_reused", False)),
                 "strategy_run_period": run_period,
-                "strategy_run_persisted": False,
+                "strategy_run_stage": duplicate_stage,
+                "strategy_run_persisted": strategy_run_persisted,
                 "idempotency_skipped": True,
                 "existing_strategy_run_stage": existing_run.get("stage"),
                 "existing_strategy_run_as_of": existing_run.get("as_of"),
                 "submitted_orders": [],
-                "skipped_orders": [
-                    {
-                        "reason": "duplicate_live_strategy_run",
-                        "run_period": run_period,
-                    }
-                ],
+                "skipped_orders": duplicate_skipped_orders,
                 "action_done": False,
                 **empty_strategy_plugin_alert_report_fields(),
             }
+            if strategy_run_persistence_error:
+                result["strategy_run_persistence_error"] = strategy_run_persistence_error
             return attach_strategy_plugin_result(
                 result,
                 signals=strategy_plugin_signals,

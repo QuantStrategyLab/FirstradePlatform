@@ -130,6 +130,10 @@ class FakeStateStore:
         return True
 
 
+def _latest_strategy_run_payloads(store: FakeStateStore) -> list[dict]:
+    return [payload for key, payload in store.writes if key.endswith("latest.json")]
+
+
 def test_notification_i18n_keys_are_aligned():
     assert set(I18N["zh"]) == set(I18N["en"])
     assert build_translator("zh")("account_label", account="****1234") == "🆔 账户: ****1234"
@@ -465,8 +469,18 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
 
     assert result["idempotency_skipped"] is True
     assert result["action_done"] is False
+    assert result["strategy_run_stage"] == "SUBMITTED"
+    assert result["strategy_run_persisted"] is True
     assert observed["client"].orders == []
-    assert store.writes == []
+    latest_payloads = _latest_strategy_run_payloads(store)
+    assert len(latest_payloads) == 1
+    assert latest_payloads[0]["stage"] == "SUBMITTED"
+    assert latest_payloads[0]["idempotency_skipped"] is True
+    assert latest_payloads[0]["existing_strategy_run_stage"] == "SUBMITTED"
+    assert latest_payloads[0]["skipped_orders"] == [
+        {"reason": "duplicate_live_strategy_run", "run_period": "2026-05"}
+    ]
+    assert len(store.writes) == 2
 
 
 def test_run_strategy_cycle_skips_duplicate_live_monthly_no_action(monkeypatch):
@@ -510,8 +524,18 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_no_action(monkeypatch):
     assert result["idempotency_skipped"] is True
     assert result["existing_strategy_run_stage"] == "NO_ACTION"
     assert result["action_done"] is False
+    assert result["strategy_run_stage"] == "NO_ACTION"
+    assert result["strategy_run_persisted"] is True
     assert observed["client"].orders == []
-    assert store.writes == []
+    latest_payloads = _latest_strategy_run_payloads(store)
+    assert len(latest_payloads) == 1
+    assert latest_payloads[0]["stage"] == "NO_ACTION"
+    assert latest_payloads[0]["idempotency_skipped"] is True
+    assert latest_payloads[0]["existing_strategy_run_stage"] == "NO_ACTION"
+    assert latest_payloads[0]["skipped_orders"] == [
+        {"reason": "duplicate_live_strategy_run", "run_period": "2026-05"}
+    ]
+    assert len(store.writes) == 2
 
 
 def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_stage(monkeypatch):
@@ -610,7 +634,15 @@ def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch)
 
     assert second_result["idempotency_skipped"] is True
     assert second_result["existing_strategy_run_stage"] == "FUNDING_BLOCKED"
-    assert len(store.writes) == write_count
+    assert second_result["strategy_run_stage"] == "FUNDING_BLOCKED"
+    assert second_result["strategy_run_persisted"] is True
+    assert len(store.writes) == write_count + 2
+    latest_payloads = _latest_strategy_run_payloads(store)
+    duplicate_payload = latest_payloads[-1]
+    assert duplicate_payload["stage"] == "FUNDING_BLOCKED"
+    assert duplicate_payload["idempotency_skipped"] is True
+    assert duplicate_payload["existing_strategy_run_stage"] == "FUNDING_BLOCKED"
+    assert duplicate_payload["skipped_orders"][0]["reason"] == "duplicate_live_strategy_run"
 
 
 def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(monkeypatch):
