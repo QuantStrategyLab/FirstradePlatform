@@ -7,6 +7,45 @@ pytest.importorskip("flask")
 import main
 
 
+def route_methods():
+    methods_by_route = {}
+    for rule in main.app.url_map.iter_rules():
+        methods_by_route.setdefault(rule.rule, set()).update(rule.methods - {"HEAD", "OPTIONS"})
+    return {route: sorted(methods) for route, methods in methods_by_route.items()}
+
+
+def test_cloud_run_route_contracts_are_registered():
+    assert route_methods() == {
+        "/": ["GET", "POST"],
+        "/profiles": ["GET"],
+        "/smoke": ["GET"],
+        "/session-check": ["GET", "POST"],
+        "/run": ["GET", "POST"],
+        "/precheck": ["GET", "POST"],
+        "/probe": ["GET", "POST"],
+        "/static/<path:filename>": ["GET"],
+    }
+
+
+def test_health_route_returns_service_contract(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_SMOKE_ON_HTTP", "true")
+    monkeypatch.delenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", raising=False)
+    monkeypatch.delenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", raising=False)
+    client = main.app.test_client()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["service"] == "firstrade-platform"
+    assert payload["api_kind"] == "unofficial-reverse-engineered"
+    assert payload["strategy_domain"] == "us_equity"
+    assert payload["smoke_on_http"] is True
+    assert payload["session_check_on_http"] is False
+    assert payload["strategy_run_on_http"] is False
+    assert "as_of" in payload
+
+
 def test_run_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
     monkeypatch.delenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", raising=False)
     client = main.app.test_client()
