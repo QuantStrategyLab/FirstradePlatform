@@ -43,9 +43,10 @@ def test_runtime_adapters_build_quote_and_portfolio_ports():
     portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
 
     assert quote.last_price == 10.5
-    assert portfolio.total_equity == 120.0
+    assert portfolio.total_equity == 41.0
     assert portfolio.cash_balance == 20.0
     assert portfolio.positions[0].symbol == "SPY"
+    assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
 
 
 def test_portfolio_snapshot_uses_account_value_balance_key():
@@ -56,7 +57,6 @@ def test_portfolio_snapshot_uses_account_value_balance_key():
     adapters = build_runtime_broker_adapters(
         client=AccountValueClient(),
         account="12345678",
-        strategy_symbols=("SPY",),
     )
 
     portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
@@ -64,6 +64,32 @@ def test_portfolio_snapshot_uses_account_value_balance_key():
     assert portfolio.total_equity == 1234.56
     assert portfolio.cash_balance == 200.0
     assert portfolio.metadata["total_equity_source"] == "balance_total"
+
+
+def test_managed_portfolio_snapshot_ignores_full_account_value_balance_key():
+    class AccountValueClient(FakeClient):
+        def get_balances(self, _account):
+            return {"account_value": "$1,234.56", "cash_balance": "$200.00"}
+
+        def get_positions(self, _account):
+            return {
+                "items": [
+                    {"symbol": "SPY", "quantity": "2", "market_value": "21.00"},
+                    {"symbol": "AAPL", "quantity": "3", "market_value": "300.00"},
+                ]
+            }
+
+    adapters = build_runtime_broker_adapters(
+        client=AccountValueClient(),
+        account="12345678",
+        strategy_symbols=("SPY",),
+    )
+
+    portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
+
+    assert portfolio.total_equity == 221.0
+    assert [position.symbol for position in portfolio.positions] == ["SPY"]
+    assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
 
 
 def test_portfolio_snapshot_falls_back_to_cash_when_total_value_missing():
