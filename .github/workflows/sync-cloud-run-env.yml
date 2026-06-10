@@ -14,10 +14,15 @@ env:
   GCP_ARTIFACT_REGISTRY_HOSTNAME: us-central1-docker.pkg.dev
   GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   deploy-cloud-run:
     name: Deploy Cloud Run
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
