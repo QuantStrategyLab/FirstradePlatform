@@ -89,16 +89,23 @@ def _resolve_total_equity(
     cash_balance: float | None,
     buying_power: float | None,
     position_market_value: float,
+    prefer_cash_plus_positions: bool = False,
 ) -> tuple[float, str]:
+    resolved_cash = _positive_or_none(cash_balance)
+    if resolved_cash is not None:
+        combined_value = resolved_cash + max(0.0, float(position_market_value))
+        if prefer_cash_plus_positions and combined_value > 0.0:
+            return combined_value, "cash_plus_positions"
+    else:
+        combined_value = None
+
     balance_total = _positive_or_none(
         _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
     )
     if balance_total is not None:
         return balance_total, "balance_total"
 
-    resolved_cash = _positive_or_none(cash_balance)
-    if resolved_cash is not None:
-        combined_value = resolved_cash + max(0.0, float(position_market_value))
+    if combined_value is not None:
         if combined_value > 0.0:
             return combined_value, "cash_plus_positions"
 
@@ -257,6 +264,7 @@ class FirstradeBrokerAdapters:
             cash_balance=cash_balance,
             buying_power=buying_power,
             position_market_value=position_market_value,
+            prefer_cash_plus_positions=bool(managed),
         )
         return PortfolioSnapshot(
             as_of=self.clock(),
