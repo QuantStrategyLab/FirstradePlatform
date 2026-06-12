@@ -50,3 +50,49 @@ def test_render_cycle_summary_dashboard_text_does_not_hide_account_overview():
     assert "Buying power: $100.00" not in message
     assert "📌 Strategy portfolio" not in message
     assert message.count("🎯 Signal:") == 1
+
+
+def test_render_cycle_summary_includes_tqqq_volatility_delever_risk_control():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "tqqq_growth_income",
+            "strategy_display_name": "TQQQ Growth Income",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 10000.0,
+                "liquid_cash": 1000.0,
+                "portfolio_rows": (("TQQQ", "QQQM"), ("BOXX", "QQQI")),
+                "market_values": {"TQQQ": 0.0, "QQQM": 7000.0, "BOXX": 2000.0, "QQQI": 0.0},
+                "quantities": {"TQQQ": 0, "QQQM": 60, "BOXX": 20, "QQQI": 0},
+            },
+            "allocation": {"targets": {"QQQM": 7000.0, "BOXX": 2000.0, "QQQI": 0.0}},
+            "execution": {
+                "reserved_cash": 1000.0,
+                "investable_cash": 0.0,
+                "signal_display": "Entry signal",
+                "status_display": "Entry signal",
+                "dual_drive_volatility_delever_applied": True,
+                "dual_drive_volatility_delever_window": 5,
+                "dual_drive_volatility_delever_metric": 0.312,
+                "dual_drive_volatility_delever_threshold": 0.28,
+                "dual_drive_volatility_delever_threshold_mode": "rolling_percentile",
+                "dual_drive_volatility_delever_dynamic_threshold": 0.30,
+                "dual_drive_volatility_delever_dynamic_sample_count": 252,
+                "dual_drive_volatility_delever_dynamic_lookback": 252,
+                "dual_drive_volatility_delever_dynamic_percentile": 0.90,
+                "dual_drive_volatility_delever_dynamic_min_periods": 126,
+                "dual_drive_volatility_delever_dynamic_floor": 0.24,
+                "dual_drive_volatility_delever_dynamic_cap": 0.36,
+                "dual_drive_volatility_delever_redirect_symbol": "QQQM",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [],
+        },
+        lang="en",
+    )
+
+    assert (
+        "🛡️ Risk control: QQQ 5d annualized volatility 31.2% is above effective threshold 30.0% "
+        "(dynamic p90, 252d lookback, bounded 24.0%-36.0%, samples 252); TQQQ redirects to QQQM"
+    ) in message

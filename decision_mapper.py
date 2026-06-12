@@ -21,6 +21,92 @@ _SAFE_HAVEN_SYMBOLS = frozenset({"BOXX", "BIL"})
 _INCOME_SYMBOLS = frozenset({"QQQI", "SPYI"})
 _DEFAULT_MIN_TRADE_FLOOR = 100.0
 _DEFAULT_REBALANCE_THRESHOLD_RATIO = 0.01
+_TQQQ_RISK_CONTROL_EXECUTION_FIELDS = (
+    "dual_drive_volatility_delever_enabled",
+    "dual_drive_volatility_delever_window",
+    "dual_drive_volatility_delever_threshold_mode",
+    "dual_drive_volatility_delever_threshold",
+    "dual_drive_volatility_delever_exit_threshold",
+    "dual_drive_volatility_delever_dynamic_threshold",
+    "dual_drive_volatility_delever_dynamic_sample_count",
+    "dual_drive_volatility_delever_dynamic_lookback",
+    "dual_drive_volatility_delever_dynamic_percentile",
+    "dual_drive_volatility_delever_dynamic_min_periods",
+    "dual_drive_volatility_delever_dynamic_floor",
+    "dual_drive_volatility_delever_dynamic_cap",
+    "dual_drive_volatility_delever_metric",
+    "dual_drive_volatility_delever_triggered",
+    "dual_drive_volatility_delever_entry_triggered",
+    "dual_drive_volatility_delever_hysteresis_triggered",
+    "dual_drive_volatility_delever_trigger_reason",
+    "dual_drive_volatility_delever_applied",
+    "dual_drive_volatility_delever_vetoed",
+    "dual_drive_volatility_delever_veto_reason",
+    "dual_drive_volatility_delever_taco_veto_enabled",
+    "dual_drive_volatility_delever_taco_rebound_context_active",
+    "dual_drive_volatility_delever_true_crisis_active",
+    "dual_drive_volatility_delever_redirect_symbol",
+    "dual_drive_volatility_delever_removed_value",
+    "dual_drive_macro_risk_governor_enabled",
+    "dual_drive_macro_risk_governor_found",
+    "dual_drive_macro_risk_governor_route",
+    "dual_drive_macro_risk_governor_active",
+    "dual_drive_macro_risk_governor_applied",
+    "dual_drive_macro_risk_governor_leverage_scalar",
+    "dual_drive_macro_risk_governor_risk_asset_scalar",
+    "dual_drive_macro_risk_governor_removed_value",
+    "dual_drive_macro_risk_governor_redirected_to_unlevered",
+    "dual_drive_crisis_defense_enabled",
+    "dual_drive_crisis_defense_triggered",
+    "dual_drive_crisis_defense_applied",
+    "dual_drive_crisis_defense_destination",
+    "dual_drive_crisis_defense_removed_value",
+)
+_SOXL_RISK_CONTROL_EXECUTION_FIELDS = (
+    "blend_gate_volatility_delever_enabled",
+    "blend_gate_volatility_delever_symbol",
+    "blend_gate_volatility_delever_window",
+    "blend_gate_volatility_delever_threshold_mode",
+    "blend_gate_volatility_delever_threshold",
+    "blend_gate_volatility_delever_dynamic_threshold",
+    "blend_gate_volatility_delever_dynamic_sample_count",
+    "blend_gate_volatility_delever_dynamic_lookback",
+    "blend_gate_volatility_delever_dynamic_percentile",
+    "blend_gate_volatility_delever_dynamic_min_periods",
+    "blend_gate_volatility_delever_dynamic_floor",
+    "blend_gate_volatility_delever_dynamic_cap",
+    "blend_gate_volatility_delever_metric",
+    "blend_gate_volatility_delever_triggered",
+    "blend_gate_volatility_delever_retention_ratio",
+    "blend_gate_volatility_delever_redirect_symbol",
+    "blend_gate_volatility_delever_removed_ratio",
+)
+_MARKET_REGIME_CONTROL_EXECUTION_FIELDS = (
+    "market_regime_control_enabled",
+    "market_regime_control_found",
+    "market_regime_control_source",
+    "market_regime_control_schema_version",
+    "market_regime_control_route",
+    "market_regime_control_route_source",
+    "market_regime_control_active",
+    "market_regime_control_applied",
+    "market_regime_control_route_allowed",
+    "market_regime_control_risk_scalar",
+    "market_regime_control_risk_budget_scalar",
+    "market_regime_control_leverage_scalar",
+    "market_regime_control_risk_asset_scalar",
+    "market_regime_control_taco_allowed",
+    "market_regime_control_local_delever_veto_allowed",
+    "market_regime_control_crisis_defense_required",
+    "market_regime_control_blocked_actions",
+    "market_regime_control_vetoes",
+    "market_regime_control_reason_codes",
+    "market_regime_control_removed_weight",
+    "market_regime_control_removed_ratio",
+    "market_regime_control_redirected_to_unlevered_ratio",
+    "market_regime_control_safe_haven",
+    "market_regime_control_risk_symbols",
+)
 
 
 def _symbol_role(symbol: str) -> str | None:
@@ -331,4 +417,24 @@ def map_strategy_decision_to_plan(
     cash_by_currency = metadata.get("cash_by_currency")
     if isinstance(cash_by_currency, Mapping):
         plan["portfolio"]["cash_by_currency"] = dict(cash_by_currency)
+    diagnostics = {
+        **dict(runtime_metadata or {}),
+        **dict(decision.diagnostics),
+        **dict(normalized_decision.diagnostics),
+    }
+    for source in (
+        (runtime_metadata or {}).get("execution_annotations"),
+        decision.diagnostics.get("execution_annotations"),
+        normalized_decision.diagnostics.get("execution_annotations"),
+    ):
+        if isinstance(source, Mapping):
+            diagnostics.update(source)
+    execution = plan.setdefault("execution", {})
+    for field_name in (
+        *_MARKET_REGIME_CONTROL_EXECUTION_FIELDS,
+        *_TQQQ_RISK_CONTROL_EXECUTION_FIELDS,
+        *_SOXL_RISK_CONTROL_EXECUTION_FIELDS,
+    ):
+        if field_name in diagnostics:
+            execution[field_name] = diagnostics[field_name]
     return plan
