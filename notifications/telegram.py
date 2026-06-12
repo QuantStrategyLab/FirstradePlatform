@@ -203,6 +203,10 @@ I18N = {
         "signal_blend_gate_risk_on": "{trend_symbol} 站上 {window} 日门槛线，持有 SOXL {soxl_ratio} + SOXX {soxx_ratio}",
         "signal_blend_gate_defensive": "{trend_symbol} 跌破门槛线，防守持有 SOXX {soxx_ratio}",
         "signal_blend_gate_overlay_capped": "{trend_symbol} 仍在 {window} 日门槛线上方，但触发风控降档（{reasons}），目标仓位 {allocation_text}",
+        "risk_control_tqqq_volatility_delever_applied": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于 {threshold}，{source_symbol} 转向 {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于实际阈值 {threshold}（{threshold_detail}），{source_symbol} 转向 {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}，维持 {source_symbol} 转向 {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}；入场实际阈值 {threshold}（{threshold_detail}），维持 {source_symbol} 转向 {redirect_symbol}",
         "market_status_risk_on": "🚀 风险开启（{asset}）",
         "market_status_delever": "🛡️ 降杠杆（{asset}）",
         "signal_risk_on": "SOXL 站上 {window} 日均线，持有 SOXL，交易层风险仓位 {ratio}",
@@ -322,6 +326,10 @@ I18N = {
         "signal_blend_gate_risk_on": "{trend_symbol} is above the {window}-day gate; hold SOXL {soxl_ratio} + SOXX {soxx_ratio}",
         "signal_blend_gate_defensive": "{trend_symbol} is below the gate; hold SOXX {soxx_ratio}",
         "signal_blend_gate_overlay_capped": "{trend_symbol} remains above the {window}-day gate, but risk cap is active ({reasons}); target {allocation_text}",
+        "risk_control_tqqq_volatility_delever_applied": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above {threshold}; {source_symbol} redirects to {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above effective threshold {threshold} ({threshold_detail}); {source_symbol} redirects to {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above the exit threshold {exit_threshold}; keep {source_symbol} redirected to {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above exit threshold {exit_threshold}; entry effective threshold {threshold} ({threshold_detail}); keep {source_symbol} redirected to {redirect_symbol}",
         "market_status_risk_on": "Risk on ({asset})",
         "market_status_delever": "Delever ({asset})",
         "signal_risk_on": "SOXL is above the {window}-day average; hold SOXL at risk sleeve {ratio}",
@@ -702,12 +710,128 @@ def _detail_lines(value: Any, *, translator: Callable[..., str]) -> list[str]:
     return details
 
 
+def _format_percent(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _format_percentile(value: Any) -> str:
+    try:
+        percentile = float(value) * 100
+    except (TypeError, ValueError):
+        return "p?"
+    if float(percentile).is_integer():
+        return f"p{int(percentile)}"
+    return f"p{percentile:.1f}"
+
+
+def _format_sample_count(value: Any) -> str:
+    try:
+        count = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if float(count).is_integer():
+        return str(int(count))
+    return f"{count:.1f}"
+
+
+def _present(value: Any) -> bool:
+    return value not in (None, "")
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _effective_volatility_delever_threshold(execution: Mapping[str, Any], *, prefix: str) -> Any:
+    mode = str(execution.get(f"{prefix}_threshold_mode") or "").strip().lower()
+    dynamic_threshold = execution.get(f"{prefix}_dynamic_threshold")
+    if mode == "rolling_percentile" and _present(dynamic_threshold):
+        return dynamic_threshold
+    return execution.get(f"{prefix}_threshold")
+
+
+def _format_volatility_delever_threshold_detail(
+    execution: Mapping[str, Any],
+    *,
+    prefix: str,
+    translator: Callable[..., str],
+) -> str:
+    mode = str(execution.get(f"{prefix}_threshold_mode") or "").strip().lower()
+    fixed_threshold = execution.get(f"{prefix}_threshold")
+    dynamic_threshold = execution.get(f"{prefix}_dynamic_threshold")
+    if mode == "rolling_percentile":
+        kwargs = {
+            "percentile": _format_percentile(execution.get(f"{prefix}_dynamic_percentile")),
+            "lookback": _format_sample_count(execution.get(f"{prefix}_dynamic_lookback")),
+            "min_periods": _format_sample_count(execution.get(f"{prefix}_dynamic_min_periods")),
+            "sample_count": _format_sample_count(execution.get(f"{prefix}_dynamic_sample_count")),
+            "floor": _format_percent(execution.get(f"{prefix}_dynamic_floor")),
+            "cap": _format_percent(execution.get(f"{prefix}_dynamic_cap")),
+            "fixed_threshold": _format_percent(fixed_threshold),
+        }
+        if _present(dynamic_threshold):
+            return translator("blend_gate_volatility_threshold_detail_dynamic", **kwargs)
+        return translator("blend_gate_volatility_threshold_detail_dynamic_fallback", **kwargs)
+    return translator(
+        "blend_gate_volatility_threshold_detail_fixed",
+        threshold=_format_percent(fixed_threshold),
+    )
+
+
+def _format_tqqq_risk_control_lines(
+    execution: Mapping[str, Any],
+    *,
+    translator: Callable[..., str],
+) -> list[str]:
+    prefix = "dual_drive_volatility_delever"
+    if not _is_truthy(execution.get(f"{prefix}_applied")):
+        return []
+    redirect_symbol = str(execution.get(f"{prefix}_redirect_symbol") or "QQQ").strip().upper()
+    window = str(execution.get(f"{prefix}_window") or "5").strip()
+    threshold = _effective_volatility_delever_threshold(execution, prefix=prefix)
+    threshold_detail = _format_volatility_delever_threshold_detail(
+        execution,
+        prefix=prefix,
+        translator=translator,
+    )
+    if str(execution.get(f"{prefix}_trigger_reason") or "").strip() == "hysteresis_hold":
+        return [
+            translator(
+                "risk_control_tqqq_volatility_delever_hysteresis_dynamic",
+                window=window,
+                volatility=_format_percent(execution.get(f"{prefix}_metric")),
+                exit_threshold=_format_percent(execution.get(f"{prefix}_exit_threshold")),
+                threshold=_format_percent(threshold),
+                threshold_detail=threshold_detail,
+                source_symbol="TQQQ",
+                redirect_symbol=redirect_symbol or "QQQ",
+            )
+        ]
+    return [
+        translator(
+            "risk_control_tqqq_volatility_delever_applied_dynamic",
+            window=window,
+            volatility=_format_percent(execution.get(f"{prefix}_metric")),
+            threshold=_format_percent(threshold),
+            threshold_detail=threshold_detail,
+            source_symbol="TQQQ",
+            redirect_symbol=redirect_symbol or "QQQ",
+        )
+    ]
+
+
 def _format_signal_lines(execution: Mapping[str, Any], *, translator: Callable[..., str]) -> list[str]:
     status = _first_summary(execution.get("status_display"), translator=translator)
     signal = _first_summary(execution.get("signal_display"), translator=translator)
     lines = []
     if status and status != signal:
         lines.append(translator("market_status_line", status=status))
+    lines.extend(_format_tqqq_risk_control_lines(execution, translator=translator))
     if signal:
         lines.append(translator("signal_line", signal=signal))
         lines.extend(f"  - {line}" for line in _detail_lines(execution.get("signal_display"), translator=translator))
