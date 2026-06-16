@@ -166,11 +166,11 @@ def test_notification_i18n_keys_are_aligned():
             route=zh("strategy_plugin_route_risk_reduced"),
             action=zh("strategy_plugin_action_delever"),
         )
-        == "🧩 插件：市场状态控制通知 | 状态：风险降低 | 提醒：降杠杆"
+        == "🧩 插件：市场状态控制 | 状态：风险降低 | 提醒：降杠杆"
     )
     assert "策略侧已批准" in zh("strategy_plugin_guidance_market_regime_control_risk_reduced_delever")
     en = build_translator("en")
-    assert en("strategy_plugin_name_market_regime_control") == "Market Regime Control Notice"
+    assert en("strategy_plugin_name_market_regime_control") == "Market Regime Control"
     assert (
         en(
             "blend_gate_reason_volatility_delever_dynamic",
