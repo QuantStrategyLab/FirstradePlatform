@@ -158,7 +158,19 @@ def test_notification_i18n_keys_are_aligned():
         )
         == "SOXX 10 日年化波动率 61.0% 高于实际阈值 60.0%（动态 p95，252日窗口，范围 50.0%-75.0%，样本 252），SOXL 转向 SOXX"
     )
+    assert (
+        zh(
+            "strategy_plugin_line",
+            plugin=zh("strategy_plugin_name_market_regime_control"),
+            mode=zh("strategy_plugin_mode_shadow"),
+            route=zh("strategy_plugin_route_risk_reduced"),
+            action=zh("strategy_plugin_action_delever"),
+        )
+        == "🧩 插件：市场状态控制通知 | 状态：风险降低 | 提醒：降杠杆"
+    )
+    assert "策略侧已批准" in zh("strategy_plugin_guidance_market_regime_control_risk_reduced_delever")
     en = build_translator("en")
+    assert en("strategy_plugin_name_market_regime_control") == "Market Regime Control Notice"
     assert (
         en(
             "blend_gate_reason_volatility_delever_dynamic",
