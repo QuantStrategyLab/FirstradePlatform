@@ -79,11 +79,13 @@ def test_session_check_endpoint_is_disabled_without_explicit_http_gate(monkeypat
 
 def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
+    sent_messages = []
     monkeypatch.setattr(
         main,
         "run_session_check",
         lambda: {"ok": True, "session_reused": True, "snapshot_persisted": True},
     )
+    monkeypatch.setattr(main, "build_sender", lambda *_args, **_kwargs: sent_messages.append)
     client = main.app.test_client()
 
     response = client.post("/session-check")
@@ -94,6 +96,40 @@ def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
         "session_reused": True,
         "snapshot_persisted": True,
     }
+    assert sent_messages == []
+
+
+def test_session_check_endpoint_notifies_only_on_error(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
+    monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
+    monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
+    monkeypatch.setattr(
+        main,
+        "run_session_check",
+        lambda: (_ for _ in ()).throw(RuntimeError("session denied")),
+    )
+    sent_messages = []
+
+    def fake_build_sender(token, chat_id):
+        def send(message):
+            sent_messages.append((token, chat_id, message))
+
+        return send
+
+    monkeypatch.setattr(main, "build_sender", fake_build_sender)
+    client = main.app.test_client()
+
+    response = client.post("/session-check")
+
+    assert response.status_code == 500
+    payload = response.get_json()
+    assert payload["ok"] is False
+    assert payload["runtime_error_notification_attempted"] is True
+    assert len(sent_messages) == 1
+    assert sent_messages[0][0] == "token-1"
+    assert sent_messages[0][1] == "chat-1"
+    assert "Firstrade health check failed" in sent_messages[0][2]
+    assert "RuntimeError: session denied" in sent_messages[0][2]
 
 
 def test_root_post_calls_strategy_cycle_when_gate_enabled(monkeypatch):

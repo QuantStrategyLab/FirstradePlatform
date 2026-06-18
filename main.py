@@ -69,10 +69,11 @@ def _runtime_error_notification_message(exc: Exception) -> str:
     error_text = f"{type(exc).__name__}: {exc}"
     if len(error_text) > 1200:
         error_text = error_text[:1197] + "..."
+    is_health_check = request.path in {"/session-check", "/probe"}
     if str(os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
         return "\n".join(
             (
-                "Firstrade 策略运行失败",
+                "Firstrade 健康检查失败" if is_health_check else "Firstrade 策略运行失败",
                 f"服务: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
                 f"版本: {os.getenv('K_REVISION') or '<unknown>'}",
                 f"路由: {request.method} {request.path}",
@@ -83,7 +84,7 @@ def _runtime_error_notification_message(exc: Exception) -> str:
         )
     return "\n".join(
         (
-            "Firstrade strategy run failed",
+            "Firstrade health check failed" if is_health_check else "Firstrade strategy run failed",
             f"service: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
             f"revision: {os.getenv('K_REVISION') or '<unknown>'}",
             f"route: {request.method} {request.path}",
@@ -366,9 +367,29 @@ def session_check():
     try:
         return jsonify(run_session_check())
     except FirstradePlatformError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        notification_attempted = _notify_runtime_error(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
     except Exception as exc:
-        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+        notification_attempted = _notify_runtime_error(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
 
 
 @app.post("/")
