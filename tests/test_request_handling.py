@@ -58,7 +58,7 @@ def test_run_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
 
 def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
-    monkeypatch.setattr(main, "run_strategy_cycle", lambda: {"ok": True, "action_done": False})
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", lambda **_kwargs: {"ok": True, "action_done": False})
     client = main.app.test_client()
 
     response = client.post("/run")
@@ -98,7 +98,7 @@ def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
 
 def test_root_post_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
-    monkeypatch.setattr(main, "run_strategy_cycle", lambda: {"ok": True, "action_done": False})
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", lambda **_kwargs: {"ok": True, "action_done": False})
     client = main.app.test_client()
 
     response = client.post("/")
@@ -125,7 +125,7 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     monkeypatch.setattr(main, "build_sender", fake_build_sender)
     monkeypatch.setattr(
         main,
-        "run_strategy_cycle",
+        "_run_strategy_cycle_with_report",
         lambda: (_ for _ in ()).throw(ValueError("snapshot denied")),
     )
     client = main.app.test_client()
@@ -153,7 +153,7 @@ def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
     monkeypatch.delenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", raising=False)
     monkeypatch.setattr(
         main,
-        "run_strategy_cycle",
+        "_run_strategy_cycle_with_report",
         lambda: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     client = main.app.test_client()
@@ -167,11 +167,24 @@ def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
     assert payload["runtime_error_notification_attempted"] is False
 
 
-def test_scheduler_health_routes_accept_post():
+def test_scheduler_routes_accept_post(monkeypatch):
+    observed = {}
+
+    def fake_run_strategy_cycle_with_report(**kwargs):
+        observed.update(kwargs)
+        return {"ok": True, "action_done": False}
+
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", fake_run_strategy_cycle_with_report)
     client = main.app.test_client()
 
     precheck_response = client.post("/precheck")
     probe_response = client.post("/probe")
 
     assert precheck_response.status_code == 200
+    assert precheck_response.get_json()["ok"] is True
+    assert observed == {
+        "dry_run_override": True,
+        "send_cycle_notification": False,
+        "dispatch_plugin_alerts": False,
+    }
     assert probe_response.status_code == 200
