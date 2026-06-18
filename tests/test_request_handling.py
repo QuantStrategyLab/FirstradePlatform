@@ -16,12 +16,10 @@ def route_methods():
 
 def test_cloud_run_route_contracts_are_registered():
     assert route_methods() == {
-        "/": ["GET", "POST"],
+        "/": ["GET"],
         "/profiles": ["GET"],
         "/smoke": ["GET"],
-        "/session-check": ["GET", "POST"],
         "/run": ["GET", "POST"],
-        "/precheck": ["GET", "POST"],
         "/dry-run": ["GET", "POST"],
         "/probe": ["GET", "POST"],
         "/static/<path:filename>": ["GET"],
@@ -68,17 +66,17 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     assert response.get_json() == {"ok": True, "action_done": False}
 
 
-def test_session_check_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
+def test_probe_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
     monkeypatch.delenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", raising=False)
     client = main.app.test_client()
 
-    response = client.get("/session-check")
+    response = client.get("/probe")
 
     assert response.status_code == 403
     assert response.get_json()["ok"] is False
 
 
-def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
+def test_probe_endpoint_calls_service_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
     sent_messages = []
     monkeypatch.setattr(
@@ -89,7 +87,7 @@ def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
     monkeypatch.setattr(main, "build_sender", lambda *_args, **_kwargs: sent_messages.append)
     client = main.app.test_client()
 
-    response = client.post("/session-check")
+    response = client.post("/probe")
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -100,26 +98,7 @@ def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
     assert sent_messages == []
 
 
-def test_probe_alias_calls_session_check_service_when_gate_enabled(monkeypatch):
-    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
-    monkeypatch.setattr(
-        main,
-        "run_session_check",
-        lambda: {"ok": True, "session_reused": False, "snapshot_persisted": True},
-    )
-    client = main.app.test_client()
-
-    response = client.post("/probe")
-
-    assert response.status_code == 200
-    assert response.get_json() == {
-        "ok": True,
-        "session_reused": False,
-        "snapshot_persisted": True,
-    }
-
-
-def test_session_check_endpoint_notifies_only_on_error(monkeypatch):
+def test_probe_endpoint_notifies_only_on_error(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
@@ -139,7 +118,7 @@ def test_session_check_endpoint_notifies_only_on_error(monkeypatch):
     monkeypatch.setattr(main, "build_sender", fake_build_sender)
     client = main.app.test_client()
 
-    response = client.post("/session-check")
+    response = client.post("/probe")
 
     assert response.status_code == 500
     payload = response.get_json()
@@ -150,17 +129,6 @@ def test_session_check_endpoint_notifies_only_on_error(monkeypatch):
     assert sent_messages[0][1] == "chat-1"
     assert "Firstrade health check failed" in sent_messages[0][2]
     assert "RuntimeError: session denied" in sent_messages[0][2]
-
-
-def test_root_post_calls_strategy_cycle_when_gate_enabled(monkeypatch):
-    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
-    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", lambda **_kwargs: {"ok": True, "action_done": False})
-    client = main.app.test_client()
-
-    response = client.post("/")
-
-    assert response.status_code == 200
-    assert response.get_json() == {"ok": True, "action_done": False}
 
 
 def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
@@ -266,12 +234,9 @@ def test_scheduler_routes_accept_post(monkeypatch):
     monkeypatch.setattr(main, "run_session_check", lambda: {"ok": True, "session_reused": True})
     client = main.app.test_client()
 
-    precheck_response = client.post("/precheck")
     dry_run_response = client.post("/dry-run")
     probe_response = client.post("/probe")
 
-    assert precheck_response.status_code == 200
-    assert precheck_response.get_json()["ok"] is True
     assert dry_run_response.status_code == 200
     assert dry_run_response.get_json()["ok"] is True
     assert observed == {

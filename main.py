@@ -69,7 +69,7 @@ def _runtime_error_notification_message(exc: Exception) -> str:
     error_text = f"{type(exc).__name__}: {exc}"
     if len(error_text) > 1200:
         error_text = error_text[:1197] + "..."
-    is_health_check = request.path in {"/session-check", "/probe"}
+    is_health_check = request.path == "/probe"
     if str(os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
         return "\n".join(
             (
@@ -348,8 +348,6 @@ def smoke():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
-@app.post("/session-check")
-@app.get("/session-check")
 def session_check():
     if not _flag("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"):
         return (
@@ -392,7 +390,6 @@ def session_check():
         )
 
 
-@app.post("/")
 @app.post("/run")
 @app.get("/run")
 def run_strategy():
@@ -437,11 +434,9 @@ def run_strategy():
         )
 
 
-@app.post("/precheck")
-@app.get("/precheck")
 @app.post("/dry-run")
 @app.get("/dry-run")
-def precheck():
+def dry_run():
     try:
         return jsonify(
             _run_strategy_cycle_with_report(
