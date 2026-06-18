@@ -77,6 +77,19 @@ def test_dca_overrides_apply_to_runtime_config():
     }
 
 
+def test_reserved_cash_policy_overrides_apply_to_runtime_config():
+    settings = _runtime_settings(
+        strategy_profile="soxl_soxx_trend_income",
+        reserved_cash_floor_usd=150.0,
+        reserved_cash_ratio=0.03,
+    )
+
+    assert _build_runtime_overrides("soxl_soxx_trend_income", settings) == {
+        "reserved_cash_floor_usd": 150.0,
+        "reserved_cash_ratio": 0.03,
+    }
+
+
 def test_dca_overrides_ignore_non_dca_profiles():
     settings = _runtime_settings(dca_mode="smart", dca_base_investment_usd=500.0)
 
