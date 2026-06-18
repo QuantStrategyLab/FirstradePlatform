@@ -26,6 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     headers = [
         "Canonical profile",
         "Display name",
+        "Chinese display name",
         "Eligible",
         "Enabled",
         "Domain",
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     str(row["canonical_profile"]),
                     str(row["display_name"]),
+                    str(row.get("display_name_zh", "")),
                     "Yes" if row["eligible"] else "No",
                     "Yes" if row["enabled"] else "No",
                     str(row["domain"]),
