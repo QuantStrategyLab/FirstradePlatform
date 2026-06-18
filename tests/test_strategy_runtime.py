@@ -61,3 +61,23 @@ def test_income_layer_overrides_apply_to_runtime_config():
         "income_layer_start_usd": 250000.0,
         "income_layer_max_ratio": 0.25,
     }
+
+
+def test_dca_overrides_apply_to_runtime_config():
+    settings = _runtime_settings(
+        strategy_profile="nasdaq_sp500_smart_dca",
+        dca_mode="smart",
+        dca_base_investment_usd=500.0,
+    )
+
+    assert _build_runtime_overrides("nasdaq_sp500_smart_dca", settings) == {
+        "investment_amount_mode": "fixed",
+        "smart_multiplier_enabled": True,
+        "base_investment_usd": 500.0,
+    }
+
+
+def test_dca_overrides_ignore_non_dca_profiles():
+    settings = _runtime_settings(dca_mode="smart", dca_base_investment_usd=500.0)
+
+    assert _build_runtime_overrides("global_etf_rotation", settings) == {}
