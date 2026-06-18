@@ -439,6 +439,8 @@ def run_strategy():
 
 @app.post("/precheck")
 @app.get("/precheck")
+@app.post("/dry-run")
+@app.get("/dry-run")
 def precheck():
     try:
         return jsonify(
@@ -477,7 +479,7 @@ def precheck():
 @app.post("/probe")
 @app.get("/probe")
 def probe():
-    return health()
+    return session_check()
 
 
 if __name__ == "__main__":
