@@ -22,6 +22,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/session-check": ["GET", "POST"],
         "/run": ["GET", "POST"],
         "/precheck": ["GET", "POST"],
+        "/dry-run": ["GET", "POST"],
         "/probe": ["GET", "POST"],
         "/static/<path:filename>": ["GET"],
     }
@@ -97,6 +98,25 @@ def test_session_check_endpoint_calls_service_when_gate_enabled(monkeypatch):
         "snapshot_persisted": True,
     }
     assert sent_messages == []
+
+
+def test_probe_alias_calls_session_check_service_when_gate_enabled(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
+    monkeypatch.setattr(
+        main,
+        "run_session_check",
+        lambda: {"ok": True, "session_reused": False, "snapshot_persisted": True},
+    )
+    client = main.app.test_client()
+
+    response = client.post("/probe")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "ok": True,
+        "session_reused": False,
+        "snapshot_persisted": True,
+    }
 
 
 def test_session_check_endpoint_notifies_only_on_error(monkeypatch):
@@ -241,17 +261,23 @@ def test_scheduler_routes_accept_post(monkeypatch):
         observed.update(kwargs)
         return {"ok": True, "action_done": False}
 
+    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
     monkeypatch.setattr(main, "_run_strategy_cycle_with_report", fake_run_strategy_cycle_with_report)
+    monkeypatch.setattr(main, "run_session_check", lambda: {"ok": True, "session_reused": True})
     client = main.app.test_client()
 
     precheck_response = client.post("/precheck")
+    dry_run_response = client.post("/dry-run")
     probe_response = client.post("/probe")
 
     assert precheck_response.status_code == 200
     assert precheck_response.get_json()["ok"] is True
+    assert dry_run_response.status_code == 200
+    assert dry_run_response.get_json()["ok"] is True
     assert observed == {
         "dry_run_override": True,
         "send_cycle_notification": False,
         "dispatch_plugin_alerts": False,
     }
     assert probe_response.status_code == 200
+    assert probe_response.get_json()["ok"] is True
