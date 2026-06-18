@@ -24,6 +24,7 @@ from strategy_loader import (
 )
 
 _FEATURE_SNAPSHOT_INPUT = "feature_snapshot"
+DCA_PROFILES = frozenset({"nasdaq_sp500_smart_dca", "ibit_smart_dca"})
 
 
 @dataclass(frozen=True)
@@ -152,6 +153,14 @@ def _build_runtime_overrides(profile: str, runtime_settings: PlatformRuntimeSett
         overrides["income_layer_start_usd"] = income_layer_start_usd
     if income_layer_max_ratio is not None:
         overrides["income_layer_max_ratio"] = income_layer_max_ratio
+    if profile in DCA_PROFILES:
+        dca_mode = getattr(runtime_settings, "dca_mode", None)
+        dca_base_investment_usd = getattr(runtime_settings, "dca_base_investment_usd", None)
+        if dca_mode is not None:
+            overrides["investment_amount_mode"] = "fixed"
+            overrides["smart_multiplier_enabled"] = dca_mode == "smart"
+        if dca_base_investment_usd is not None:
+            overrides["base_investment_usd"] = dca_base_investment_usd
     if profile == "tqqq_growth_income":
         if runtime_settings.income_threshold_usd is not None:
             overrides["income_threshold_usd"] = runtime_settings.income_threshold_usd
