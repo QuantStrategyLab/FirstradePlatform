@@ -93,6 +93,32 @@ def test_execute_value_target_plan_uses_sellable_quantity_when_market_value_is_s
     ]
 
 
+def test_execute_value_target_plan_keeps_existing_whole_share_when_positive_target_is_unbuyable():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {
+                "targets": {"TQQQ": 60.94, "QQQM": 320.0},
+                "risk_symbols": ("TQQQ", "QQQM"),
+            },
+            "portfolio": {
+                "market_values": {"TQQQ": 541.31, "QQQM": 0.0},
+                "quantities": {"TQQQ": 7.0, "QQQM": 0.0},
+                "sellable_quantities": {"TQQQ": 7.0, "QQQM": 0.0},
+                "liquid_cash": 539.70,
+            },
+            "execution": {"current_min_trade": 10.0, "investable_cash": 539.70},
+        },
+        market_data_port=FakeMarketDataPort({"TQQQ": 77.33, "QQQM": 297.19}),
+        execution_port=execution_port,
+        dry_run_only=True,
+    )
+
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders if order.side == "sell"] == [
+        ("sell", "TQQQ", 6.0),
+    ]
+
+
 def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(
