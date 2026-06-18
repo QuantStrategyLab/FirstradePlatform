@@ -228,10 +228,19 @@ I18N = {
         "signal_blend_gate_risk_on": "{trend_symbol} 站上 {window} 日门槛线，持有 SOXL {soxl_ratio} + SOXX {soxx_ratio}",
         "signal_blend_gate_defensive": "{trend_symbol} 跌破门槛线，防守持有 SOXX {soxx_ratio}",
         "signal_blend_gate_overlay_capped": "{trend_symbol} 仍在 {window} 日门槛线上方，但触发风控降档（{reasons}），目标仓位 {allocation_text}",
-        "risk_control_tqqq_volatility_delever_applied": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于 {threshold}，{source_symbol} 转向 {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于实际阈值 {threshold}（{threshold_detail}），{source_symbol} 转向 {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}，维持 {source_symbol} 转向 {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}；入场实际阈值 {threshold}（{threshold_detail}），维持 {source_symbol} 转向 {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_applied": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于 {threshold}，{source_symbol} 转向 {redirect_symbol}（{allocation_detail}）",
+        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 高于实际阈值 {threshold}（{threshold_detail}），{source_symbol} 转向 {redirect_symbol}（{allocation_detail}）",
+        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}，维持 {source_symbol} 转向 {redirect_symbol}（{allocation_detail}）",
+        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ 风控: QQQ {window} 日年化波动率 {volatility} 仍高于退出阈值 {exit_threshold}；入场实际阈值 {threshold}（{threshold_detail}），维持 {source_symbol} 转向 {redirect_symbol}（{allocation_detail}）",
+        "tqqq_volatility_delever_allocation_detail": "杠杆仓位：TQQQ 保留 {retained_ratio}，{redirect_symbol} {redirected_ratio}",
+        "tqqq_signal_reason_entry_trend": "原因：QQQ 高于 MA200，MA20 斜率为正",
+        "tqqq_signal_reason_entry_pullback": "原因：QQQ 低于 MA200，但站上 MA20 且回撤反弹确认",
+        "tqqq_signal_reason_hold_trend": "原因：已持有风险仓位，QQQ 仍高于 MA200",
+        "tqqq_signal_reason_exit_ma200": "原因：QQQ 跌破 MA200 退出线",
+        "tqqq_signal_reason_idle_waiting": "原因：等待 QQQ 站上 MA200 且 MA20 斜率转正",
+        "tqqq_signal_reason_macro_delever": "原因：宏观风控降低杠杆",
+        "tqqq_signal_reason_macro_defense": "原因：宏观风控转入防守",
+        "tqqq_signal_reason_crisis_defense": "原因：危机防御转入避险仓位",
         "market_status_risk_on": "🚀 风险开启（{asset}）",
         "market_status_delever": "🛡️ 降杠杆（{asset}）",
         "signal_risk_on": "SOXL 站上 {window} 日均线，持有 SOXL，交易层风险仓位 {ratio}",
@@ -369,10 +378,19 @@ I18N = {
         "signal_blend_gate_risk_on": "{trend_symbol} is above the {window}-day gate; hold SOXL {soxl_ratio} + SOXX {soxx_ratio}",
         "signal_blend_gate_defensive": "{trend_symbol} is below the gate; hold SOXX {soxx_ratio}",
         "signal_blend_gate_overlay_capped": "{trend_symbol} remains above the {window}-day gate, but risk cap is active ({reasons}); target {allocation_text}",
-        "risk_control_tqqq_volatility_delever_applied": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above {threshold}; {source_symbol} redirects to {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above effective threshold {threshold} ({threshold_detail}); {source_symbol} redirects to {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above the exit threshold {exit_threshold}; keep {source_symbol} redirected to {redirect_symbol}",
-        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above exit threshold {exit_threshold}; entry effective threshold {threshold} ({threshold_detail}); keep {source_symbol} redirected to {redirect_symbol}",
+        "risk_control_tqqq_volatility_delever_applied": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above {threshold}; {source_symbol} redirects to {redirect_symbol} ({allocation_detail})",
+        "risk_control_tqqq_volatility_delever_applied_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} is above effective threshold {threshold} ({threshold_detail}); {source_symbol} redirects to {redirect_symbol} ({allocation_detail})",
+        "risk_control_tqqq_volatility_delever_hysteresis": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above the exit threshold {exit_threshold}; keep {source_symbol} redirected to {redirect_symbol} ({allocation_detail})",
+        "risk_control_tqqq_volatility_delever_hysteresis_dynamic": "🛡️ Risk control: QQQ {window}d annualized volatility {volatility} remains above exit threshold {exit_threshold}; entry effective threshold {threshold} ({threshold_detail}); keep {source_symbol} redirected to {redirect_symbol} ({allocation_detail})",
+        "tqqq_volatility_delever_allocation_detail": "leveraged sleeve: TQQQ retained {retained_ratio}, {redirect_symbol} {redirected_ratio}",
+        "tqqq_signal_reason_entry_trend": "reason: QQQ is above MA200 and MA20 slope is positive",
+        "tqqq_signal_reason_entry_pullback": "reason: QQQ is below MA200 but above MA20 with a confirmed pullback rebound",
+        "tqqq_signal_reason_hold_trend": "reason: existing risk sleeve remains active while QQQ stays above MA200",
+        "tqqq_signal_reason_exit_ma200": "reason: QQQ fell below the MA200 exit line",
+        "tqqq_signal_reason_idle_waiting": "reason: waiting for QQQ to reclaim MA200 with positive MA20 slope",
+        "tqqq_signal_reason_macro_delever": "reason: macro risk governor reduced leverage",
+        "tqqq_signal_reason_macro_defense": "reason: macro risk governor moved the strategy defensive",
+        "tqqq_signal_reason_crisis_defense": "reason: crisis defense moved the strategy to the safe sleeve",
         "market_status_risk_on": "Risk on ({asset})",
         "market_status_delever": "Delever ({asset})",
         "signal_risk_on": "SOXL is above the {window}-day average; hold SOXL at risk sleeve {ratio}",
@@ -763,6 +781,13 @@ def _format_percent(value: Any) -> str:
         return "n/a"
 
 
+def _as_float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _format_percentile(value: Any) -> str:
     try:
         percentile = float(value) * 100
@@ -829,6 +854,27 @@ def _format_volatility_delever_threshold_detail(
     )
 
 
+def _format_tqqq_volatility_delever_allocation_detail(
+    execution: Mapping[str, Any],
+    *,
+    prefix: str,
+    redirect_symbol: str,
+    translator: Callable[..., str],
+) -> str:
+    retained_ratio = _as_float_or_none(execution.get(f"{prefix}_retained_ratio"))
+    redirected_ratio = _as_float_or_none(execution.get(f"{prefix}_redirected_ratio"))
+    if retained_ratio is None:
+        retained_ratio = _as_float_or_none(execution.get(f"{prefix}_retention_ratio"))
+    if redirected_ratio is None and retained_ratio is not None:
+        redirected_ratio = max(0.0, min(1.0, 1.0 - retained_ratio))
+    return translator(
+        "tqqq_volatility_delever_allocation_detail",
+        retained_ratio=_format_percent(retained_ratio),
+        redirected_ratio=_format_percent(redirected_ratio),
+        redirect_symbol=redirect_symbol or "QQQ",
+    )
+
+
 def _format_tqqq_risk_control_lines(
     execution: Mapping[str, Any],
     *,
@@ -845,6 +891,12 @@ def _format_tqqq_risk_control_lines(
         prefix=prefix,
         translator=translator,
     )
+    allocation_detail = _format_tqqq_volatility_delever_allocation_detail(
+        execution,
+        prefix=prefix,
+        redirect_symbol=redirect_symbol or "QQQ",
+        translator=translator,
+    )
     if str(execution.get(f"{prefix}_trigger_reason") or "").strip() == "hysteresis_hold":
         return [
             translator(
@@ -856,6 +908,7 @@ def _format_tqqq_risk_control_lines(
                 threshold_detail=threshold_detail,
                 source_symbol="TQQQ",
                 redirect_symbol=redirect_symbol or "QQQ",
+                allocation_detail=allocation_detail,
             )
         ]
     return [
@@ -867,6 +920,7 @@ def _format_tqqq_risk_control_lines(
             threshold_detail=threshold_detail,
             source_symbol="TQQQ",
             redirect_symbol=redirect_symbol or "QQQ",
+            allocation_detail=allocation_detail,
         )
     ]
 
