@@ -143,6 +143,12 @@ class LoadedStrategyRuntime:
 
 def _build_runtime_overrides(profile: str, runtime_settings: PlatformRuntimeSettings) -> dict[str, Any]:
     overrides: dict[str, Any] = {}
+    income_layer_enabled = getattr(runtime_settings, "income_layer_enabled", None)
+    income_layer_max_ratio = getattr(runtime_settings, "income_layer_max_ratio", None)
+    if income_layer_enabled is not None:
+        overrides["income_layer_enabled"] = income_layer_enabled
+    if income_layer_max_ratio is not None:
+        overrides["income_layer_max_ratio"] = income_layer_max_ratio
     if profile == "tqqq_growth_income":
         if runtime_settings.income_threshold_usd is not None:
             overrides["income_threshold_usd"] = runtime_settings.income_threshold_usd

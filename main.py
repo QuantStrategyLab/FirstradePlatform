@@ -26,7 +26,11 @@ from quant_platform_kit.common.runtime_reports import (
     finalize_runtime_report,
     persist_runtime_report,
 )
-from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
+from runtime_config_support import (
+    PlatformRuntimeSettings,
+    _runtime_target_enabled_env,
+    load_platform_runtime_settings,
+)
 from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
@@ -406,6 +410,8 @@ def run_strategy():
             ),
             403,
         )
+    if not _runtime_target_enabled_env():
+        return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
     try:
         return jsonify(_run_strategy_cycle_with_report())
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:

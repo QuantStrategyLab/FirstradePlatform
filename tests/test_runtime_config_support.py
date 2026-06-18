@@ -53,6 +53,7 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
+    assert settings.runtime_target_enabled is True
     assert settings.strategy_plugin_alert_channels == ()
     assert settings.strategy_plugin_alert_email_recipients == ()
     assert settings.strategy_plugin_alert_email_sender_email is None
@@ -94,6 +95,42 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 250.0
     assert settings.reserved_cash_ratio == 0.025
+
+
+def test_income_layer_overrides_load_from_env(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
+    monkeypatch.setenv("INCOME_LAYER_ENABLED", "false")
+    monkeypatch.setenv("INCOME_LAYER_MAX_RATIO", "0.25")
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.income_layer_enabled is False
+    assert settings.income_layer_max_ratio == 0.25
+
+
+def test_invalid_income_layer_max_ratio_is_rejected(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
+    monkeypatch.setenv("INCOME_LAYER_MAX_RATIO", "1.5")
+
+    with pytest.raises(ValueError, match="INCOME_LAYER_MAX_RATIO"):
+        load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+
+def test_runtime_target_enabled_loads_from_env(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "false")
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.runtime_target_enabled is False
+
+
+def test_invalid_runtime_target_enabled_is_rejected(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "maybe")
+
+    with pytest.raises(ValueError, match="RUNTIME_TARGET_ENABLED"):
+        load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
 
 def test_strategy_plugin_alert_email_settings_load_from_env(monkeypatch):

@@ -47,3 +47,15 @@ def test_runtime_execution_window_override_ignores_other_profiles():
     settings = _runtime_settings(runtime_execution_window_trading_days=7)
 
     assert _build_runtime_overrides("global_etf_rotation", settings) == {}
+
+
+def test_income_layer_overrides_apply_to_runtime_config():
+    settings = _runtime_settings(
+        income_layer_enabled=False,
+        income_layer_max_ratio=0.25,
+    )
+
+    assert _build_runtime_overrides("global_etf_rotation", settings) == {
+        "income_layer_enabled": False,
+        "income_layer_max_ratio": 0.25,
+    }
