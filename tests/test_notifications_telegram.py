@@ -85,6 +85,8 @@ def test_render_cycle_summary_includes_tqqq_volatility_delever_risk_control():
                 "dual_drive_volatility_delever_dynamic_floor": 0.24,
                 "dual_drive_volatility_delever_dynamic_cap": 0.36,
                 "dual_drive_volatility_delever_redirect_symbol": "QQQM",
+                "dual_drive_volatility_delever_retained_ratio": 0.0,
+                "dual_drive_volatility_delever_redirected_ratio": 1.0,
             },
             "submitted_orders": [],
             "skipped_orders": [],
@@ -94,5 +96,6 @@ def test_render_cycle_summary_includes_tqqq_volatility_delever_risk_control():
 
     assert (
         "🛡️ Risk control: QQQ 5d annualized volatility 31.2% is above effective threshold 30.0% "
-        "(dynamic p90, 252d lookback, bounded 24.0%-36.0%, samples 252); TQQQ redirects to QQQM"
+        "(dynamic p90, 252d lookback, bounded 24.0%-36.0%, samples 252); TQQQ redirects to QQQM "
+        "(leveraged sleeve: TQQQ retained 0.0%, QQQM 100.0%)"
     ) in message
