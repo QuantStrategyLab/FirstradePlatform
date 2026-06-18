@@ -184,8 +184,12 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
         "strategy_run_persisted": result.get("strategy_run_persisted"),
         "session_reused": bool(result.get("session_reused")),
         "live_trading_enabled": bool(result.get("live_trading_enabled")),
+        "notification_sent": bool(result.get("notification_sent")),
+        "notification_suppressed": bool(result.get("notification_suppressed")),
         **_plugin_report_fields(result),
     }
+    if result.get("notification_error"):
+        summary["notification_error"] = result.get("notification_error")
     if dry_run and submitted_orders:
         summary["orders_previewed"] = submitted_orders
     if skipped_orders:
