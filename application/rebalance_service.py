@@ -292,6 +292,8 @@ def run_strategy_cycle(
     state_store: GcsStateStore | None = None,
     notification_sender: Callable[[str], None] | None = None,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
+    send_cycle_notification: bool = True,
+    dispatch_plugin_alerts: bool = True,
 ) -> dict[str, Any]:
     now = _utcnow()
     settings = runtime_settings or load_platform_runtime_settings(project_id_resolver=get_project_id)
@@ -440,15 +442,16 @@ def run_strategy_cycle(
             )
     strategy_plugin_alert_result = None
     strategy_plugin_alert_error = None
-    try:
-        strategy_plugin_alert_result = publish_strategy_plugin_alerts(
-            strategy_plugin_signals,
-            settings=settings,
-            translator=translator,
-            env_reader=env_reader,
-        )
-    except Exception as exc:
-        strategy_plugin_alert_error = f"{type(exc).__name__}: {exc}"
+    if dispatch_plugin_alerts:
+        try:
+            strategy_plugin_alert_result = publish_strategy_plugin_alerts(
+                strategy_plugin_signals,
+                settings=settings,
+                translator=translator,
+                env_reader=env_reader,
+            )
+        except Exception as exc:
+            strategy_plugin_alert_error = f"{type(exc).__name__}: {exc}"
     strategy_run_persisted = False
     strategy_run_persistence_error = None
     if persist_strategy_runs:
@@ -579,13 +582,17 @@ def run_strategy_cycle(
         except Exception as exc:
             result["strategy_run_persisted"] = False
             result["strategy_run_persistence_error"] = f"{type(exc).__name__}: {exc}"
-    try:
-        result["notification_sent"] = _publish_cycle_notification(
-            result,
-            settings=settings,
-            notification_sender=notification_sender,
-        )
-    except Exception as exc:
+    if send_cycle_notification:
+        try:
+            result["notification_sent"] = _publish_cycle_notification(
+                result,
+                settings=settings,
+                notification_sender=notification_sender,
+            )
+        except Exception as exc:
+            result["notification_sent"] = False
+            result["notification_error"] = f"{type(exc).__name__}: {exc}"
+    else:
         result["notification_sent"] = False
-        result["notification_error"] = f"{type(exc).__name__}: {exc}"
+        result["notification_suppressed"] = True
     return result
