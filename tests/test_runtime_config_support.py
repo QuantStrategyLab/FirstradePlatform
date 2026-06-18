@@ -100,11 +100,13 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
 def test_income_layer_overrides_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
     monkeypatch.setenv("INCOME_LAYER_ENABLED", "false")
+    monkeypatch.setenv("INCOME_LAYER_START_USD", "250000")
     monkeypatch.setenv("INCOME_LAYER_MAX_RATIO", "0.25")
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
     assert settings.income_layer_enabled is False
+    assert settings.income_layer_start_usd == 250000.0
     assert settings.income_layer_max_ratio == 0.25
 
 
@@ -113,6 +115,14 @@ def test_invalid_income_layer_max_ratio_is_rejected(monkeypatch):
     monkeypatch.setenv("INCOME_LAYER_MAX_RATIO", "1.5")
 
     with pytest.raises(ValueError, match="INCOME_LAYER_MAX_RATIO"):
+        load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+
+def test_invalid_income_layer_start_usd_is_rejected(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
+    monkeypatch.setenv("INCOME_LAYER_START_USD", "-1")
+
+    with pytest.raises(ValueError, match="INCOME_LAYER_START_USD"):
         load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
 

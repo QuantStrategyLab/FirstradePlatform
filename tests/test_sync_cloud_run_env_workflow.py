@@ -37,6 +37,14 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
         assert f"add_optional_env {name}" in workflow
 
+    for name in (
+        "INCOME_LAYER_ENABLED",
+        "INCOME_LAYER_START_USD",
+        "INCOME_LAYER_MAX_RATIO",
+    ):
+        assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+        assert f"add_optional_env {name}" in workflow
+
     assert (
         "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME: "
         "${{ vars.STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME }}"
