@@ -450,6 +450,9 @@ def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypat
     assert result["ok"] is True
     assert result["action_done"] is True
     assert result["strategy_plugin_error"].startswith("JSONDecodeError:")
+    assert result["strategy_plugin_error_lines"] == (
+        "⚠️ Plugin signal failed to load: invalid plugin mount JSON; this run falls back to built-in strategy rules",
+    )
     assert result["strategy_plugin_alert_email_sent_count"] == 0
     assert result["strategy_plugin_alert_sms_sent_count"] == 0
 

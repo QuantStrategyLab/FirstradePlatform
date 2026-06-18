@@ -1078,6 +1078,11 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     lines.extend(_format_signal_lines(execution, translator=translator))
     lines.append(SEPARATOR)
     lines.extend(target_diff_lines)
+    lines.extend(
+        str(line).strip()
+        for line in result.get("strategy_plugin_error_lines") or ()
+        if str(line).strip()
+    )
     execution_notes = tuple(result.get("execution_notes") or allocation.get("small_account_whole_share_cash_notes") or ())
     lines.extend(format_small_account_cash_substitution_notes(execution_notes, translator=translator))
     if submitted:

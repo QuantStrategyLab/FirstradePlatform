@@ -48,6 +48,7 @@ from quant_platform_kit.common.runtime_inputs import (
 )
 from quant_platform_kit.common.strategy_plugins import (
     attach_strategy_plugin_metadata,
+    build_strategy_plugin_error_notification_lines,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
@@ -200,11 +201,14 @@ def attach_strategy_plugin_result(
     error: str | None,
     translator: Callable[..., str],
 ) -> dict[str, Any]:
-    del translator
     if signals:
         result.update(build_strategy_plugin_report_payload(signals))
     if error:
         result["strategy_plugin_error"] = error
+        result["strategy_plugin_error_lines"] = build_strategy_plugin_error_notification_lines(
+            error,
+            translator=translator,
+        )
     return result
 
 
