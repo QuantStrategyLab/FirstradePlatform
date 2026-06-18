@@ -45,6 +45,7 @@ class PlatformRuntimeSettings:
     run_strategy_on_http: bool
     live_order_ack: bool
     max_order_notional_usd: float | None
+    runtime_target_enabled: bool = True
     reserved_cash_floor_usd: float = DEFAULT_RESERVED_CASH_FLOOR_USD
     reserved_cash_ratio: float = DEFAULT_RESERVED_CASH_RATIO
     persist_strategy_runs: bool = False
@@ -52,6 +53,8 @@ class PlatformRuntimeSettings:
     debug_position_snapshot: bool = False
     income_threshold_usd: float | None = None
     qqqi_income_ratio: float | None = None
+    income_layer_enabled: bool | None = None
+    income_layer_max_ratio: float | None = None
     runtime_execution_window_trading_days: int | None = None
     feature_snapshot_path: str | None = None
     feature_snapshot_manifest_path: str | None = None
@@ -140,6 +143,7 @@ def load_platform_runtime_settings(
         tg_token=os.getenv("TELEGRAM_TOKEN"),
         tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
+        runtime_target_enabled=_runtime_target_enabled_env(),
         live_trading_enabled=resolve_bool_value(os.getenv("FIRSTRADE_ENABLE_LIVE_TRADING")),
         run_strategy_on_http=resolve_bool_value(os.getenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP")),
         live_order_ack=resolve_bool_value(os.getenv("FIRSTRADE_LIVE_ORDER_ACK")),
@@ -164,6 +168,8 @@ def load_platform_runtime_settings(
         debug_position_snapshot=resolve_bool_value(os.getenv("FIRSTRADE_DEBUG_POSITION_SNAPSHOT")),
         income_threshold_usd=resolve_optional_float_env(os.environ, "INCOME_THRESHOLD_USD"),
         qqqi_income_ratio=_qqqi_income_ratio_env(),
+        income_layer_enabled=_optional_bool_env("INCOME_LAYER_ENABLED"),
+        income_layer_max_ratio=_optional_ratio_env("INCOME_LAYER_MAX_RATIO"),
         runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
             strategy_definition.profile
         ),
@@ -264,6 +270,34 @@ def _qqqi_income_ratio_env() -> float | None:
     value = resolve_optional_float_env(os.environ, "QQQI_INCOME_RATIO")
     if value is not None and not (0.0 <= value <= 1.0):
         raise ValueError(f"QQQI_INCOME_RATIO must be in [0,1], got {value}")
+    return value
+
+
+def _optional_bool_env(name: str) -> bool | None:
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    value = str(raw_value).strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"{name} must be boolean, got {raw_value!r}")
+
+
+def _runtime_target_enabled_env() -> bool:
+    value = _optional_bool_env("RUNTIME_TARGET_ENABLED")
+    return True if value is None else value
+
+
+def _optional_ratio_env(name: str) -> float | None:
+    value = resolve_optional_float_env(os.environ, name)
+    if value is None:
+        return None
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{name} must be in [0,1], got {value}")
     return value
 
 

@@ -406,6 +406,8 @@ def run_strategy():
             ),
             403,
         )
+    if not _runtime_settings().runtime_target_enabled:
+        return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
     try:
         return jsonify(_run_strategy_cycle_with_report())
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
