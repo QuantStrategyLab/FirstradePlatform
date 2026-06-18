@@ -145,6 +145,37 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     assert "strategy: mega_cap_leader_rotation_top50_balanced" in sent_messages[0][2]
 
 
+def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
+    monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
+    monkeypatch.setenv("NOTIFY_LANG", "zh")
+    monkeypatch.setenv("STRATEGY_PROFILE", "mega_cap_leader_rotation_top50_balanced")
+    sent_messages = []
+
+    def fake_build_sender(token, chat_id):
+        def send(message):
+            sent_messages.append((token, chat_id, message))
+
+        return send
+
+    monkeypatch.setattr(main, "build_sender", fake_build_sender)
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda: (_ for _ in ()).throw(ValueError("snapshot denied")),
+    )
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 500
+    text = sent_messages[0][2]
+    assert "Firstrade 策略运行失败" in text
+    assert "策略: mega_cap_leader_rotation_top50_balanced" in text
+    assert "错误: ValueError: snapshot denied" in text
+
+
 def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)

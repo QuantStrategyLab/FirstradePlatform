@@ -69,6 +69,18 @@ def _runtime_error_notification_message(exc: Exception) -> str:
     error_text = f"{type(exc).__name__}: {exc}"
     if len(error_text) > 1200:
         error_text = error_text[:1197] + "..."
+    if str(os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
+        return "\n".join(
+            (
+                "Firstrade 策略运行失败",
+                f"服务: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
+                f"版本: {os.getenv('K_REVISION') or '<unknown>'}",
+                f"路由: {request.method} {request.path}",
+                f"策略: {os.getenv('STRATEGY_PROFILE') or '<unset>'}",
+                f"账户范围: {os.getenv('ACCOUNT_REGION') or '<unset>'}",
+                f"错误: {error_text}",
+            )
+        )
     return "\n".join(
         (
             "Firstrade strategy run failed",
