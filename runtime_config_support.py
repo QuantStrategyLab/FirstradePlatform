@@ -59,6 +59,11 @@ class PlatformRuntimeSettings:
     dca_mode: str | None = None
     dca_base_investment_usd: float | None = None
     runtime_execution_window_trading_days: int | None = None
+    market_signal_handoff_index_uri: str | None = None
+    market_signal_handoff_manifest_uri: str | None = None
+    market_signal_consumption_audit_uri: str | None = None
+    market_signal_cache_dir: str | None = None
+    market_signal_required: bool = False
     feature_snapshot_path: str | None = None
     feature_snapshot_manifest_path: str | None = None
     strategy_config_path: str | None = None
@@ -178,6 +183,29 @@ def load_platform_runtime_settings(
         dca_base_investment_usd=_optional_positive_float_env("DCA_BASE_INVESTMENT_USD"),
         runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
             strategy_definition.profile
+        ),
+        market_signal_handoff_index_uri=_first_non_empty(
+            os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI"),
+            os.getenv("MARKET_SIGNAL_HANDOFF_INDEX_URI"),
+        ),
+        market_signal_handoff_manifest_uri=_first_non_empty(
+            os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI"),
+            os.getenv("MARKET_SIGNAL_HANDOFF_MANIFEST_URI"),
+        ),
+        market_signal_consumption_audit_uri=_first_non_empty(
+            os.getenv("FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI"),
+            os.getenv("MARKET_SIGNAL_CONSUMPTION_AUDIT_URI"),
+        ),
+        market_signal_cache_dir=_first_non_empty(
+            os.getenv("FIRSTRADE_MARKET_SIGNAL_CACHE_DIR"),
+            os.getenv("MARKET_SIGNAL_CACHE_DIR"),
+        ),
+        market_signal_required=resolve_bool_value(
+            _first_non_empty(
+                os.getenv("FIRSTRADE_MARKET_SIGNAL_REQUIRED"),
+                os.getenv("MARKET_SIGNAL_REQUIRED"),
+                "false",
+            )
         ),
         feature_snapshot_path=runtime_paths.feature_snapshot_path,
         feature_snapshot_manifest_path=runtime_paths.feature_snapshot_manifest_path,
