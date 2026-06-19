@@ -11,7 +11,7 @@ from strategy_registry import (
 def test_firstrade_strategy_registry_uses_native_platform_adapter():
     adapter = load_strategy_runtime_adapter_for_profile("global_etf_rotation")
 
-    assert adapter.available_inputs == frozenset({"market_history", "portfolio_snapshot"})
+    assert adapter.available_inputs == frozenset({"feature_snapshot", "portfolio_snapshot"})
     assert adapter.portfolio_input_name == "portfolio_snapshot"
 
 
