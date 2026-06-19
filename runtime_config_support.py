@@ -58,6 +58,12 @@ class PlatformRuntimeSettings:
     income_layer_max_ratio: float | None = None
     dca_mode: str | None = None
     dca_base_investment_usd: float | None = None
+    ibit_zscore_exit_enabled: bool | None = None
+    ibit_zscore_exit_mode: str | None = None
+    ibit_zscore_exit_parking_symbol: str | None = None
+    ibit_zscore_exit_risk_reduced_exposure: float | None = None
+    ibit_zscore_exit_risk_off_exposure: float | None = None
+    ibit_zscore_exit_allow_outside_execution_window: bool | None = None
     runtime_execution_window_trading_days: int | None = None
     market_signal_handoff_index_uri: str | None = None
     market_signal_handoff_manifest_uri: str | None = None
@@ -186,6 +192,16 @@ def load_platform_runtime_settings(
         income_layer_max_ratio=_optional_ratio_env("INCOME_LAYER_MAX_RATIO"),
         dca_mode=_optional_dca_mode_env("DCA_MODE"),
         dca_base_investment_usd=_optional_positive_float_env("DCA_BASE_INVESTMENT_USD"),
+        ibit_zscore_exit_enabled=_optional_bool_env("IBIT_ZSCORE_EXIT_ENABLED"),
+        ibit_zscore_exit_mode=_optional_ibit_zscore_exit_mode_env("IBIT_ZSCORE_EXIT_MODE"),
+        ibit_zscore_exit_parking_symbol=_optional_symbol_env("IBIT_ZSCORE_EXIT_PARKING_SYMBOL"),
+        ibit_zscore_exit_risk_reduced_exposure=_optional_ratio_env(
+            "IBIT_ZSCORE_EXIT_RISK_REDUCED_EXPOSURE"
+        ),
+        ibit_zscore_exit_risk_off_exposure=_optional_ratio_env("IBIT_ZSCORE_EXIT_RISK_OFF_EXPOSURE"),
+        ibit_zscore_exit_allow_outside_execution_window=_optional_bool_env(
+            "IBIT_ZSCORE_EXIT_ALLOW_OUTSIDE_EXECUTION_WINDOW"
+        ),
         runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
             strategy_definition.profile
         ),
@@ -405,6 +421,37 @@ def _optional_dca_mode_env(name: str) -> str | None:
     if mode not in {"fixed", "smart"}:
         raise ValueError(f"{name} must be fixed or smart, got {raw_value!r}")
     return mode
+
+
+def _optional_ibit_zscore_exit_mode_env(name: str) -> str | None:
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    value = str(raw_value).strip().lower()
+    aliases = {
+        "off": "disabled",
+        "none": "disabled",
+        "false": "disabled",
+        "disable": "disabled",
+        "enabled": "live",
+        "shadow": "paper",
+        "dry_run": "paper",
+        "dry-run": "paper",
+    }
+    mode = aliases.get(value, value)
+    if mode not in {"disabled", "paper", "live"}:
+        raise ValueError(f"{name} must be disabled, paper, or live, got {raw_value!r}")
+    return mode
+
+
+def _optional_symbol_env(name: str) -> str | None:
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    value = str(raw_value).strip().upper()
+    if len(value) > 16 or not value.replace(".", "").replace("-", "").isalnum():
+        raise ValueError(f"{name} must be a symbol")
+    return value
 
 
 def _resolve_non_negative_float_env(name: str, *, default: float) -> float:
