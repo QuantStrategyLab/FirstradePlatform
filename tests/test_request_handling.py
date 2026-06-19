@@ -21,6 +21,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/smoke": ["GET"],
         "/run": ["GET", "POST"],
         "/dry-run": ["GET", "POST"],
+        "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["GET", "POST"],
         "/static/<path:filename>": ["GET"],
     }
@@ -64,6 +65,29 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {"ok": True, "action_done": False}
+
+
+def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda **_kwargs: {
+            "ok": False,
+            "execution_blocked": True,
+            "execution_block_retryable": False,
+            "funding_blocked": True,
+            "error": "Strategy execution blocked; see execution_blocking_skips.",
+        },
+    )
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["funding_blocked"] is True
+    assert payload["execution_block_retryable"] is False
 
 
 def test_probe_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
@@ -246,3 +270,21 @@ def test_scheduler_routes_accept_post(monkeypatch):
     }
     assert probe_response.status_code == 200
     assert probe_response.get_json()["ok"] is True
+
+
+def test_monitor_dispatch_post_dispatches_due_targets(monkeypatch):
+    observed = {}
+
+    def fake_dispatch(targets):
+        observed["targets"] = targets
+        return {"ok": True, "dispatches_due": 0}
+
+    monkeypatch.setattr(main, "load_monitor_targets", lambda: [{"service_name": "firstrade-quant-service"}])
+    monkeypatch.setattr(main, "dispatch_due_monitors", fake_dispatch)
+    client = main.app.test_client()
+
+    response = client.post("/monitor-dispatch")
+
+    assert response.status_code == 200
+    assert response.get_json()["dispatches_due"] == 0
+    assert observed["targets"][0]["service_name"] == "firstrade-quant-service"

@@ -121,6 +121,8 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_runtime_target():
     workflow = workflow_path.read_text(encoding="utf-8")
 
     assert "Sync Cloud Scheduler schedule" in workflow
+    assert "GCP_SCHEDULER_SERVICE_ACCOUNT: firstrade-platform-scheduler@firstradequant.iam.gserviceaccount.com" in workflow
+    assert "MONITOR_DISPATCH_TARGETS_JSON=${monitor_targets_json}" in workflow
     assert 'scheduler_location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"' in workflow
     assert 'raw_runtime_target = os.environ.get("RUNTIME_TARGET_JSON", "").strip()' in workflow
     assert 'scheduler = runtime_target.get("scheduler") if isinstance(runtime_target, dict) else {}' in workflow
@@ -128,11 +130,16 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_runtime_target():
     assert 'configured_time("main_time", "CLOUD_SCHEDULER_MAIN_TIME", "45 15")' in workflow
     assert 'configured_time("probe_time", "CLOUD_SCHEDULER_PROBE_TIME", "35 9,15")' in workflow
     assert 'configured_time("precheck_time", "CLOUD_SCHEDULER_PRECHECK_TIME", "45 9")' in workflow
-    assert 'scheduler_job_candidates=("${CLOUD_RUN_SERVICE}-${suffix}")' in workflow
-    assert 'scheduler_job_candidates+=("${CLOUD_RUN_SERVICE%-service}-${suffix}")' in workflow
+    assert 'scheduler_job_candidates=("${CLOUD_RUN_SERVICE}-scheduler")' in workflow
+    assert 'scheduler_job_candidates+=("${CLOUD_RUN_SERVICE%-service}-scheduler")' in workflow
     assert 'if len(time_fields) == 5:' in workflow
     assert 'print(" ".join(time_fields))' in workflow
     assert 'print(" ".join([*time_fields, *current_fields[2:]]))' in workflow
     assert 'gcloud scheduler jobs update http "${job_name}"' in workflow
+    assert 'gcloud scheduler jobs create http "${job_name}"' in workflow
+    assert 'monitor_job_name="firstrade-monitor-dispatcher-scheduler"' in workflow
+    assert 'monitor_uri="${service_url}/monitor-dispatch"' in workflow
+    assert '"${CLOUD_RUN_SERVICE}-session-check-scheduler"' in workflow
+    assert 'gcloud scheduler jobs delete "${legacy_job}"' in workflow
     assert '--schedule="${desired_schedule}"' in workflow
     assert '--time-zone="${market_timezone}"' in workflow
