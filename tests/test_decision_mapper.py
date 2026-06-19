@@ -26,7 +26,7 @@ def test_applies_platform_reserved_cash_policy_to_weight_decision():
     plan = map_strategy_decision_to_plan(
         decision,
         snapshot=snapshot,
-        strategy_profile="russell_top50_leader_rotation_aggressive",
+        strategy_profile="russell_top50_leader_rotation",
         runtime_metadata={
             "firstrade_execution_policy": {
                 "reserved_cash_floor_usd": 1500.0,
@@ -157,7 +157,7 @@ def test_value_decision_without_threshold_uses_platform_default():
     plan = map_strategy_decision_to_plan(
         decision,
         snapshot=snapshot,
-        strategy_profile="russell_top50_leader_rotation_aggressive",
+        strategy_profile="russell_top50_leader_rotation",
     )
 
     assert plan["execution"]["trade_threshold_value"] == 200.0
@@ -181,7 +181,7 @@ def test_no_execute_decision_without_threshold_holds_current_positions():
     plan = map_strategy_decision_to_plan(
         decision,
         snapshot=snapshot,
-        strategy_profile="russell_top50_leader_rotation_aggressive",
+        strategy_profile="russell_top50_leader_rotation",
     )
 
     assert plan["execution"]["trade_threshold_value"] == 100.0
