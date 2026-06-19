@@ -318,6 +318,10 @@ def run_strategy_cycle(
     now = _utcnow()
     settings = runtime_settings or load_platform_runtime_settings(project_id_resolver=get_project_id)
     translator = build_translator(settings.notify_lang)
+
+    def log_message(message: str) -> None:
+        print(message, flush=True)
+
     strategy_plugin_signals, strategy_plugin_error = load_strategy_plugin_signals(
         settings.strategy_plugin_mounts_json,
         strategy_profile=settings.strategy_profile,
@@ -335,7 +339,7 @@ def run_strategy_cycle(
     strategy_runtime = load_strategy_runtime(
         settings.strategy_profile,
         runtime_settings=settings,
-        logger=lambda message: print(message, flush=True),
+        logger=log_message,
     )
     broker_adapters = build_runtime_broker_adapters(
         client=client,
