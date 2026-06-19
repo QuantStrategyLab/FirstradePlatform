@@ -254,8 +254,8 @@ def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing
             return {"cash_balance": "$1000.00", "buying_power": "$1000.00"}
 
     class WeightTargetRuntime(FakeStrategyRuntime):
-        profile = "mega_cap_leader_rotation_top50_balanced"
-        display_name = "Mega Cap Leader Rotation Top50 Balanced"
+        profile = "russell_top50_leader_rotation_aggressive"
+        display_name = "Russell Top50 Leader Rotation Aggressive"
 
         def evaluate(self, **inputs):
             assert "portfolio_snapshot" in inputs
@@ -276,8 +276,8 @@ def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing
 
     result = run_strategy_cycle(
         runtime_settings=_runtime_settings_with_persistence(
-            strategy_profile="mega_cap_leader_rotation_top50_balanced",
-            strategy_display_name="Mega Cap Leader Rotation Top50 Balanced",
+            strategy_profile="russell_top50_leader_rotation_aggressive",
+            strategy_display_name="Russell Top50 Leader Rotation Aggressive",
         ),
         credentials=FirstradeCredentials(username="user", password="pass"),
         client_factory=CashOnlyClient,
@@ -296,8 +296,8 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
             return {"total_value": "$0.00", "cash_balance": "$0.00", "buying_power": "$0.00"}
 
     class WeightTargetRuntime(FakeStrategyRuntime):
-        profile = "mega_cap_leader_rotation_top50_balanced"
-        display_name = "Mega Cap Leader Rotation Top50 Balanced"
+        profile = "russell_top50_leader_rotation_aggressive"
+        display_name = "Russell Top50 Leader Rotation Aggressive"
 
         def evaluate(self, **inputs):
             assert "portfolio_snapshot" in inputs
@@ -318,8 +318,8 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
 
     result = run_strategy_cycle(
         runtime_settings=_runtime_settings_with_persistence(
-            strategy_profile="mega_cap_leader_rotation_top50_balanced",
-            strategy_display_name="Mega Cap Leader Rotation Top50 Balanced",
+            strategy_profile="russell_top50_leader_rotation_aggressive",
+            strategy_display_name="Russell Top50 Leader Rotation Aggressive",
         ),
         credentials=FirstradeCredentials(username="user", password="pass"),
         client_factory=ZeroEquityClient,
@@ -938,8 +938,8 @@ def test_render_cycle_summary_shows_funding_blocked_banner():
     message = render_cycle_summary(
         {
             "account": "****1234",
-            "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
-            "strategy_display_name": "Mega Cap Leader Rotation Top50 Balanced",
+            "strategy_profile": "russell_top50_leader_rotation_aggressive",
+            "strategy_display_name": "Russell Top50 Leader Rotation Aggressive",
             "dry_run_only": False,
             "execution_blocked": True,
             "execution_block_retryable": False,
@@ -971,8 +971,8 @@ def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
     message = render_cycle_summary(
         {
             "account": "****1234",
-            "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
-            "strategy_display_name": "Mega Cap Leader Rotation Top50 Balanced",
+            "strategy_profile": "russell_top50_leader_rotation_aggressive",
+            "strategy_display_name": "Russell Top50 Leader Rotation Aggressive",
             "dry_run_only": False,
             "execution_blocked": True,
             "execution_block_retryable": True,

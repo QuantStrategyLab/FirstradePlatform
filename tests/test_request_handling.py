@@ -192,7 +192,7 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
     monkeypatch.setenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", "plugin-token")
     monkeypatch.setenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", "plugin-chat")
-    monkeypatch.setenv("STRATEGY_PROFILE", "mega_cap_leader_rotation_top50_balanced")
+    monkeypatch.setenv("STRATEGY_PROFILE", "russell_top50_leader_rotation_aggressive")
     monkeypatch.setattr(main, "build_sender", fake_build_sender)
     monkeypatch.setattr(
         main,
@@ -213,7 +213,7 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     assert sent_messages[0][1] == "chat-1"
     assert "Firstrade strategy run failed" in sent_messages[0][2]
     assert "ValueError: snapshot denied" in sent_messages[0][2]
-    assert "strategy: mega_cap_leader_rotation_top50_balanced" in sent_messages[0][2]
+    assert "strategy: russell_top50_leader_rotation_aggressive" in sent_messages[0][2]
 
 
 def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
@@ -221,7 +221,7 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
     monkeypatch.setenv("NOTIFY_LANG", "zh")
-    monkeypatch.setenv("STRATEGY_PROFILE", "mega_cap_leader_rotation_top50_balanced")
+    monkeypatch.setenv("STRATEGY_PROFILE", "russell_top50_leader_rotation_aggressive")
     sent_messages = []
 
     def fake_build_sender(token, chat_id):
@@ -243,7 +243,7 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
     assert response.status_code == 500
     text = sent_messages[0][2]
     assert "Firstrade 策略运行失败" in text
-    assert "策略: mega_cap_leader_rotation_top50_balanced" in text
+    assert "策略: russell_top50_leader_rotation_aggressive" in text
     assert "错误: ValueError: snapshot denied" in text
 
 
