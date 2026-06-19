@@ -112,7 +112,7 @@ def test_run_session_check_persists_funds_snapshot_when_enabled():
 def test_monthly_session_check_skips_when_current_period_is_already_maintained():
     now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
     state_key = (
-        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+        "session-checks/auto/russell_top50_leader_rotation_aggressive/2026_06/latest.json"
     )
     store = FakeStateStore(
         {
@@ -126,7 +126,7 @@ def test_monthly_session_check_skips_when_current_period_is_already_maintained()
     result = run_session_check(
         client_factory=ExplodingClient,
         state_store=store,
-        env_reader=_env({"STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced"}),
+        env_reader=_env({"STRATEGY_PROFILE": "russell_top50_leader_rotation_aggressive"}),
         now=now,
     )
 
@@ -147,14 +147,14 @@ def test_monthly_session_check_runs_and_persists_maintenance_state_when_due():
         credentials=FirstradeCredentials(username="user", password="pass"),
         client_factory=FakeClient,
         state_store=store,
-        env_reader=_env({"STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced"}),
+        env_reader=_env({"STRATEGY_PROFILE": "russell_top50_leader_rotation_aggressive"}),
         now=now,
     )
 
     assert result["ok"] is True
     assert result["session_check_maintenance_state_persisted"] is True
     state_key = (
-        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+        "session-checks/auto/russell_top50_leader_rotation_aggressive/2026_06/latest.json"
     )
     assert store.reads == [state_key]
     assert store.writes == [
@@ -164,7 +164,7 @@ def test_monthly_session_check_runs_and_persists_maintenance_state_when_due():
                 "checked_at": "2026-06-03T01:02:03+00:00",
                 "account": "****5678",
                 "session_reused": True,
-                "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+                "strategy_profile": "russell_top50_leader_rotation_aggressive",
                 "strategy_cadence": "monthly",
                 "strategy_required_inputs": ["feature_snapshot"],
                 "period": "2026-06",
@@ -196,7 +196,7 @@ def test_daily_session_check_runs_every_time_without_maintenance_state_lookup():
 def test_session_check_policy_always_overrides_monthly_throttle():
     now = datetime(2026, 6, 3, 1, 2, 3, tzinfo=timezone.utc)
     state_key = (
-        "session-checks/auto/mega_cap_leader_rotation_top50_balanced/2026_06/latest.json"
+        "session-checks/auto/russell_top50_leader_rotation_aggressive/2026_06/latest.json"
     )
     store = FakeStateStore({state_key: {"checked_at": "2026-06-01T01:02:03+00:00"}})
 
@@ -206,7 +206,7 @@ def test_session_check_policy_always_overrides_monthly_throttle():
         state_store=store,
         env_reader=_env(
             {
-                "STRATEGY_PROFILE": "mega_cap_leader_rotation_top50_balanced",
+                "STRATEGY_PROFILE": "russell_top50_leader_rotation_aggressive",
                 "FIRSTRADE_SESSION_CHECK_POLICY": "always",
             }
         ),

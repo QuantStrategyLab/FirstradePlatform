@@ -9,7 +9,7 @@ def _runtime_settings(**overrides) -> PlatformRuntimeSettings:
         "project_id": None,
         "account_prefix": "FIRSTRADE",
         "account_region": "US",
-        "strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+        "strategy_profile": "russell_top50_leader_rotation_aggressive",
         "strategy_display_name": "Mega Cap Leader Rotation Top 50 Balanced",
         "strategy_domain": "us_equity",
         "notify_lang": "en",
@@ -29,7 +29,7 @@ def test_runtime_execution_window_override_applies_to_mega_strategy():
     settings = _runtime_settings(runtime_execution_window_trading_days=7)
 
     assert _build_runtime_overrides(
-        "mega_cap_leader_rotation_top50_balanced",
+        "russell_top50_leader_rotation_aggressive",
         settings,
     ) == {"runtime_execution_window_trading_days": 7}
 
