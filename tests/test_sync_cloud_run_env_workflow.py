@@ -54,6 +54,11 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
         "FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI",
         "FIRSTRADE_MARKET_SIGNAL_CACHE_DIR",
         "FIRSTRADE_MARKET_SIGNAL_REQUIRED",
+        "FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE",
+        "FIRSTRADE_MARKET_SIGNAL_MAX_STALE_DAYS",
+        "FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MODE",
+        "FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR",
+        "FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
         assert f"add_optional_env {name}" in workflow
