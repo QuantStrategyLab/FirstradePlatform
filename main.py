@@ -10,6 +10,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
+from application.monitor_dispatcher import dispatch_due_monitors, load_monitor_targets
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -481,6 +482,27 @@ def dry_run():
 @app.get("/probe")
 def probe():
     return session_check()
+
+
+@app.post("/monitor-dispatch")
+@app.get("/monitor-dispatch")
+def monitor_dispatch():
+    if request.method == "GET":
+        return jsonify({"ok": True, "message": "use POST to dispatch due monitor checks"})
+    try:
+        return jsonify(dispatch_due_monitors(load_monitor_targets()))
+    except Exception as exc:
+        notification_attempted = _handle_strategy_run_exception(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
 
 
 if __name__ == "__main__":
