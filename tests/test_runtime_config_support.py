@@ -10,7 +10,7 @@ from runtime_config_support import (
 )
 
 
-def _target_json(profile="mega_cap_leader_rotation_top50_balanced") -> str:
+def _target_json(profile="russell_top50_leader_rotation") -> str:
     return (
         '{"platform_id":"firstrade","strategy_profile":"'
         + profile
@@ -23,7 +23,7 @@ def test_runtime_execution_window_uses_generic_env(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS", "3")
 
     assert (
-        _runtime_execution_window_trading_days_env("mega_cap_leader_rotation_top50_balanced")
+        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
         == 7
     )
     assert (
@@ -41,7 +41,7 @@ def test_runtime_execution_window_keeps_legacy_tech_env(monkeypatch):
         == 5
     )
     assert (
-        _runtime_execution_window_trading_days_env("mega_cap_leader_rotation_top50_balanced")
+        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
         is None
     )
 
@@ -255,4 +255,4 @@ def test_runtime_execution_window_rejects_invalid_generic_env(monkeypatch, raw_v
         ValueError,
         match="FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS",
     ):
-        _runtime_execution_window_trading_days_env("mega_cap_leader_rotation_top50_balanced")
+        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
