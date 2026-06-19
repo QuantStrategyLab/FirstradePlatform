@@ -90,6 +90,29 @@ def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
     assert payload["execution_block_retryable"] is False
 
 
+def test_run_endpoint_returns_500_for_retryable_execution_block(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda **_kwargs: {
+            "ok": False,
+            "execution_blocked": True,
+            "execution_block_retryable": True,
+            "funding_blocked": False,
+            "error": "Strategy execution blocked; see execution_blocking_skips.",
+        },
+    )
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 500
+    payload = response.get_json()
+    assert payload["execution_blocked"] is True
+    assert payload["execution_block_retryable"] is True
+
+
 def test_probe_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
     monkeypatch.delenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", raising=False)
     client = main.app.test_client()

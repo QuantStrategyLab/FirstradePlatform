@@ -238,6 +238,12 @@ def _strategy_result_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
     return diagnostics
 
 
+def _strategy_result_http_status(result: dict[str, Any]) -> int:
+    if result.get("execution_blocked") and result.get("execution_block_retryable") and not result.get("funding_blocked"):
+        return 500
+    return 200
+
+
 def _persist_runtime_report(report: dict[str, Any]) -> str | None:
     persisted = persist_runtime_report(
         report,
@@ -414,7 +420,8 @@ def run_strategy():
     if not _runtime_target_enabled_env():
         return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
     try:
-        return jsonify(_run_strategy_cycle_with_report())
+        result = _run_strategy_cycle_with_report()
+        return jsonify(result), _strategy_result_http_status(result)
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
         notification_attempted = _handle_strategy_run_exception(exc)
         return (
