@@ -61,6 +61,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
 )
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
+from market_signal_runtime import resolve_external_market_signal_inputs
 from strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
@@ -118,15 +119,30 @@ def build_market_inputs(
     market_data_port,
     benchmark_symbol: str,
     strategy_runtime_config: Mapping[str, Any],
+    strategy_profile: str | None = None,
+    runtime_settings: PlatformRuntimeSettings | None = None,
+    log_message: Callable[[str], None] = print,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {}
+    if runtime_settings is not None and strategy_profile is not None:
+        inputs.update(
+            resolve_external_market_signal_inputs(
+                strategy_profile=strategy_profile,
+                available_inputs=available_inputs,
+                runtime_settings=runtime_settings,
+                logger=log_message,
+            )
+        )
     if "market_history" in available_inputs:
         inputs["market_history"] = _build_market_history_loader(market_data_port)
     if "benchmark_history" in available_inputs:
         inputs["benchmark_history"] = _build_price_history(market_data_port, benchmark_symbol)
     if "qqq_history" in available_inputs:
         inputs["qqq_history"] = _build_price_history(market_data_port, benchmark_symbol)
-    if "derived_indicators" in available_inputs or "indicators" in available_inputs:
+    if (
+        ("derived_indicators" in available_inputs and "derived_indicators" not in inputs)
+        or ("indicators" in available_inputs and "indicators" not in inputs)
+    ):
         indicators = _build_derived_indicators(
             market_data_port,
             trend_ma_window=int(strategy_runtime_config.get("trend_ma_window", 150)),
@@ -343,6 +359,9 @@ def run_strategy_cycle(
         market_data_port=market_data_port,
         benchmark_symbol=benchmark_symbol,
         strategy_runtime_config=strategy_runtime.merged_runtime_config,
+        strategy_profile=settings.strategy_profile,
+        runtime_settings=settings,
+        log_message=log_message,
     )
     evaluation_inputs = build_strategy_evaluation_inputs(
         available_inputs=available_inputs,

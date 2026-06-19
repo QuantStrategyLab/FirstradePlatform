@@ -49,6 +49,11 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
         "INCOME_LAYER_ENABLED",
         "INCOME_LAYER_START_USD",
         "INCOME_LAYER_MAX_RATIO",
+        "FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI",
+        "FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI",
+        "FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI",
+        "FIRSTRADE_MARKET_SIGNAL_CACHE_DIR",
+        "FIRSTRADE_MARKET_SIGNAL_REQUIRED",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
         assert f"add_optional_env {name}" in workflow
