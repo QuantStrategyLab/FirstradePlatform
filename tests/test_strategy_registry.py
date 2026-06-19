@@ -22,4 +22,3 @@ def test_profile_status_matrix_reports_firstrade_without_bridge_metadata():
     assert all(row["platform"] == FIRSTRADE_PLATFORM for row in rows)
     assert all("strategy_adapter_source_platform" not in row for row in rows)
     assert "global_etf_rotation" in get_supported_profiles_for_platform(FIRSTRADE_PLATFORM)
-
