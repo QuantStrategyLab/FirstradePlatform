@@ -7,7 +7,7 @@ name = "firstrade-platform"
 version = "0.1.0"
 description = "Experimental QuantStrategyLab platform layer for Firstrade through an unofficial API wrapper."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
   { name = "QuantStrategyLab" }
@@ -20,6 +20,22 @@ dependencies = [
   "requests",
 ]
 
+[tool.setuptools]
+py-modules = [
+  "decision_mapper",
+  "main",
+  "runtime_config_support",
+  "strategy_loader",
+  "strategy_registry",
+  "strategy_runtime",
+]
+
+[tool.setuptools.packages.find]
+include = [
+  "application*",
+  "notifications*",
+]
+
 [tool.pytest.ini_options]
 pythonpath = [
   ".",
@@ -29,5 +45,5 @@ pythonpath = [
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
