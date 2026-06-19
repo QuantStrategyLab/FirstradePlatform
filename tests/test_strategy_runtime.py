@@ -77,6 +77,27 @@ def test_dca_overrides_apply_to_runtime_config():
     }
 
 
+def test_ibit_zscore_exit_overrides_apply_to_runtime_config():
+    settings = _runtime_settings(
+        strategy_profile="ibit_smart_dca",
+        ibit_zscore_exit_enabled=True,
+        ibit_zscore_exit_mode="live",
+        ibit_zscore_exit_parking_symbol="BOXX",
+        ibit_zscore_exit_risk_reduced_exposure=0.5,
+        ibit_zscore_exit_risk_off_exposure=0.25,
+        ibit_zscore_exit_allow_outside_execution_window=True,
+    )
+
+    assert _build_runtime_overrides("ibit_smart_dca", settings) == {
+        "ibit_zscore_exit_enabled": True,
+        "ibit_zscore_exit_mode": "live",
+        "ibit_zscore_exit_parking_symbol": "BOXX",
+        "ibit_zscore_exit_risk_reduced_exposure": 0.5,
+        "ibit_zscore_exit_risk_off_exposure": 0.25,
+        "ibit_zscore_exit_allow_outside_execution_window": True,
+    }
+
+
 def test_reserved_cash_policy_overrides_apply_to_runtime_config():
     settings = _runtime_settings(
         strategy_profile="soxl_soxx_trend_income",
