@@ -173,7 +173,7 @@ def _build_runtime_overrides(profile: str, runtime_settings: PlatformRuntimeSett
         if runtime_settings.qqqi_income_ratio is not None:
             overrides["qqqi_income_ratio"] = runtime_settings.qqqi_income_ratio
     if profile in {
-        "russell_top50_leader_rotation_aggressive",
+        "russell_top50_leader_rotation",
         "tech_communication_pullback_enhancement",
     }:
         if runtime_settings.runtime_execution_window_trading_days is not None:
