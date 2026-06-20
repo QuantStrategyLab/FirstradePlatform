@@ -43,6 +43,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value in {"1", "true", "yes", "y", "on"}
 
 
+def _enabled_value(value: Any, *, default: bool = True) -> bool:
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return True
+
+
 def _parse_day_of_month_field(raw: str) -> set[int] | None:
     text = str(raw or "").strip()
     if not text or text in {"*", "?"}:
@@ -79,7 +90,7 @@ def _parse_day_of_month_field(raw: str) -> set[int] | None:
     return days or None
 
 
-def _runtime_target_scheduler() -> dict[str, Any]:
+def _runtime_target_payload() -> dict[str, Any]:
     raw = (os.environ.get("RUNTIME_TARGET_JSON") or "").strip()
     if not raw:
         return {}
@@ -87,11 +98,23 @@ def _runtime_target_scheduler() -> dict[str, Any]:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _runtime_target_enabled() -> bool:
+    value: Any = os.environ.get("RUNTIME_TARGET_ENABLED")
+    if value is None:
+        value = _runtime_target_payload().get("runtime_target_enabled")
+    return _enabled_value(value, default=True)
+
+
+def _runtime_target_scheduler() -> dict[str, Any]:
+    payload = _runtime_target_payload()
     scheduler = payload.get("scheduler") if isinstance(payload, dict) else None
     return scheduler if isinstance(scheduler, dict) else {}
 
 
-def _heartbeat_skip_reason_for_schedule(now: dt.datetime) -> str | None:
+def _heartbeat_skip_reason_for_schedule(since: dt.datetime, now: dt.datetime) -> str | None:
     scheduler = _runtime_target_scheduler()
     cron = str(scheduler.get("main_time") or "").strip()
     fields = cron.split()
@@ -106,13 +129,18 @@ def _heartbeat_skip_reason_for_schedule(now: dt.datetime) -> str | None:
     except ZoneInfoNotFoundError:
         timezone = dt.timezone.utc
         timezone_name = "UTC"
-    local_now = now.astimezone(timezone)
-    if local_now.day in expected_days:
-        return None
+    local_since_date = since.astimezone(timezone).date()
+    local_now_date = now.astimezone(timezone).date()
+    cursor = local_since_date
+    while cursor <= local_now_date:
+        if cursor.day in expected_days:
+            return None
+        cursor += dt.timedelta(days=1)
     day_text = ",".join(str(day) for day in sorted(expected_days))
     return (
         f"runtime scheduler main_time is not due today "
-        f"({timezone_name} day={local_now.day}; expected day(s)={day_text})"
+        f"({timezone_name} date_window={local_since_date.isoformat()}.."
+        f"{local_now_date.isoformat()}; expected day(s)={day_text})"
     )
 
 
@@ -434,18 +462,24 @@ def main(now: dt.datetime | None = None) -> int:
         or os.environ.get("GOOGLE_CLOUD_PROJECT")
     )
     name = os.environ.get("RUNTIME_HEARTBEAT_NAME") or os.environ.get("GITHUB_REPOSITORY") or "runtime"
+    if not _runtime_target_enabled():
+        print(f"Execution report heartbeat skipped for {name}: runtime target is disabled")
+        return 0
     lookback_hours = float(os.environ.get("RUNTIME_HEARTBEAT_LOOKBACK_HOURS") or "36")
     max_reports = int(os.environ.get("RUNTIME_HEARTBEAT_MAX_REPORTS_TO_READ") or "20")
     fail_workflow = _env_bool("RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT", True)
     required_services = _load_required_services()
 
     now = now or dt.datetime.now(dt.timezone.utc)
-    schedule_skip_reason = _heartbeat_skip_reason_for_schedule(now)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    now = now.astimezone(dt.timezone.utc)
+    since = now - dt.timedelta(hours=lookback_hours)
+    schedule_skip_reason = _heartbeat_skip_reason_for_schedule(since, now)
     if schedule_skip_reason:
         print(f"Execution report heartbeat skipped for {name}: {schedule_skip_reason}")
         return 0
 
-    since = now - dt.timedelta(hours=lookback_hours)
     globs = _report_globs(since, now)
     if not globs:
         raise SystemExit("No heartbeat GCS report URI configured")

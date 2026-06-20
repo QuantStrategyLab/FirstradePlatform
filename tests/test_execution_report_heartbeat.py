@@ -53,6 +53,41 @@ def test_telegram_token_falls_back_to_secret_manager(monkeypatch):
     ]
 
 
+def test_heartbeat_skips_when_runtime_target_is_disabled(monkeypatch, capsys):
+    monkeypatch.setenv("RUNTIME_HEARTBEAT_NAME", "Firstrade disabled runtime")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "false")
+    monkeypatch.setattr(
+        heartbeat,
+        "_list_gcs_objects",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("GCS should not be queried")),
+    )
+
+    result = heartbeat.main(now=dt.datetime(2026, 6, 20, 23, 10, tzinfo=dt.timezone.utc))
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "Execution report heartbeat skipped for Firstrade disabled runtime" in output
+    assert "runtime target is disabled" in output
+
+
+def test_heartbeat_skips_when_runtime_target_json_is_disabled(monkeypatch, capsys):
+    monkeypatch.delenv("RUNTIME_TARGET_ENABLED", raising=False)
+    monkeypatch.setenv("RUNTIME_HEARTBEAT_NAME", "Firstrade disabled runtime")
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", '{"runtime_target_enabled":false}')
+    monkeypatch.setattr(
+        heartbeat,
+        "_list_gcs_objects",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("GCS should not be queried")),
+    )
+
+    result = heartbeat.main(now=dt.datetime(2026, 6, 20, 23, 10, tzinfo=dt.timezone.utc))
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "Execution report heartbeat skipped for Firstrade disabled runtime" in output
+    assert "runtime target is disabled" in output
+
+
 
 def test_heartbeat_skips_outside_runtime_target_scheduler_day(monkeypatch, capsys):
     monkeypatch.setenv("RUNTIME_HEARTBEAT_NAME", "Firstrade monthly runtime")
@@ -79,9 +114,25 @@ def test_heartbeat_does_not_skip_inside_runtime_target_scheduler_day(monkeypatch
         "RUNTIME_TARGET_JSON",
         '{"scheduler":{"timezone":"America/New_York","main_time":"45 15 25-28 * *"}}',
     )
+    now = dt.datetime(2026, 6, 25, 23, 10, tzinfo=dt.timezone.utc)
 
     reason = heartbeat._heartbeat_skip_reason_for_schedule(
-        dt.datetime(2026, 6, 25, 23, 10, tzinfo=dt.timezone.utc)
+        now - dt.timedelta(hours=36),
+        now,
+    )
+
+    assert reason is None
+
+
+def test_heartbeat_does_not_skip_when_lookback_includes_scheduler_day(monkeypatch):
+    monkeypatch.setenv(
+        "RUNTIME_TARGET_JSON",
+        '{"scheduler":{"timezone":"America/New_York","main_time":"45 15 25-28 * *"}}',
+    )
+
+    reason = heartbeat._heartbeat_skip_reason_for_schedule(
+        dt.datetime(2026, 6, 28, 20, 0, tzinfo=dt.timezone.utc),
+        dt.datetime(2026, 6, 29, 20, 0, tzinfo=dt.timezone.utc),
     )
 
     assert reason is None
