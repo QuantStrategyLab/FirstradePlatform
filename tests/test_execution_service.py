@@ -159,6 +159,7 @@ def test_execute_value_target_plan_has_no_default_order_notional_cap():
         market_data_port=FakeMarketDataPort({"SPY": 100.0}),
         execution_port=execution_port,
         dry_run_only=True,
+        limit_buy_premium=1.0,
     )
 
     assert result.action_done is True
@@ -183,6 +184,7 @@ def test_execute_value_target_plan_reports_insufficient_cash_for_whole_share():
         market_data_port=FakeMarketDataPort({"SPY": 100.0}),
         execution_port=execution_port,
         dry_run_only=True,
+        limit_buy_premium=1.0,
     )
 
     assert result.action_done is False
@@ -219,6 +221,7 @@ def test_execute_value_target_plan_leaves_small_safe_haven_target_as_cash():
         market_data_port=FakeMarketDataPort({"AAA": 100.0, "BOXX": 100.0}),
         execution_port=execution_port,
         dry_run_only=True,
+        limit_buy_premium=1.0,
         max_order_notional_usd=2500.0,
         safe_haven_cash_substitute_threshold_usd=1000.0,
     )
@@ -460,6 +463,7 @@ def test_execute_value_target_plan_keeps_safe_haven_when_mixed_case_risk_target_
         market_data_port=FakeMarketDataPort({"SOXL": 100.0, "SOXX": 525.0, "BOXX": 100.0}),
         execution_port=execution_port,
         dry_run_only=True,
+        limit_buy_premium=1.0,
         max_order_notional_usd=2000.0,
         safe_haven_cash_substitute_threshold_usd=1000.0,
     )
