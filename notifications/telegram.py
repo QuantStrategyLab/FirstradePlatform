@@ -111,6 +111,46 @@ except ImportError:  # pragma: no cover - compatibility with older pinned shared
         return tuple(messages)
 
 
+def _format_symbol_with_suffix(symbol, *, suffix=".US") -> str:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return normalized
+    if "." in normalized:
+        return normalized
+    normalized_suffix = str(suffix or "").strip().upper()
+    return f"{normalized}{normalized_suffix}" if normalized_suffix else normalized
+
+
+def format_small_account_whole_share_bootstrap_notes(
+    symbols,
+    *,
+    translator,
+    symbol_suffix=".US",
+) -> tuple[str, ...]:
+    normalized_symbols = tuple(
+        dict.fromkeys(
+            _format_symbol_with_suffix(symbol, suffix=symbol_suffix)
+            for symbol in tuple(symbols or ())
+            if str(symbol or "").strip()
+        )
+    )
+    if not normalized_symbols:
+        return ()
+    try:
+        message = translator(
+            "buy_lifted_small_account_whole_share",
+            symbols=", ".join(normalized_symbols),
+        )
+    except Exception:
+        message = ""
+    if not message or message == "buy_lifted_small_account_whole_share":
+        message = (
+            f"ℹ️ [买入说明] {', '.join(normalized_symbols)} 目标金额接近 1 股；"
+            "小账户整数股兼容，本轮允许按 1 股下单"
+        )
+    return (message,)
+
+
 SEPARATOR = "━━━━━━━━━━━━━━━━━━"
 
 _DETAIL_FIELD_SPLIT_RE = re.compile(r",\s*(?=[A-Za-z_][\w-]*\s*=)")
@@ -138,7 +178,15 @@ I18N = {
         "quantity_share": "{quantity}股",
         "quantity_shares": "{quantity}股",
         "signal_label": "信号",
-        "strategy_plugin_line": "🧩 插件：{plugin} | 状态：{route} | 提醒：{action}",
+        "strategy_plugin_line": "🧩 插件：{plugin} | 启用：{enabled} | 状态：{route} | 提醒：{action}",
+        "strategy_plugin_enabled_true": "是",
+        "strategy_plugin_enabled_false": "否",
+        "strategy_plugin_consumption_auto": "🧩 插件消费：已按策略规则参与本轮仓位计算",
+        "strategy_plugin_consumption_auto_defend": "🧩 插件消费：已按策略规则参与本轮仓位计算；风险仓位按防守规则处理",
+        "strategy_plugin_consumption_auto_delever": "🧩 插件消费：已按策略规则参与本轮仓位计算；杠杆仓位按降档规则缩放",
+        "strategy_plugin_consumption_loaded_not_applied": "🧩 插件消费：已加载但未改写仓位；当前策略未启用该状态的自动消费",
+        "strategy_plugin_consumption_review_only": "🧩 插件消费：仅通知复核，未参与自动仓位计算",
+        "strategy_plugin_consumption_unavailable": "🧩 插件消费：未消费插件信号",
         "strategy_plugin_alert_subject": "🚨 策略插件告警：{plugin} | {route}",
         "strategy_plugin_alert_title": "🚨 【策略插件告警】",
         "strategy_plugin_alert_context": "运行环境：{context}",
@@ -153,7 +201,7 @@ I18N = {
         "strategy_plugin_alert_scope": "仅作人工复核提醒；插件不会自动下单或改仓位",
         "strategy_plugin_name_crisis_response_shadow": "危机观察通知",
         "strategy_plugin_name_macro_risk_governor": "宏观风险控制通知",
-        "strategy_plugin_name_market_regime_control": "市场状态控制通知",
+        "strategy_plugin_name_market_regime_control": "市场状态控制",
         "strategy_plugin_name_panic_reversal_shadow": "恐慌反转观察通知",
         "strategy_plugin_name_taco_rebound_shadow": "TACO 反弹观察通知",
         "strategy_plugin_mode_shadow": "影子观察",
@@ -196,7 +244,7 @@ I18N = {
         "target_diff_summary": "调仓变化: {details}",
         "order_logs_title": "🧾 执行明细",
         "dry_run_order": "🧪 模拟{order_type}{side} {symbol}: {quantity}{price}",
-        "submitted_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}",
+        "submitted_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}（尚未确认成交；限价单可能未成交或取消）",
         "order_type_limit": "限价",
         "order_type_market": "市价",
         "side_buy": "买入",
@@ -212,6 +260,7 @@ I18N = {
         "no_executable_orders": "无可执行订单",
         "buy_deferred": "ℹ️ [买入说明] {detail}",
         "buy_deferred_small_account_cash_substitution": "{symbol} 目标金额 ${diff} 低于 1 股价格 ${price}；为避免超过目标仓位，小账户本轮保留现金，不回补 {cash_symbols}",
+        "buy_lifted_small_account_whole_share": "ℹ️ [买入说明] {symbols} 目标金额接近 1 股；小账户整数股兼容，本轮允许按 1 股下单",
         "signal_state_hold": "趋势持有",
         "signal_state_entry": "入场信号",
         "signal_state_reduce": "减仓信号",
@@ -288,7 +337,15 @@ I18N = {
         "quantity_share": "{quantity} share",
         "quantity_shares": "{quantity} shares",
         "signal_label": "Signal",
-        "strategy_plugin_line": "🧩 Plugin: {plugin} | status: {route} | notice: {action}",
+        "strategy_plugin_line": "🧩 Plugin: {plugin} | enabled: {enabled} | status: {route} | notice: {action}",
+        "strategy_plugin_enabled_true": "yes",
+        "strategy_plugin_enabled_false": "no",
+        "strategy_plugin_consumption_auto": "🧩 Plugin consumption: included in this cycle's position calculation under strategy rules",
+        "strategy_plugin_consumption_auto_defend": "🧩 Plugin consumption: included in this cycle's position calculation; risk exposure follows defensive rules",
+        "strategy_plugin_consumption_auto_delever": "🧩 Plugin consumption: included in this cycle's position calculation; leveraged exposure follows de-risking rules",
+        "strategy_plugin_consumption_loaded_not_applied": "🧩 Plugin consumption: loaded but did not rewrite positions; this strategy does not enable automatic consumption for this state",
+        "strategy_plugin_consumption_review_only": "🧩 Plugin consumption: review-only notice, not used for automatic position calculation",
+        "strategy_plugin_consumption_unavailable": "🧩 Plugin consumption: no plugin signal consumed",
         "strategy_plugin_alert_subject": "🚨 Strategy plugin alert: {plugin} | {route}",
         "strategy_plugin_alert_title": "🚨 【Strategy Plugin Alert】",
         "strategy_plugin_alert_context": "Context: {context}",
@@ -303,7 +360,7 @@ I18N = {
         "strategy_plugin_alert_scope": "Manual review notice only; the plugin does not place orders or change allocations",
         "strategy_plugin_name_crisis_response_shadow": "Crisis Watch Notice",
         "strategy_plugin_name_macro_risk_governor": "Macro Risk Governor Notice",
-        "strategy_plugin_name_market_regime_control": "Market Regime Control Notice",
+        "strategy_plugin_name_market_regime_control": "Market Regime Control",
         "strategy_plugin_name_panic_reversal_shadow": "Panic Reversal Watch Notice",
         "strategy_plugin_name_taco_rebound_shadow": "TACO Rebound Watch Notice",
         "strategy_plugin_mode_shadow": "shadow",
@@ -346,7 +403,7 @@ I18N = {
         "target_diff_summary": "Target changes: {details}",
         "order_logs_title": "🧾 Execution details",
         "dry_run_order": "🧪 Dry-run {order_type} {side} {symbol}: {quantity}{price}",
-        "submitted_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id}",
+        "submitted_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id} (fill not confirmed; a limit order may remain unfilled or be canceled)",
         "order_type_limit": "limit",
         "order_type_market": "market",
         "side_buy": "buy",
@@ -362,6 +419,7 @@ I18N = {
         "no_executable_orders": "no executable orders",
         "buy_deferred": "ℹ️ [Buy note] {detail}",
         "buy_deferred_small_account_cash_substitution": "{symbol} target ${diff} is below the 1-share price ${price}; to avoid exceeding the target allocation, this small account keeps cash this cycle and does not rebuy {cash_symbols}",
+        "buy_lifted_small_account_whole_share": "ℹ️ [Buy note] {symbols} target is close to one share; small-account whole-share compatibility allows a 1-share order this cycle",
         "signal_state_hold": "Trend Hold",
         "signal_state_entry": "Entry Signal",
         "signal_state_reduce": "Reduce Signal",
@@ -422,7 +480,13 @@ I18N = {
 }
 
 if _merge_strategy_plugin_i18n is not None:
-    I18N = _merge_strategy_plugin_i18n(I18N)
+    _PLATFORM_I18N = {locale: dict(values) for locale, values in I18N.items()}
+    try:
+        I18N = _merge_strategy_plugin_i18n(I18N, shared_wins=False)
+    except TypeError:
+        I18N = _merge_strategy_plugin_i18n(I18N)
+        for locale, values in _PLATFORM_I18N.items():
+            I18N.setdefault(locale, {}).update(values)
 
 
 def build_translator(lang: str | None) -> Callable[..., str]:
@@ -1085,6 +1149,12 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     )
     execution_notes = tuple(result.get("execution_notes") or allocation.get("small_account_whole_share_cash_notes") or ())
     lines.extend(format_small_account_cash_substitution_notes(execution_notes, translator=translator))
+    lines.extend(
+        format_small_account_whole_share_bootstrap_notes(
+            allocation.get("small_account_whole_share_bootstrap_symbols") or (),
+            translator=translator,
+        )
+    )
     if submitted:
         lines.append(translator("order_logs_title"))
         lines.extend(_format_order_lines(submitted, dry_run_only=dry_run_only, translator=translator))

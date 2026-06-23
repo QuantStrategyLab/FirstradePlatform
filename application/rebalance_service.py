@@ -66,6 +66,40 @@ from strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
 LIMIT_BUY_PREMIUM = 1.005
+DEFAULT_LIMIT_BUY_PREMIUM_BY_SYMBOL = {"SOXL": 1.015, "TQQQ": 1.010}
+
+
+def _load_limit_buy_premium_by_symbol(*env_names: str) -> dict[str, float]:
+    raw_value = ""
+    for env_name in env_names:
+        value = os.getenv(env_name)
+        if value and value.strip():
+            raw_value = value.strip()
+            break
+    if not raw_value:
+        return dict(DEFAULT_LIMIT_BUY_PREMIUM_BY_SYMBOL)
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid limit buy premium map JSON: {raw_value!r}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Limit buy premium map must be a JSON object keyed by symbol.")
+    parsed: dict[str, float] = {}
+    for symbol, premium in payload.items():
+        symbol_text = str(symbol or "").strip().upper()
+        if not symbol_text:
+            continue
+        premium_value = float(premium)
+        if premium_value <= 0.0:
+            raise ValueError(f"Limit buy premium for {symbol_text} must be positive.")
+        parsed[symbol_text] = premium_value
+    return parsed
+
+
+LIMIT_BUY_PREMIUM_BY_SYMBOL = _load_limit_buy_premium_by_symbol(
+    "FIRSTRADE_LIMIT_BUY_PREMIUM_BY_SYMBOL_JSON",
+    "LIMIT_BUY_PREMIUM_BY_SYMBOL_JSON",
+)
 
 
 def _utcnow() -> datetime:
@@ -512,6 +546,7 @@ def run_strategy_cycle(
         dry_run_only=settings.dry_run_only,
         limit_sell_discount=LIMIT_SELL_DISCOUNT,
         limit_buy_premium=LIMIT_BUY_PREMIUM,
+        limit_buy_premium_by_symbol=LIMIT_BUY_PREMIUM_BY_SYMBOL,
         max_order_notional_usd=settings.max_order_notional_usd,
         safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
     )
