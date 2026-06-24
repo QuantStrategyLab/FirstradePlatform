@@ -17,6 +17,18 @@ try:
 except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
     _merge_strategy_plugin_i18n = None
 
+_TELEGRAM_MARKET_SYMBOL_LINK_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z0-9]{1,12})\.([A-Z]{2,4})(?![A-Za-z0-9_])")
+_TELEGRAM_MARKET_SYMBOL_LINK_JOINER = "\u2060"
+
+
+def _break_telegram_market_symbol_auto_links(value: object) -> str:
+    text = str(value or "")
+    return _TELEGRAM_MARKET_SYMBOL_LINK_RE.sub(
+        lambda match: f"{match.group(1)}.{_TELEGRAM_MARKET_SYMBOL_LINK_JOINER}{match.group(2)}",
+        text,
+    )
+
+
 _PRICE_SOURCE_LABELS = {
     "longbridge_candlesticks": ("LongBridge 日线K线", "LongBridge daily candlesticks"),
     "schwab_daily_history_with_live_quote_overlay": ("Schwab 日线历史", "Schwab daily history"),
@@ -522,7 +534,11 @@ def build_sender(token: str | None, chat_id: str | None, *, requests_module=None
             return
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         try:
-            requests_module.post(url, json={"chat_id": chat_id, "text": message}, timeout=15)
+            requests_module.post(
+                url,
+                json={"chat_id": chat_id, "text": _break_telegram_market_symbol_auto_links(message)},
+                timeout=15,
+            )
         except Exception as exc:
             print(f"Telegram send failed: {type(exc).__name__}", flush=True)
 
