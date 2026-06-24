@@ -333,14 +333,17 @@ def test_execute_value_target_plan_bootstraps_close_to_one_share_core_target():
     assert [(order.side, order.symbol, order.quantity, order.limit_price) for order in execution_port.orders] == [
         ("buy", "SOXL", 1.0, 233.18),
     ]
-    assert result.execution_notes == (
+    assert result.execution_notes[0] == (
         {
             "symbol": "SOXX",
             "target_value": 342.86,
             "price": 603.0,
             "cash_symbols": (),
-        },
+        }
     )
+    drift_notes = [note for note in result.execution_notes if note.get("kind") == "small_account_allocation_drift"]
+    assert drift_notes[0]["symbol"] == "SOXX"
+    assert drift_notes[1]["symbol"] == "SOXL"
 
 
 def test_execute_value_target_plan_uses_symbol_specific_limit_buy_premium_for_budget():
@@ -404,14 +407,16 @@ def test_execute_value_target_plan_keeps_safe_haven_cash_when_only_risk_target_i
 
     assert result.action_done is False
     assert execution_port.orders == []
-    assert result.execution_notes == (
+    assert result.execution_notes[0] == (
         {
             "symbol": "SOXX",
             "target_value": 194.10,
             "price": 525.0,
             "cash_symbols": ("BOXX",),
-        },
+        }
     )
+    drift_notes = [note for note in result.execution_notes if note.get("kind") == "small_account_allocation_drift"]
+    assert [note["symbol"] for note in drift_notes] == ["SOXX"]
 
 
 def test_execute_value_target_plan_uses_cash_sweep_symbol_for_small_safe_haven_cash():

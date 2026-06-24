@@ -62,9 +62,13 @@ def _localize_price_source_label(value, *, translator=None, locale=None):
 
 try:
     from quant_platform_kit.common.small_account_compatibility import (
+        format_small_account_allocation_drift_notes,
         format_small_account_cash_substitution_notes,
     )
 except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
+    def format_small_account_allocation_drift_notes(_notes, *, translator, **_kwargs):
+        return ()
+
     def format_small_account_cash_substitution_notes(
         notes,
         *,
@@ -260,6 +264,8 @@ I18N = {
         "no_executable_orders": "无可执行订单",
         "buy_deferred": "ℹ️ [买入说明] {detail}",
         "buy_deferred_small_account_cash_substitution": "{symbol} 目标金额 ${diff} 低于 1 股价格 ${price}；为避免超过目标仓位，小账户本轮保留现金，不回补 {cash_symbols}",
+        "small_account_allocation_drift": "📏 整数股偏离：若本轮订单全部成交，{details}",
+        "small_account_allocation_drift_detail": "{symbol} 预计 {projected_weight} vs 目标 {target_weight}（{drift_weight}）",
         "buy_lifted_small_account_whole_share": "ℹ️ [买入说明] {symbols} 目标金额接近 1 股；小账户整数股兼容，本轮允许按 1 股下单",
         "signal_state_hold": "趋势持有",
         "signal_state_entry": "入场信号",
@@ -419,6 +425,8 @@ I18N = {
         "no_executable_orders": "no executable orders",
         "buy_deferred": "ℹ️ [Buy note] {detail}",
         "buy_deferred_small_account_cash_substitution": "{symbol} target ${diff} is below the 1-share price ${price}; to avoid exceeding the target allocation, this small account keeps cash this cycle and does not rebuy {cash_symbols}",
+        "small_account_allocation_drift": "📏 Integer-share drift: if this cycle's orders fully fill, {details}",
+        "small_account_allocation_drift_detail": "{symbol} projected {projected_weight} vs target {target_weight} ({drift_weight})",
         "buy_lifted_small_account_whole_share": "ℹ️ [Buy note] {symbols} target is close to one share; small-account whole-share compatibility allows a 1-share order this cycle",
         "signal_state_hold": "Trend Hold",
         "signal_state_entry": "Entry Signal",
@@ -1149,6 +1157,7 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     )
     execution_notes = tuple(result.get("execution_notes") or allocation.get("small_account_whole_share_cash_notes") or ())
     lines.extend(format_small_account_cash_substitution_notes(execution_notes, translator=translator))
+    lines.extend(format_small_account_allocation_drift_notes(execution_notes, translator=translator))
     lines.extend(
         format_small_account_whole_share_bootstrap_notes(
             allocation.get("small_account_whole_share_bootstrap_symbols") or (),
