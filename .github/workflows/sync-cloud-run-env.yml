@@ -709,6 +709,8 @@ jobs:
           main_time="${scheduler_config[1]}"
           probe_time="${scheduler_config[2]}"
           precheck_time="${scheduler_config[3]}"
+          # Keep probe/precheck parsed for runtime-target schema parity; this step only syncs the main scheduler.
+          : "${probe_time}" "${precheck_time}"
 
           service_url="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
             --project="${GCP_PROJECT_ID}" \
