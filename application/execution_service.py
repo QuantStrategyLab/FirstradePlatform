@@ -10,6 +10,7 @@ from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort
 try:
     from quant_platform_kit.common.small_account_compatibility import (
         apply_small_account_cash_compatibility,
+        build_small_account_allocation_drift_notes,
     )
 except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
     @dataclass(frozen=True)
@@ -123,6 +124,9 @@ except ImportError:  # pragma: no cover - compatibility with older pinned shared
             cash_substitution_notes=tuple(notes),
         )
 
+    def build_small_account_allocation_drift_notes(**_kwargs):
+        return ()
+
 @dataclass(frozen=True)
 class ExecutionCycleResult:
     submitted_orders: tuple[dict[str, Any], ...]
@@ -202,6 +206,30 @@ def _safe_haven_cash_symbols(*, portfolio: dict[str, Any], allocation: dict[str,
     if cash_sweep_symbol:
         symbols.append(cash_sweep_symbol)
     return tuple(dict.fromkeys(symbols))
+
+
+def _small_account_drift_reference_targets(
+    allocation: dict[str, Any],
+    *,
+    portfolio: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    allocation = dict(allocation or {})
+    targets = {
+        str(symbol or "").strip().upper(): float(value or 0.0)
+        for symbol, value in dict(allocation.get("targets") or {}).items()
+    }
+    candidate_symbols = tuple(
+        dict.fromkeys(
+            str(symbol or "").strip().upper()
+            for symbol in tuple(allocation.get("risk_symbols", ()))
+            + tuple(allocation.get("income_symbols", ()))
+            if str(symbol or "").strip()
+        )
+    )
+    if not candidate_symbols:
+        safe_haven_symbols = set(_safe_haven_cash_symbols(portfolio=dict(portfolio or {}), allocation=allocation))
+        candidate_symbols = tuple(symbol for symbol in targets if symbol not in safe_haven_symbols)
+    return {symbol: targets.get(symbol, 0.0) for symbol in candidate_symbols if symbol in targets}
 
 
 def _positive_target_total(targets: dict[str, Any]) -> float:
@@ -432,6 +460,11 @@ def execute_value_target_plan(
         plan,
         threshold_usd=safe_haven_cash_substitute_threshold_usd,
     )
+    plan_portfolio = dict(plan.get("portfolio") or {})
+    small_account_reference_target_values = _small_account_drift_reference_targets(
+        dict(plan.get("allocation") or {}),
+        portfolio=plan_portfolio,
+    )
     plan = _apply_small_account_whole_share_compatibility(
         plan,
         market_data_port=market_data_port,
@@ -451,6 +484,10 @@ def execute_value_target_plan(
         str(k).upper(): float(v or 0.0)
         for k, v in dict(portfolio.get("sellable_quantities") or {}).items()
     }
+    current_quantities = {
+        str(k).upper(): float(v or 0.0)
+        for k, v in dict(portfolio.get("quantities") or sellable_quantities).items()
+    }
     threshold = float(
         execution.get("current_min_trade")
         or execution.get("trade_threshold_value")
@@ -468,6 +505,7 @@ def execute_value_target_plan(
 
     submitted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    reference_prices: dict[str, float] = {}
 
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):
@@ -487,6 +525,7 @@ def execute_value_target_plan(
         if price is None:
             skipped.append({"symbol": symbol, "reason": "quote_unavailable"})
             continue
+        reference_prices[symbol] = price
         tradable_deltas.append((symbol, delta_value, price))
 
     for symbol, delta_value, price in [item for item in tradable_deltas if item[1] < 0]:
@@ -566,6 +605,18 @@ def execute_value_target_plan(
             )
         )
         investable_cash = max(0.0, investable_cash - (quantity * limit_price))
+
+    total_value = float(portfolio.get("total_equity") or portfolio.get("total_strategy_equity") or 0.0)
+    drift_notes = build_small_account_allocation_drift_notes(
+        target_values=small_account_reference_target_values,
+        current_values=market_values,
+        current_quantities=current_quantities,
+        prices=reference_prices,
+        submitted_orders=submitted,
+        total_value=total_value,
+        cash_value=float(portfolio.get("liquid_cash") or 0.0),
+    )
+    execution_notes = tuple(execution_notes) + tuple(drift_notes)
 
     return ExecutionCycleResult(
         submitted_orders=tuple(submitted),

@@ -878,7 +878,14 @@ def test_render_cycle_summary_includes_small_account_cash_note_zh():
                     "target_value": 194.10,
                     "price": 525.0,
                     "cash_symbols": ("BOXX",),
-                }
+                },
+                {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "SOXX",
+                    "target_weight": 0.15,
+                    "projected_weight": 0.0,
+                    "drift_weight": -0.15,
+                },
             ],
         },
         lang="zh",
@@ -886,6 +893,7 @@ def test_render_cycle_summary_includes_small_account_cash_note_zh():
 
     assert "ℹ️ [买入说明] SOXX.US 目标金额 $194.10 低于 1 股价格 $525.00" in message
     assert "小账户本轮保留现金，不回补 BOXX.US" in message
+    assert "📏 整数股偏离：若本轮订单全部成交，SOXX.US 预计 0.0% vs 目标 15.0%（-15.0pp）" in message
 
 
 def test_render_cycle_summary_includes_small_account_bootstrap_note_zh():
