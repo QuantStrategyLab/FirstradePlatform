@@ -162,11 +162,12 @@ def test_notification_i18n_keys_are_aligned():
         zh(
             "strategy_plugin_line",
             plugin=zh("strategy_plugin_name_market_regime_control"),
+            enabled=zh("strategy_plugin_enabled_true"),
             mode=zh("strategy_plugin_mode_shadow"),
             route=zh("strategy_plugin_route_risk_reduced"),
             action=zh("strategy_plugin_action_delever"),
         )
-        == "🧩 插件：市场状态控制 | 状态：风险降低 | 提醒：降杠杆"
+        == "🧩 插件：市场状态控制 | 启用：是 | 状态：风险降低 | 提醒：降杠杆"
     )
     assert "策略侧已批准" in zh("strategy_plugin_guidance_market_regime_control_risk_reduced_delever")
     en = build_translator("en")
@@ -452,6 +453,7 @@ def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypat
     assert result["strategy_plugin_error"].startswith("JSONDecodeError:")
     assert result["strategy_plugin_error_lines"] == (
         "⚠️ Plugin signal failed to load: invalid plugin mount JSON; this run falls back to built-in strategy rules",
+        "🧩 Plugin consumption: no plugin signal consumed",
     )
     assert result["strategy_plugin_alert_email_sent_count"] == 0
     assert result["strategy_plugin_alert_sms_sent_count"] == 0
@@ -877,7 +879,14 @@ def test_render_cycle_summary_includes_small_account_cash_note_zh():
                     "target_value": 194.10,
                     "price": 525.0,
                     "cash_symbols": ("BOXX",),
-                }
+                },
+                {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "SOXX",
+                    "target_weight": 0.15,
+                    "projected_weight": 0.0,
+                    "drift_weight": -0.15,
+                },
             ],
         },
         lang="zh",
@@ -885,6 +894,42 @@ def test_render_cycle_summary_includes_small_account_cash_note_zh():
 
     assert "ℹ️ [买入说明] SOXX.US 目标金额 $194.10 低于 1 股价格 $525.00" in message
     assert "小账户本轮保留现金，不回补 BOXX.US" in message
+    assert "📏 整数股偏离：若本轮订单全部成交，SOXX.US 预计 0.0% vs 目标 15.0%（-15.0pp）" in message
+
+
+def test_render_cycle_summary_includes_small_account_bootstrap_note_zh():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "soxl_soxx_trend_income",
+            "strategy_display_name": "SOXL/SOXX 半导体趋势收益",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 623.39,
+                "liquid_cash": 623.39,
+                "portfolio_rows": (("SOXL", "SOXX"), ("BOXX",)),
+                "market_values": {"SOXL": 0.0, "SOXX": 0.0, "BOXX": 0.0},
+                "quantities": {"SOXL": 0, "SOXX": 0, "BOXX": 0},
+            },
+            "allocation": {
+                "targets": {"SOXL": 233.18, "SOXX": 0.0, "BOXX": 0.0},
+                "small_account_whole_share_bootstrap_symbols": ("SOXL",),
+            },
+            "execution": {
+                "reserved_cash": 150.0,
+                "investable_cash": 473.39,
+                "signal_date": "2026-06-23",
+                "effective_date": "2026-06-24",
+                "execution_timing_contract": "next_trading_day",
+            },
+            "submitted_orders": [],
+            "skipped_orders": [],
+        },
+        lang="zh",
+    )
+
+    assert "ℹ️ [买入说明] SOXL.US 目标金额接近 1 股" in message
+    assert "小账户整数股兼容，本轮允许按 1 股下单" in message
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template():

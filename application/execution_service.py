@@ -10,6 +10,7 @@ from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort
 try:
     from quant_platform_kit.common.small_account_compatibility import (
         apply_small_account_cash_compatibility,
+        build_small_account_allocation_drift_notes,
     )
 except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
     @dataclass(frozen=True)
@@ -123,6 +124,9 @@ except ImportError:  # pragma: no cover - compatibility with older pinned shared
             cash_substitution_notes=tuple(notes),
         )
 
+    def build_small_account_allocation_drift_notes(**_kwargs):
+        return ()
+
 @dataclass(frozen=True)
 class ExecutionCycleResult:
     submitted_orders: tuple[dict[str, Any], ...]
@@ -134,6 +138,39 @@ class ExecutionCycleResult:
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = frozenset({"TQQQ", "SOXL"})
+SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
+    "SOXX": 0.90,
+}
+SMALL_ACCOUNT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
+    "TQQQ": 0.90,
+    "SOXL": 0.90,
+    "SOXX": 0.90,
+}
+
+
+def _limit_buy_premium_for_symbol(symbol, default_premium, premium_by_symbol=None) -> float:
+    normalized_symbol = str(symbol or "").strip().upper()
+    try:
+        fallback = float(default_premium)
+    except (TypeError, ValueError):
+        fallback = 1.005
+    if not isinstance(premium_by_symbol, dict):
+        return fallback
+    raw_value = premium_by_symbol.get(normalized_symbol)
+    if raw_value is None:
+        return fallback
+    try:
+        premium = float(raw_value)
+    except (TypeError, ValueError):
+        return fallback
+    return premium if premium > 0.0 else fallback
+
+
+def _limit_buy_price(symbol, price, default_premium, premium_by_symbol=None) -> float:
+    return round(
+        float(price) * _limit_buy_premium_for_symbol(symbol, default_premium, premium_by_symbol),
+        2,
+    )
 
 
 def _floor_quantity(quantity: float) -> int:
@@ -169,6 +206,30 @@ def _safe_haven_cash_symbols(*, portfolio: dict[str, Any], allocation: dict[str,
     if cash_sweep_symbol:
         symbols.append(cash_sweep_symbol)
     return tuple(dict.fromkeys(symbols))
+
+
+def _small_account_drift_reference_targets(
+    allocation: dict[str, Any],
+    *,
+    portfolio: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    allocation = dict(allocation or {})
+    targets = {
+        str(symbol or "").strip().upper(): float(value or 0.0)
+        for symbol, value in dict(allocation.get("targets") or {}).items()
+    }
+    candidate_symbols = tuple(
+        dict.fromkeys(
+            str(symbol or "").strip().upper()
+            for symbol in tuple(allocation.get("risk_symbols", ()))
+            + tuple(allocation.get("income_symbols", ()))
+            if str(symbol or "").strip()
+        )
+    )
+    if not candidate_symbols:
+        safe_haven_symbols = set(_safe_haven_cash_symbols(portfolio=dict(portfolio or {}), allocation=allocation))
+        candidate_symbols = tuple(symbol for symbol in targets if symbol not in safe_haven_symbols)
+    return {symbol: targets.get(symbol, 0.0) for symbol in candidate_symbols if symbol in targets}
 
 
 def _positive_target_total(targets: dict[str, Any]) -> float:
@@ -210,6 +271,35 @@ def substitute_small_safe_haven_targets_with_cash(
     return adjusted_plan
 
 
+def _should_retain_existing_whole_share(symbol, *, target_value, price) -> bool:
+    normalized_symbol = str(symbol or "").strip().upper()
+    if normalized_symbol in SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS:
+        return True
+
+    min_target_share_ratio = (
+        SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL.get(normalized_symbol)
+    )
+    if min_target_share_ratio is None:
+        return False
+    quote_price = max(0.0, float(price or 0.0))
+    if quote_price <= 0.0:
+        return False
+    return max(0.0, float(target_value or 0.0)) >= quote_price * float(min_target_share_ratio)
+
+
+def _should_bootstrap_whole_share_buy(symbol, *, target_value, limit_price) -> bool:
+    normalized_symbol = str(symbol or "").strip().upper()
+    min_target_share_ratio = (
+        SMALL_ACCOUNT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL.get(normalized_symbol)
+    )
+    if min_target_share_ratio is None:
+        return False
+    effective_limit_price = max(0.0, float(limit_price or 0.0))
+    if effective_limit_price <= 0.0:
+        return False
+    return max(0.0, float(target_value or 0.0)) >= effective_limit_price * float(min_target_share_ratio)
+
+
 def _quote_price(market_data_port: MarketDataPort, symbol: str) -> float | None:
     try:
         price = float(market_data_port.get_quote(symbol).last_price)
@@ -222,6 +312,8 @@ def _apply_small_account_whole_share_compatibility(
     plan: dict[str, Any],
     *,
     market_data_port: MarketDataPort,
+    limit_buy_premium: float = 1.005,
+    limit_buy_premium_by_symbol: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     adjusted_plan = dict(plan or {})
     allocation = dict(adjusted_plan.get("allocation") or {})
@@ -248,6 +340,7 @@ def _apply_small_account_whole_share_compatibility(
         if price is not None:
             prices[str(symbol).strip().upper()] = price
     retained_symbols = []
+    bootstrap_symbols = []
     quantities = {
         str(symbol or "").strip().upper(): float(quantity or 0.0)
         for symbol, quantity in dict(portfolio.get("quantities") or {}).items()
@@ -257,13 +350,33 @@ def _apply_small_account_whole_share_compatibility(
         for symbol, value in targets.items()
     }
     for symbol in candidate_symbols:
-        if symbol not in SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS:
-            continue
         target_value = max(0.0, float(compatibility_targets.get(symbol, 0.0) or 0.0))
         price = max(0.0, float(prices.get(symbol, 0.0) or 0.0))
+        limit_price = (
+            _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
+            if price > 0.0
+            else 0.0
+        )
+        if not _should_retain_existing_whole_share(symbol, target_value=target_value, price=price):
+            if (
+                quantities.get(symbol, 0.0) <= 0.0
+                and 0.0 < target_value < limit_price
+                and _should_bootstrap_whole_share_buy(symbol, target_value=target_value, limit_price=limit_price)
+            ):
+                compatibility_targets[symbol] = limit_price
+                bootstrap_symbols.append(symbol)
+            continue
         if price > 0.0 and 0.0 < target_value < price and quantities.get(symbol, 0.0) >= 1.0:
             compatibility_targets[symbol] = price
             retained_symbols.append(symbol)
+            continue
+        if (
+            quantities.get(symbol, 0.0) <= 0.0
+            and 0.0 < target_value < limit_price
+            and _should_bootstrap_whole_share_buy(symbol, target_value=target_value, limit_price=limit_price)
+        ):
+            compatibility_targets[symbol] = limit_price
+            bootstrap_symbols.append(symbol)
     safe_haven_symbols = _safe_haven_cash_symbols(portfolio=portfolio, allocation=allocation)
     compatibility = apply_small_account_cash_compatibility(
         compatibility_targets,
@@ -284,6 +397,10 @@ def _apply_small_account_whole_share_compatibility(
     if retained_symbols:
         allocation["small_account_existing_whole_share_retained_symbols"] = tuple(
             dict.fromkeys(retained_symbols)
+        )
+    if bootstrap_symbols:
+        allocation["small_account_whole_share_bootstrap_symbols"] = tuple(
+            dict.fromkeys(bootstrap_symbols)
         )
     if compatibility.cash_substitution_notes:
         allocation["small_account_whole_share_cash_notes"] = tuple(compatibility.cash_substitution_notes)
@@ -334,6 +451,7 @@ def execute_value_target_plan(
     dry_run_only: bool,
     limit_sell_discount: float = 0.995,
     limit_buy_premium: float = 1.005,
+    limit_buy_premium_by_symbol: dict[str, float] | None = None,
     max_order_notional_usd: float | None = None,
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
 ) -> ExecutionCycleResult:
@@ -342,9 +460,16 @@ def execute_value_target_plan(
         plan,
         threshold_usd=safe_haven_cash_substitute_threshold_usd,
     )
+    plan_portfolio = dict(plan.get("portfolio") or {})
+    small_account_reference_target_values = _small_account_drift_reference_targets(
+        dict(plan.get("allocation") or {}),
+        portfolio=plan_portfolio,
+    )
     plan = _apply_small_account_whole_share_compatibility(
         plan,
         market_data_port=market_data_port,
+        limit_buy_premium=limit_buy_premium,
+        limit_buy_premium_by_symbol=limit_buy_premium_by_symbol,
     )
     allocation = dict(plan.get("allocation") or {})
     portfolio = dict(plan.get("portfolio") or {})
@@ -358,6 +483,10 @@ def execute_value_target_plan(
     sellable_quantities = {
         str(k).upper(): float(v or 0.0)
         for k, v in dict(portfolio.get("sellable_quantities") or {}).items()
+    }
+    current_quantities = {
+        str(k).upper(): float(v or 0.0)
+        for k, v in dict(portfolio.get("quantities") or sellable_quantities).items()
     }
     threshold = float(
         execution.get("current_min_trade")
@@ -376,6 +505,7 @@ def execute_value_target_plan(
 
     submitted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    reference_prices: dict[str, float] = {}
 
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):
@@ -395,6 +525,7 @@ def execute_value_target_plan(
         if price is None:
             skipped.append({"symbol": symbol, "reason": "quote_unavailable"})
             continue
+        reference_prices[symbol] = price
         tradable_deltas.append((symbol, delta_value, price))
 
     for symbol, delta_value, price in [item for item in tradable_deltas if item[1] < 0]:
@@ -437,16 +568,17 @@ def execute_value_target_plan(
         buy_budget = min(float(delta_value), investable_cash)
         if order_notional_cap is not None:
             buy_budget = min(buy_budget, order_notional_cap)
-        quantity = _floor_quantity(buy_budget / price)
+        limit_price = _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
+        quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
         if quantity <= 0:
-            if order_notional_cap is None and investable_cash < price:
+            if order_notional_cap is None and investable_cash < limit_price:
                 skipped.append(
                     {
                         "symbol": symbol,
                         "reason": "insufficient_cash_for_whole_share",
-                        "price": round(price, 2),
+                        "price": round(limit_price, 2),
                         "investable_cash": round(investable_cash, 2),
-                        "required_cash_for_one_share": round(price, 2),
+                        "required_cash_for_one_share": round(limit_price, 2),
                     }
                 )
             else:
@@ -468,11 +600,23 @@ def execute_value_target_plan(
                 symbol=symbol,
                 side="buy",
                 quantity=quantity,
-                limit_price=price * float(limit_buy_premium),
+                limit_price=limit_price,
                 max_notional_usd=max_order_notional_usd,
             )
         )
-        investable_cash = max(0.0, investable_cash - (quantity * price))
+        investable_cash = max(0.0, investable_cash - (quantity * limit_price))
+
+    total_value = float(portfolio.get("total_equity") or portfolio.get("total_strategy_equity") or 0.0)
+    drift_notes = build_small_account_allocation_drift_notes(
+        target_values=small_account_reference_target_values,
+        current_values=market_values,
+        current_quantities=current_quantities,
+        prices=reference_prices,
+        submitted_orders=submitted,
+        total_value=total_value,
+        cash_value=float(portfolio.get("liquid_cash") or 0.0),
+    )
+    execution_notes = tuple(execution_notes) + tuple(drift_notes)
 
     return ExecutionCycleResult(
         submitted_orders=tuple(submitted),
