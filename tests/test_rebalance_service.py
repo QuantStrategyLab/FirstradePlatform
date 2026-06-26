@@ -59,6 +59,7 @@ def test_runtime_metadata_uses_platform_execution_policy_over_strategy_metadata(
         "firstrade_execution_policy": {
             "reserved_cash_floor_usd": 250.0,
             "reserved_cash_ratio": 0.03,
+            "cash_only_execution": True,
         },
     }
 
@@ -242,7 +243,7 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert result["notification_sent"] is True
     assert "🔔 【Rebalance Instruction】" in messages[0]
     assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
-    assert "🆔 Account: ****5678" in messages[0]
+    assert "🆔 Account: 12345678" in messages[0]
     assert "📌 Strategy Account" in messages[0]
     assert "Target changes: AAA +50.00 USD" in messages[0]
     assert "🧾 Execution details" in messages[0]

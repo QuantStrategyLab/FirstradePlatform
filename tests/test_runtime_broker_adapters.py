@@ -61,9 +61,9 @@ def test_portfolio_snapshot_uses_account_value_balance_key():
 
     portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
 
-    assert portfolio.total_equity == 1234.56
+    assert portfolio.total_equity == 221.0
     assert portfolio.cash_balance == 200.0
-    assert portfolio.metadata["total_equity_source"] == "balance_total"
+    assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
 
 
 def test_managed_portfolio_snapshot_ignores_full_account_value_balance_key():

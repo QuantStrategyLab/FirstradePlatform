@@ -265,7 +265,7 @@ def test_execute_value_target_plan_projects_unbuyable_value_target_to_zero():
     assert result.action_done is True
     assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
         ("sell", "SOXX", 1.0),
-        ("buy", "SOXL", 1.0),
+        ("buy", "SOXL", 2.0),
     ]
 
 

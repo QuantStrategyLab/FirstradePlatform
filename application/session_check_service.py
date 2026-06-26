@@ -291,7 +291,7 @@ def persist_session_check_maintenance(
     as_of = now or _utcnow()
     payload = {
         "checked_at": as_of.isoformat(),
-        "account": mask_account_id(account),
+        "account": account,
         "session_reused": session_reused,
         "strategy_profile": decision.strategy_profile,
         "strategy_cadence": decision.strategy_cadence,
@@ -332,7 +332,7 @@ def build_account_funds_snapshot(
     as_of = now or _utcnow()
     snapshot: dict[str, Any] = {
         "as_of": as_of.isoformat(),
-        "account": mask_account_id(account),
+        "account": account,
         "session_reused": session_reused,
         "account_summaries": account_summaries,
         "balance_metrics": selected_numeric_metrics(balances, BALANCE_KEYWORDS),
@@ -445,7 +445,7 @@ def run_session_check(
     result: dict[str, Any] = {
         "ok": True,
         "api_kind": "unofficial-reverse-engineered",
-        "account": mask_account_id(account),
+        "account": account,
         "session_reused": session_reused,
         "funds_snapshot": snapshot,
         "snapshot_persisted": snapshot_persisted,

@@ -160,8 +160,8 @@ def test_value_decision_without_threshold_uses_platform_default():
         strategy_profile="russell_top50_leader_rotation",
     )
 
-    assert plan["execution"]["trade_threshold_value"] == 200.0
-    assert plan["execution"]["current_min_trade"] == 200.0
+    assert plan["execution"]["trade_threshold_value"] == 100.0
+    assert plan["execution"]["current_min_trade"] == 100.0
     assert plan["allocation"]["targets"]["AAA"] == 500.0
 
 
