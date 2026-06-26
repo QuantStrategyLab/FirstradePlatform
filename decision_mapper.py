@@ -4,9 +4,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from us_equity_strategies.cash_only_equity import (
-    build_cash_only_portfolio_inputs_from_snapshot,
-)
+from us_equity_strategies.cash_only_equity import build_portfolio_inputs_from_snapshot
 from quant_platform_kit.strategy_contracts import (
     PositionTarget,
     StrategyContractValidationError,
@@ -405,8 +403,13 @@ def map_strategy_decision_to_plan(
     runtime_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_profile = resolve_canonical_profile(strategy_profile)
-    portfolio_inputs = build_cash_only_portfolio_inputs_from_snapshot(
+    raw_policy = (runtime_metadata or {}).get("firstrade_execution_policy")
+    cash_only_execution = True
+    if isinstance(raw_policy, Mapping):
+        cash_only_execution = bool(raw_policy.get("cash_only_execution", True))
+    portfolio_inputs = build_portfolio_inputs_from_snapshot(
         snapshot,
+        cash_only_execution=cash_only_execution,
         include_sellable_quantities=True,
     )
     normalized_decision, translated_annotations = _normalize_to_value_decision(

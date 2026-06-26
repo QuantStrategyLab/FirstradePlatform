@@ -347,6 +347,7 @@ def _runtime_metadata_with_execution_policy(
     runtime_metadata["firstrade_execution_policy"] = {
         "reserved_cash_floor_usd": float(settings.reserved_cash_floor_usd or 0.0),
         "reserved_cash_ratio": float(settings.reserved_cash_ratio or 0.0),
+        "cash_only_execution": bool(settings.cash_only_execution),
     }
     return runtime_metadata
 
@@ -396,6 +397,7 @@ def run_strategy_cycle(
         live_orders=not settings.dry_run_only,
         live_order_ack=settings.live_order_ack,
         max_order_notional_usd=settings.max_order_notional_usd,
+        cash_only_execution=settings.cash_only_execution,
     )
     market_data_port = broker_adapters.build_market_data_port()
     portfolio_port = broker_adapters.build_portfolio_port()
@@ -434,6 +436,7 @@ def run_strategy_cycle(
         plan,
         threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
     )
+    plan.setdefault("execution", {})["cash_only_execution"] = bool(settings.cash_only_execution)
     run_period = resolve_strategy_run_period(
         now=now,
         plan=plan,
@@ -562,6 +565,7 @@ def run_strategy_cycle(
         limit_buy_premium_by_symbol=LIMIT_BUY_PREMIUM_BY_SYMBOL,
         max_order_notional_usd=settings.max_order_notional_usd,
         safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
+        cash_only_execution=settings.cash_only_execution,
     )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)

@@ -47,6 +47,7 @@ class PlatformRuntimeSettings:
     live_order_ack: bool
     max_order_notional_usd: float | None
     runtime_target_enabled: bool = True
+    cash_only_execution: bool = True
     reserved_cash_floor_usd: float = DEFAULT_RESERVED_CASH_FLOOR_USD
     reserved_cash_ratio: float = DEFAULT_RESERVED_CASH_RATIO
     persist_strategy_runs: bool = False
@@ -164,6 +165,7 @@ def load_platform_runtime_settings(
         tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
         runtime_target_enabled=_runtime_target_enabled_env(),
+        cash_only_execution=_resolve_cash_only_execution_env(),
         live_trading_enabled=resolve_bool_value(os.getenv("FIRSTRADE_ENABLE_LIVE_TRADING")),
         run_strategy_on_http=resolve_bool_value(os.getenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP")),
         live_order_ack=resolve_bool_value(os.getenv("FIRSTRADE_LIVE_ORDER_ACK")),
@@ -365,6 +367,11 @@ def _optional_bool_env(name: str) -> bool | None:
 
 def _runtime_target_enabled_env() -> bool:
     value = _optional_bool_env("RUNTIME_TARGET_ENABLED")
+    return True if value is None else value
+
+
+def _resolve_cash_only_execution_env(name: str = "CASH_ONLY_EXECUTION") -> bool:
+    value = _optional_bool_env(name)
     return True if value is None else value
 
 

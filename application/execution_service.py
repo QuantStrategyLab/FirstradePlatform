@@ -454,6 +454,7 @@ def execute_value_target_plan(
     limit_buy_premium_by_symbol: dict[str, float] | None = None,
     max_order_notional_usd: float | None = None,
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
+    cash_only_execution: bool = True,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
     plan = substitute_small_safe_haven_targets_with_cash(
@@ -571,7 +572,7 @@ def execute_value_target_plan(
 
     buy_deltas = [item for item in tradable_deltas if item[1] > 0]
     buys_blocked_reason: str | None = None
-    if buy_deltas and pending_sell_release_symbols:
+    if cash_only_execution and buy_deltas and pending_sell_release_symbols:
         estimated_buy_cost = 0.0
         for symbol, delta_value, price in buy_deltas:
             buy_budget = min(float(delta_value), investable_cash)
@@ -594,7 +595,7 @@ def execute_value_target_plan(
                     }
                 )
             buy_deltas = []
-    elif buy_deltas and raw_liquid_cash < 0.0:
+    elif cash_only_execution and buy_deltas and raw_liquid_cash < 0.0:
         buys_blocked_reason = "negative_cash"
         for symbol, _delta_value, _price in buy_deltas:
             skipped.append(

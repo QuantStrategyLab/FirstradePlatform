@@ -101,6 +101,17 @@ def test_reserved_cash_policy_loads_from_env(monkeypatch):
     assert settings.reserved_cash_ratio == 0.025
 
 
+def test_cash_only_execution_defaults_true_and_loads_override(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
+
+    default_settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+    assert default_settings.cash_only_execution is True
+
+    monkeypatch.setenv("CASH_ONLY_EXECUTION", "false")
+    disabled_settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+    assert disabled_settings.cash_only_execution is False
+
+
 def test_income_layer_overrides_load_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json("tqqq_growth_income"))
     monkeypatch.setenv("INCOME_LAYER_ENABLED", "false")
