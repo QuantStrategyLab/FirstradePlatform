@@ -3,6 +3,10 @@ from __future__ import annotations
 import pytest
 
 from runtime_config_support import (
+    _default_market_signal_handoff_index_uri_from_report_bucket,
+    _resolve_market_signal_fallback_mode,
+    _resolve_market_signal_handoff_index_uri,
+    _resolve_market_signal_required,
     _resolve_non_negative_float_env,
     _resolve_ratio_env,
     _runtime_execution_window_trading_days_env,
@@ -275,3 +279,73 @@ def test_runtime_execution_window_rejects_invalid_generic_env(monkeypatch, raw_v
         match="FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS",
     ):
         _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
+
+
+def test_market_signal_handoff_index_infers_from_execution_report_bucket():
+    assert (
+        _default_market_signal_handoff_index_uri_from_report_bucket(
+            "gs://qsl-runtime-logs-shared/execution-reports"
+        )
+        == "gs://qsl-runtime-logs-shared/platform_handoffs/index.json"
+    )
+
+
+def test_ibit_smart_mode_requires_market_signal_by_default():
+    assert _resolve_market_signal_required(
+        strategy_profile="ibit_smart_dca",
+        dca_mode="smart",
+    ) is True
+    assert _resolve_market_signal_required(
+        strategy_profile="ibit_smart_dca",
+        dca_mode="fixed",
+    ) is False
+
+
+def test_ibit_smart_mode_defaults_market_signal_fallback_to_last_valid():
+    assert _resolve_market_signal_fallback_mode(
+        strategy_profile="ibit_smart_dca",
+        dca_mode="smart",
+    ) == "last_valid"
+
+
+def test_market_signal_handoff_index_prefers_explicit_env(monkeypatch):
+    monkeypatch.setenv(
+        "FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI",
+        "gs://signals/custom/platform_handoffs/index.json",
+    )
+    monkeypatch.setenv(
+        "EXECUTION_REPORT_GCS_URI",
+        "gs://qsl-runtime-logs-shared/execution-reports",
+    )
+
+    assert (
+        _resolve_market_signal_handoff_index_uri()
+        == "gs://signals/custom/platform_handoffs/index.json"
+    )
+
+
+def test_load_platform_runtime_settings_for_ibit_smart_wires_market_signal_defaults(monkeypatch):
+    monkeypatch.setenv(
+        "RUNTIME_TARGET_JSON",
+        _target_json(profile="ibit_smart_dca"),
+    )
+    monkeypatch.setenv("DCA_MODE", "smart")
+    monkeypatch.setenv(
+        "EXECUTION_REPORT_GCS_URI",
+        "gs://qsl-runtime-logs-shared/execution-reports",
+    )
+    monkeypatch.delenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI", raising=False)
+    monkeypatch.delenv("MARKET_SIGNAL_HANDOFF_INDEX_URI", raising=False)
+    monkeypatch.delenv("FIRSTRADE_MARKET_SIGNAL_REQUIRED", raising=False)
+    monkeypatch.delenv("MARKET_SIGNAL_REQUIRED", raising=False)
+    monkeypatch.delenv("FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE", raising=False)
+    monkeypatch.delenv("MARKET_SIGNAL_FALLBACK_MODE", raising=False)
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.market_signal_required is True
+    assert settings.market_signal_fallback_mode == "last_valid"
+    assert (
+        settings.market_signal_handoff_index_uri
+        == "gs://qsl-runtime-logs-shared/platform_handoffs/index.json"
+    )

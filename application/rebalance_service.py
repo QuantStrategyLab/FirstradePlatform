@@ -60,7 +60,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
     publish_strategy_plugin_alerts as dispatch_strategy_plugin_alerts,
 )
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
-from runtime_config_support import PlatformRuntimeSettings, load_platform_runtime_settings
+from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
 from market_signal_runtime import resolve_external_market_signal_inputs
 from strategy_runtime import load_strategy_runtime
 
@@ -147,6 +147,15 @@ def _build_derived_indicators(market_data_port, *, trend_ma_window: int):
     )
 
 
+def _ibit_smart_multiplier_enabled(
+    strategy_profile: str | None,
+    strategy_runtime_config: Mapping[str, Any],
+) -> bool:
+    if str(strategy_profile or "").strip().lower() != IBIT_SMART_DCA_PROFILE:
+        return False
+    return bool(strategy_runtime_config.get("smart_multiplier_enabled"))
+
+
 def build_market_inputs(
     *,
     available_inputs: set[str],
@@ -167,7 +176,11 @@ def build_market_inputs(
                 logger=log_message,
             )
         )
-    if "market_history" in available_inputs:
+    skip_broker_market_history = _ibit_smart_multiplier_enabled(
+        strategy_profile,
+        strategy_runtime_config,
+    )
+    if "market_history" in available_inputs and not skip_broker_market_history:
         inputs["market_history"] = _build_market_history_loader(market_data_port)
     if "benchmark_history" in available_inputs:
         inputs["benchmark_history"] = _build_price_history(market_data_port, benchmark_symbol)

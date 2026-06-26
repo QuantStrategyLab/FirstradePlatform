@@ -27,6 +27,7 @@ DEFAULT_ACCOUNT_REGION = "US"
 DEFAULT_RESERVED_CASH_FLOOR_USD = 0.0
 DEFAULT_RESERVED_CASH_RATIO = 0.0
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
+IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
 
 @dataclass(frozen=True)
@@ -205,10 +206,7 @@ def load_platform_runtime_settings(
         runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
             strategy_definition.profile
         ),
-        market_signal_handoff_index_uri=_first_non_empty(
-            os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI"),
-            os.getenv("MARKET_SIGNAL_HANDOFF_INDEX_URI"),
-        ),
+        market_signal_handoff_index_uri=_resolve_market_signal_handoff_index_uri(),
         market_signal_handoff_manifest_uri=_first_non_empty(
             os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI"),
             os.getenv("MARKET_SIGNAL_HANDOFF_MANIFEST_URI"),
@@ -221,16 +219,13 @@ def load_platform_runtime_settings(
             os.getenv("FIRSTRADE_MARKET_SIGNAL_CACHE_DIR"),
             os.getenv("MARKET_SIGNAL_CACHE_DIR"),
         ),
-        market_signal_required=resolve_bool_value(
-            _first_non_empty(
-                os.getenv("FIRSTRADE_MARKET_SIGNAL_REQUIRED"),
-                os.getenv("MARKET_SIGNAL_REQUIRED"),
-                "false",
-            )
+        market_signal_required=_resolve_market_signal_required(
+            strategy_profile=strategy_definition.profile,
+            dca_mode=_optional_dca_mode_env("DCA_MODE"),
         ),
-        market_signal_fallback_mode=_first_non_empty(
-            os.getenv("FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE"),
-            os.getenv("MARKET_SIGNAL_FALLBACK_MODE"),
+        market_signal_fallback_mode=_resolve_market_signal_fallback_mode(
+            strategy_profile=strategy_definition.profile,
+            dca_mode=_optional_dca_mode_env("DCA_MODE"),
         ),
         market_signal_max_stale_days=_optional_int(
             _first_non_empty(
@@ -470,6 +465,58 @@ def _resolve_ratio_env(name: str, *, default: float) -> float:
     if value > 1.0:
         raise ValueError(f"{name} must be in [0,1], got {value}")
     return value
+
+
+def _default_market_signal_handoff_index_uri_from_report_bucket(
+    execution_report_gcs_uri: str | None,
+) -> str | None:
+    text = str(execution_report_gcs_uri or "").strip()
+    if not text.startswith("gs://"):
+        return None
+    bucket = text[len("gs://") :].split("/", 1)[0].strip()
+    if not bucket:
+        return None
+    return f"gs://{bucket}/platform_handoffs/index.json"
+
+
+def _resolve_market_signal_handoff_index_uri() -> str | None:
+    explicit = _first_non_empty(
+        os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI"),
+        os.getenv("MARKET_SIGNAL_HANDOFF_INDEX_URI"),
+    )
+    if explicit:
+        return explicit
+    return _default_market_signal_handoff_index_uri_from_report_bucket(
+        os.getenv("EXECUTION_REPORT_GCS_URI"),
+    )
+
+
+def _resolve_market_signal_required(*, strategy_profile: str, dca_mode: str | None) -> bool:
+    explicit = _first_non_empty(
+        os.getenv("FIRSTRADE_MARKET_SIGNAL_REQUIRED"),
+        os.getenv("MARKET_SIGNAL_REQUIRED"),
+    )
+    if explicit is not None:
+        return resolve_bool_value(explicit)
+    if strategy_profile == IBIT_SMART_DCA_PROFILE and str(dca_mode or "").strip().lower() == "smart":
+        return True
+    return False
+
+
+def _resolve_market_signal_fallback_mode(
+    *,
+    strategy_profile: str,
+    dca_mode: str | None,
+) -> str | None:
+    explicit = _first_non_empty(
+        os.getenv("FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE"),
+        os.getenv("MARKET_SIGNAL_FALLBACK_MODE"),
+    )
+    if explicit:
+        return explicit
+    if strategy_profile == IBIT_SMART_DCA_PROFILE and str(dca_mode or "").strip().lower() == "smart":
+        return "last_valid"
+    return None
 
 
 def _first_non_empty(*raw_values: str | None) -> str | None:
