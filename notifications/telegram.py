@@ -185,7 +185,7 @@ I18N = {
         "account_overview_title": "📌 策略账户概览",
         "equity": "净值",
         "total_assets": "总资产（策略标的+现金）",
-        "buying_power": "购买力",
+        "buying_power": "可用现金",
         "reserved_cash": "预留现金",
         "investable_cash": "可投资现金",
         "cash_label": "现金",
@@ -332,10 +332,14 @@ I18N = {
         "strategy_name_ibit_smart_dca": "IBIT 比特币 ETF 智能定投",
         "skip_reason_below_trade_threshold": "低于调仓阈值",
         "skip_reason_quote_unavailable": "无法获取报价",
-        "skip_reason_sell_quantity_zero": "卖出股数为0",
-        "skip_reason_buy_quantity_zero": "买入股数为0",
+        "skip_reason_sell_quantity_zero": "整数股不足 1 股，无需下单",
+        "skip_reason_pending_sell_release": "需先减仓但整数股卖单未成交，现金不足以对应买入，跳过以避免融资",
+        "skip_reason_negative_cash": "账户现金为负，跳过买入以避免额外融资",
+        "skip_reason_buy_quantity_zero": "整数股不足 1 股，无需下单",
         "skip_reason_insufficient_cash_for_whole_share": "现金不足以买入一整股",
         "skip_reason_unknown": "未知原因",
+        "deferred_orders_line": "ℹ️ [本轮跳过] {details}",
+        "skip_symbols_reason": "{symbols}（{reason}）",
     },
     "en": {
         "rebalance_title": "🔔 【Rebalance Instruction】",
@@ -347,7 +351,7 @@ I18N = {
         "account_overview_title": "📌 Strategy Account",
         "equity": "Equity",
         "total_assets": "Total assets",
-        "buying_power": "Buying power",
+        "buying_power": "Available cash",
         "reserved_cash": "Reserved cash",
         "investable_cash": "Investable cash",
         "cash_label": "Cash",
@@ -494,10 +498,14 @@ I18N = {
         "strategy_name_ibit_smart_dca": "IBIT Smart DCA",
         "skip_reason_below_trade_threshold": "below trade threshold",
         "skip_reason_quote_unavailable": "quote unavailable",
-        "skip_reason_sell_quantity_zero": "sell quantity rounds to 0",
-        "skip_reason_buy_quantity_zero": "buy quantity rounds to 0",
+        "skip_reason_sell_quantity_zero": "whole-share quantity rounds to 0; no order needed",
+        "skip_reason_pending_sell_release": "trim still pending but whole-share sell rounded to 0; buy skipped this cycle to avoid margin",
+        "skip_reason_negative_cash": "account cash is negative; buy skipped to avoid additional margin",
+        "skip_reason_buy_quantity_zero": "whole-share quantity rounds to 0; no order needed",
         "skip_reason_insufficient_cash_for_whole_share": "insufficient cash for one whole share",
         "skip_reason_unknown": "unknown reason",
+        "deferred_orders_line": "ℹ️ [Skipped this cycle] {details}",
+        "skip_symbols_reason": "{symbols} ({reason})",
     },
 }
 
@@ -705,9 +713,9 @@ def _format_generated_dashboard_lines(
     total_equity = _safe_float(portfolio.get("total_equity"))
     if total_equity is not None:
         lines.append(f"  - {translator('total_assets')}: {_format_money(total_equity)}")
-    buying_power = _safe_float(portfolio.get("buying_power"))
+    buying_power = _safe_float(portfolio.get("liquid_cash"))
     if buying_power is None:
-        buying_power = _safe_float(portfolio.get("liquid_cash"))
+        buying_power = _safe_float(portfolio.get("buying_power"))
     if buying_power is not None:
         lines.append(f"  - {translator('buying_power')}: {_format_money(buying_power)}")
     reserved_cash = _safe_float(execution.get("reserved_cash"))
@@ -1115,7 +1123,16 @@ def _format_skipped_reason(skipped: list[Mapping[str, Any]], *, translator: Call
             grouped[reason].append(symbol)
     parts = []
     for reason, symbols in grouped.items():
-        parts.append(f"{reason}:{','.join(symbols)}" if symbols else reason)
+        if symbols:
+            parts.append(
+                translator(
+                    "skip_symbols_reason",
+                    symbols=",".join(symbols),
+                    reason=reason,
+                )
+            )
+        else:
+            parts.append(reason)
     return ", ".join(parts) if parts else translator("no_executable_orders")
 
 
@@ -1185,6 +1202,18 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     if submitted:
         lines.append(translator("order_logs_title"))
         lines.extend(_format_order_lines(submitted, dry_run_only=dry_run_only, translator=translator))
+        meaningful_skipped = [
+            item
+            for item in skipped
+            if str(item.get("reason") or "") != "below_trade_threshold"
+        ]
+        if meaningful_skipped:
+            lines.append(
+                translator(
+                    "deferred_orders_line",
+                    details=_format_skipped_reason(meaningful_skipped, translator=translator),
+                )
+            )
     elif skipped and has_rebalance_attempt:
         lines.append(translator("order_logs_title"))
         reason = _format_skipped_reason(skipped, translator=translator)

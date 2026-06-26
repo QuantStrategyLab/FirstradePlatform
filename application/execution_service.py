@@ -497,6 +497,7 @@ def execute_value_target_plan(
         0.0,
         float(execution.get("investable_cash") or portfolio.get("liquid_cash") or 0.0),
     )
+    raw_liquid_cash = float(portfolio.get("liquid_cash") or 0.0)
     order_notional_cap = (
         max(0.0, float(max_order_notional_usd))
         if max_order_notional_usd is not None and float(max_order_notional_usd) > 0.0
@@ -506,6 +507,7 @@ def execute_value_target_plan(
     submitted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     reference_prices: dict[str, float] = {}
+    pending_sell_release_symbols: list[str] = []
 
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):
@@ -540,6 +542,7 @@ def execute_value_target_plan(
             )
             quantity = _floor_quantity(sell_budget / price)
             if quantity <= 0:
+                pending_sell_release_symbols.append(symbol)
                 skipped.append(
                     {
                         "symbol": symbol,
@@ -552,19 +555,58 @@ def execute_value_target_plan(
                     }
                 )
                 continue
+            sell_limit_price = price * float(limit_sell_discount)
             submitted.append(
                 _submit_order(
                     execution_port,
                     symbol=symbol,
                     side="sell",
                     quantity=quantity,
-                    limit_price=price * float(limit_sell_discount),
+                    limit_price=sell_limit_price,
                     max_notional_usd=max_order_notional_usd,
                 )
             )
+            investable_cash += quantity * sell_limit_price
             continue
 
-    for symbol, delta_value, price in [item for item in tradable_deltas if item[1] > 0]:
+    buy_deltas = [item for item in tradable_deltas if item[1] > 0]
+    buys_blocked_reason: str | None = None
+    if buy_deltas and pending_sell_release_symbols:
+        estimated_buy_cost = 0.0
+        for symbol, delta_value, price in buy_deltas:
+            buy_budget = min(float(delta_value), investable_cash)
+            if order_notional_cap is not None:
+                buy_budget = min(buy_budget, order_notional_cap)
+            limit_price = _limit_buy_price(
+                symbol, price, limit_buy_premium, limit_buy_premium_by_symbol
+            )
+            quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
+            if quantity > 0:
+                estimated_buy_cost += quantity * limit_price
+        if estimated_buy_cost > investable_cash:
+            buys_blocked_reason = "pending_sell_release"
+            for symbol, _delta_value, _price in buy_deltas:
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "reason": "pending_sell_release",
+                        "pending_sell_symbols": list(pending_sell_release_symbols),
+                    }
+                )
+            buy_deltas = []
+    elif buy_deltas and raw_liquid_cash < 0.0:
+        buys_blocked_reason = "negative_cash"
+        for symbol, _delta_value, _price in buy_deltas:
+            skipped.append(
+                {
+                    "symbol": symbol,
+                    "reason": "negative_cash",
+                    "liquid_cash": round(raw_liquid_cash, 2),
+                }
+            )
+        buy_deltas = []
+
+    for symbol, delta_value, price in buy_deltas:
         buy_budget = min(float(delta_value), investable_cash)
         if order_notional_cap is not None:
             buy_budget = min(buy_budget, order_notional_cap)
