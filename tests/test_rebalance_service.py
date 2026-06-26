@@ -797,7 +797,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template
     assert "🎯 信号: 入场信号" in message
     assert "调仓变化: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
     assert "🧾 执行明细" in message
-    assert "未下单: 原因=买入股数为0:TQQQ,QQQ, 低于调仓阈值:BOXX" in message
+    assert "未下单: 原因=TQQQ,QQQ（整数股不足 1 股，无需下单）, BOXX（低于调仓阈值）" in message
     assert "profile:" not in message
     assert "targets:" not in message
 
@@ -972,7 +972,10 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     assert "🎯 Signal: Entry Signal" in message
     assert "Target changes: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
     assert "🧾 Execution details" in message
-    assert "No order submitted: reason=buy quantity rounds to 0:TQQQ,QQQ, below trade threshold:BOXX" in message
+    assert (
+        "No order submitted: reason=TQQQ,QQQ (whole-share quantity rounds to 0; no order needed), "
+        "BOXX (below trade threshold)"
+    ) in message
     assert "账户" not in message
     assert "信号" not in message
     assert "profile:" not in message
@@ -1009,7 +1012,7 @@ def test_render_cycle_summary_shows_funding_blocked_banner():
         lang="zh",
     )
 
-    assert "⚠️ 资金不足，本周期不再自动重试: 现金不足以买入一整股:NVDA" in message
+    assert "⚠️ 资金不足，本周期不再自动重试: NVDA（现金不足以买入一整股）" in message
 
 
 def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
@@ -1041,4 +1044,4 @@ def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
         lang="en",
     )
 
-    assert "⚠️ Execution blocked; retryable within window: quote unavailable:NVDA" in message
+    assert "⚠️ Execution blocked; retryable within window: NVDA (quote unavailable)" in message

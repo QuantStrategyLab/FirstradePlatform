@@ -91,31 +91,21 @@ def _resolve_total_equity(
     position_market_value: float,
     prefer_cash_plus_positions: bool = False,
 ) -> tuple[float, str]:
-    resolved_cash = _positive_or_none(cash_balance)
-    if resolved_cash is not None:
-        combined_value = resolved_cash + max(0.0, float(position_market_value))
-        if prefer_cash_plus_positions and combined_value > 0.0:
+    del buying_power  # Cash-only: never use margin buying power for strategy equity.
+    if cash_balance is not None:
+        combined_value = float(cash_balance) + max(0.0, float(position_market_value))
+        if prefer_cash_plus_positions:
             return combined_value, "cash_plus_positions"
-    else:
-        combined_value = None
-
-    balance_total = _positive_or_none(
-        _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
-    )
-    if balance_total is not None:
-        return balance_total, "balance_total"
-
-    if combined_value is not None:
         if combined_value > 0.0:
             return combined_value, "cash_plus_positions"
+
+    balance_total = _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
+    if balance_total is not None:
+        return float(balance_total), "balance_total"
 
     positive_position_value = _positive_or_none(position_market_value)
     if positive_position_value is not None:
         return positive_position_value, "positions"
-
-    positive_buying_power = _positive_or_none(buying_power)
-    if positive_buying_power is not None:
-        return positive_buying_power, "buying_power_fallback"
 
     return 0.0, "unresolved"
 
@@ -256,8 +246,8 @@ class FirstradeBrokerAdapters:
                     account_id=mask_account_id(self.account),
                 )
             )
-        buying_power = _first_numeric_by_keyword_groups(balances, _BUYING_POWER_KEYWORD_GROUPS)
         cash_balance = _first_numeric_by_keyword_groups(balances, _CASH_BALANCE_KEYWORD_GROUPS)
+        buying_power = cash_balance
         position_market_value = sum(position.market_value for position in positions)
         total_equity, total_equity_source = _resolve_total_equity(
             balances=balances,
@@ -269,7 +259,7 @@ class FirstradeBrokerAdapters:
         return PortfolioSnapshot(
             as_of=self.clock(),
             total_equity=float(total_equity),
-            buying_power=buying_power,
+            buying_power=float(cash_balance or 0.0),
             cash_balance=cash_balance,
             positions=tuple(positions),
             metadata={

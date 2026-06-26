@@ -4,13 +4,15 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+from us_equity_strategies.cash_only_equity import (
+    build_cash_only_portfolio_inputs_from_snapshot,
+)
 from quant_platform_kit.strategy_contracts import (
     PositionTarget,
     StrategyContractValidationError,
     StrategyDecision,
     ValueTargetExecutionAnnotations,
     build_value_target_execution_annotations,
-    build_value_target_portfolio_inputs_from_snapshot,
     build_value_target_runtime_plan,
     resolve_decision_target_mode,
     translate_decision_to_target_mode,
@@ -403,10 +405,9 @@ def map_strategy_decision_to_plan(
     runtime_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_profile = resolve_canonical_profile(strategy_profile)
-    portfolio_inputs = build_value_target_portfolio_inputs_from_snapshot(
+    portfolio_inputs = build_cash_only_portfolio_inputs_from_snapshot(
         snapshot,
         include_sellable_quantities=True,
-        liquid_cash=float(snapshot.buying_power or snapshot.cash_balance or 0.0),
     )
     normalized_decision, translated_annotations = _normalize_to_value_decision(
         decision,
