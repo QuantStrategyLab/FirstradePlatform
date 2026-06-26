@@ -41,7 +41,7 @@ def test_render_cycle_summary_dashboard_text_does_not_hide_account_overview():
     )
 
     assert "  - Total assets: $2,345.67" in message
-    assert "  - Buying power: $456.78" in message
+    assert "  - Available cash: $456.78" in message
     assert "  - Reserved cash: $50.00" in message
     assert "  - Investable cash: $406.78" in message
     assert "  - SOXL: $1,000.00 / 5 shares" in message

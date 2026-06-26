@@ -492,7 +492,7 @@ def run_strategy_cycle(
             result = {
                 "ok": True,
                 "api_kind": "unofficial-reverse-engineered",
-                "account": masked_account,
+                "account": account,
                 "strategy_profile": strategy_runtime.profile,
                 "strategy_display_name": strategy_runtime.display_name,
                 "dry_run_only": settings.dry_run_only,
@@ -594,7 +594,7 @@ def run_strategy_cycle(
     result = {
         "ok": not execution_blocked,
         "api_kind": "unofficial-reverse-engineered",
-        "account": mask_account_id(account),
+        "account": account,
         "strategy_profile": strategy_runtime.profile,
         "strategy_display_name": strategy_runtime.display_name,
         "dry_run_only": settings.dry_run_only,

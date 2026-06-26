@@ -64,7 +64,7 @@ def _env(values):
     return lambda name, default=None: values.get(name, default)
 
 
-def test_build_account_funds_snapshot_masks_account_and_compacts_values():
+def test_build_account_funds_snapshot_uses_full_account_and_compacts_values():
     snapshot = build_account_funds_snapshot(
         account="12345678",
         account_summaries=[{"account": "****5678", "total_value": "100.00"}],
@@ -74,7 +74,7 @@ def test_build_account_funds_snapshot_masks_account_and_compacts_values():
         now=datetime(2026, 5, 23, 1, 2, 3, tzinfo=timezone.utc),
     )
 
-    assert snapshot["account"] == "****5678"
+    assert snapshot["account"] == "12345678"
     assert snapshot["session_reused"] is True
     assert snapshot["balance_metrics"] == {
         "total_account_value": 100.0,
@@ -104,8 +104,8 @@ def test_run_session_check_persists_funds_snapshot_when_enabled():
     assert result["session_reused"] is True
     assert result["snapshot_persisted"] is True
     assert len(store.writes) == 2
-    assert store.writes[0][0] == "accounts/____5678/funds/latest.json"
-    assert store.writes[1][0] == "accounts/____5678/funds/history/2026/05/23/20260523T010203Z.json"
+    assert store.writes[0][0] == "accounts/12345678/funds/latest.json"
+    assert store.writes[1][0] == "accounts/12345678/funds/history/2026/05/23/20260523T010203Z.json"
     assert store.writes[0][1]["positions"][0]["symbol"] == "SPY"
 
 
@@ -162,7 +162,7 @@ def test_monthly_session_check_runs_and_persists_maintenance_state_when_due():
             state_key,
             {
                 "checked_at": "2026-06-03T01:02:03+00:00",
-                "account": "****5678",
+                "account": "12345678",
                 "session_reused": True,
                 "strategy_profile": "russell_top50_leader_rotation",
                 "strategy_cadence": "monthly",
