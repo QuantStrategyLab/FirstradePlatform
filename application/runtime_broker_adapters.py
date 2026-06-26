@@ -90,14 +90,19 @@ def _resolve_total_equity(
     buying_power: float | None,
     position_market_value: float,
     prefer_cash_plus_positions: bool = False,
+    cash_only_execution: bool = True,
 ) -> tuple[float, str]:
-    del buying_power  # Cash-only: never use margin buying power for strategy equity.
-    if cash_balance is not None:
-        combined_value = float(cash_balance) + max(0.0, float(position_market_value))
-        if prefer_cash_plus_positions:
-            return combined_value, "cash_plus_positions"
-        if combined_value > 0.0:
-            return combined_value, "cash_plus_positions"
+    if cash_only_execution:
+        if cash_balance is not None:
+            combined_value = float(cash_balance) + max(0.0, float(position_market_value))
+            if prefer_cash_plus_positions:
+                return combined_value, "cash_plus_positions"
+            if combined_value > 0.0:
+                return combined_value, "cash_plus_positions"
+    elif buying_power is not None:
+        combined_value = float(buying_power) + max(0.0, float(position_market_value))
+        if prefer_cash_plus_positions or combined_value > 0.0:
+            return combined_value, "buying_power_plus_positions"
 
     balance_total = _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
     if balance_total is not None:
@@ -120,6 +125,7 @@ class FirstradeBrokerAdapters:
     live_orders: bool = False
     live_order_ack: bool = False
     max_order_notional_usd: float | None = None
+    cash_only_execution: bool = True
 
     def normalize_symbol(self, symbol: str) -> str:
         value = str(symbol or "").strip().upper()
@@ -247,7 +253,10 @@ class FirstradeBrokerAdapters:
                 )
             )
         cash_balance = _first_numeric_by_keyword_groups(balances, _CASH_BALANCE_KEYWORD_GROUPS)
-        buying_power = cash_balance
+        reported_buying_power = _first_numeric_by_keyword_groups(balances, _BUYING_POWER_KEYWORD_GROUPS)
+        buying_power = cash_balance if self.cash_only_execution else (
+            reported_buying_power if reported_buying_power is not None else cash_balance
+        )
         position_market_value = sum(position.market_value for position in positions)
         total_equity, total_equity_source = _resolve_total_equity(
             balances=balances,
@@ -255,11 +264,12 @@ class FirstradeBrokerAdapters:
             buying_power=buying_power,
             position_market_value=position_market_value,
             prefer_cash_plus_positions=bool(managed),
+            cash_only_execution=self.cash_only_execution,
         )
         return PortfolioSnapshot(
             as_of=self.clock(),
             total_equity=float(total_equity),
-            buying_power=float(cash_balance or 0.0),
+            buying_power=float(buying_power or 0.0),
             cash_balance=cash_balance,
             positions=tuple(positions),
             metadata={
@@ -267,6 +277,9 @@ class FirstradeBrokerAdapters:
                 "account_hash": self.account_hash or mask_account_id(self.account),
                 "api_kind": "unofficial-reverse-engineered",
                 "total_equity_source": total_equity_source,
+                "cash_only_execution": self.cash_only_execution,
+                "market_currency_cash": cash_balance,
+                "available_funds": reported_buying_power,
             },
         )
 
@@ -321,6 +334,7 @@ def build_runtime_broker_adapters(
     live_orders: bool = False,
     live_order_ack: bool = False,
     max_order_notional_usd: float | None = None,
+    cash_only_execution: bool = True,
 ) -> FirstradeBrokerAdapters:
     return FirstradeBrokerAdapters(
         client=client,
@@ -331,4 +345,5 @@ def build_runtime_broker_adapters(
         live_orders=live_orders,
         live_order_ack=live_order_ack,
         max_order_notional_usd=max_order_notional_usd,
+        cash_only_execution=bool(cash_only_execution),
     )

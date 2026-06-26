@@ -186,6 +186,7 @@ I18N = {
         "equity": "净值",
         "total_assets": "总资产（策略标的+现金）",
         "buying_power": "可用现金",
+        "buying_power_margin": "购买力",
         "reserved_cash": "预留现金",
         "investable_cash": "可投资现金",
         "cash_label": "现金",
@@ -352,6 +353,7 @@ I18N = {
         "equity": "Equity",
         "total_assets": "Total assets",
         "buying_power": "Available cash",
+        "buying_power_margin": "Buying power",
         "reserved_cash": "Reserved cash",
         "investable_cash": "Investable cash",
         "cash_label": "Cash",
@@ -717,7 +719,9 @@ def _format_generated_dashboard_lines(
     if buying_power is None:
         buying_power = _safe_float(portfolio.get("buying_power"))
     if buying_power is not None:
-        lines.append(f"  - {translator('buying_power')}: {_format_money(buying_power)}")
+        cash_only_execution = bool(execution.get("cash_only_execution", portfolio.get("cash_only_execution", True)))
+        buying_power_label = "buying_power" if cash_only_execution else "buying_power_margin"
+        lines.append(f"  - {translator(buying_power_label)}: {_format_money(buying_power)}")
     reserved_cash = _safe_float(execution.get("reserved_cash"))
     if reserved_cash is not None:
         lines.append(f"  - {translator('reserved_cash')}: {_format_money(reserved_cash)}")
