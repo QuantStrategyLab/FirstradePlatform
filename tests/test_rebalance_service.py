@@ -59,6 +59,7 @@ def test_runtime_metadata_uses_platform_execution_policy_over_strategy_metadata(
         "firstrade_execution_policy": {
             "reserved_cash_floor_usd": 250.0,
             "reserved_cash_ratio": 0.03,
+            "cash_only_execution": True,
         },
     }
 
