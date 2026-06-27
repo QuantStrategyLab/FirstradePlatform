@@ -585,7 +585,7 @@ def execute_value_target_plan(
             if quantity > 0:
                 estimated_buy_cost += quantity * limit_price
         if estimated_buy_cost > investable_cash:
-            buys_blocked_reason = "pending_sell_release"
+            _buys_blocked_reason = "pending_sell_release"
             for symbol, _delta_value, _price in buy_deltas:
                 skipped.append(
                     {
@@ -596,7 +596,7 @@ def execute_value_target_plan(
                 )
             buy_deltas = []
     elif cash_only_execution and buy_deltas and raw_liquid_cash < 0.0:
-        buys_blocked_reason = "negative_cash"
+        _buys_blocked_reason = "negative_cash"
         for symbol, _delta_value, _price in buy_deltas:
             skipped.append(
                 {
