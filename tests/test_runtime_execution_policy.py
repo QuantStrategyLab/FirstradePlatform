@@ -74,11 +74,14 @@ _FAKE_CATALOG = StrategyCatalog(definitions=_DCA_DEFINITIONS)
 _fake_registry = types.ModuleType("strategy_registry")
 _fake_registry.PLATFORM_CAPABILITY_MATRIX = _FIRSTRADE_CAPABILITY_MATRIX
 _fake_registry.STRATEGY_CATALOG = _FAKE_CATALOG
-sys.modules["strategy_registry"] = _fake_registry
 
-runtime_execution_policy = importlib.import_module("runtime_execution_policy")
-runtime_execution_policy = importlib.reload(runtime_execution_policy)
-notional_buy_execution_enabled = runtime_execution_policy.notional_buy_execution_enabled
+
+@pytest.fixture
+def notional_buy_fn(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(sys.modules, "strategy_registry", _fake_registry)
+    rep = importlib.import_module("runtime_execution_policy")
+    rep = importlib.reload(rep)
+    return rep.notional_buy_execution_enabled
 
 
 @pytest.mark.parametrize(
@@ -119,7 +122,7 @@ def test_dca_profiles_require_fractional_share_capability() -> None:
         assert FRACTIONAL_SHARE_EXECUTION_CAPABILITY in definition.compatible_capabilities
 
 
-def test_firstrade_capability_matrix_allows_dca_profiles() -> None:
+def test_firstrade_capability_matrix_allows_dca_profiles(notional_buy_fn) -> None:
     for profile in ("nasdaq_sp500_smart_dca", "ibit_smart_dca"):
         assert (
             fractional_share_execution_unsupported_reason(
@@ -129,9 +132,9 @@ def test_firstrade_capability_matrix_allows_dca_profiles() -> None:
             )
             is None
         )
-        assert notional_buy_execution_enabled(profile) is True
+        assert notional_buy_fn(profile) is True
 
 
-def test_notional_buy_execution_disabled_for_non_dca_profiles() -> None:
-    assert notional_buy_execution_enabled("global_etf_rotation") is False
-    assert notional_buy_execution_enabled("tqqq_growth_income") is False
+def test_notional_buy_execution_disabled_for_non_dca_profiles(notional_buy_fn) -> None:
+    assert notional_buy_fn("global_etf_rotation") is False
+    assert notional_buy_fn("tqqq_growth_income") is False
