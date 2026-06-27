@@ -61,6 +61,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
 )
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
+from runtime_execution_policy import dca_execution_unsupported_reason, notional_buy_execution_enabled
 from us_equity_strategies.signals import resolve_external_market_signal_inputs
 from strategy_runtime import load_strategy_runtime
 
@@ -352,6 +353,38 @@ def _runtime_metadata_with_execution_policy(
     return runtime_metadata
 
 
+def _unsupported_strategy_execution_result(
+    *,
+    settings: PlatformRuntimeSettings,
+    skip_reason: str,
+    strategy_plugin_signals,
+    strategy_plugin_error: str | None,
+    translator: Callable[..., str],
+) -> dict[str, Any]:
+    skipped_orders = [{"reason": skip_reason, "strategy_profile": settings.strategy_profile}]
+    result = {
+        "ok": True,
+        "status": "skipped",
+        "skip_reason": skip_reason,
+        "api_kind": "unofficial-reverse-engineered",
+        "strategy_profile": settings.strategy_profile,
+        "strategy_display_name": settings.strategy_display_name,
+        "dry_run_only": settings.dry_run_only,
+        "live_trading_enabled": settings.live_trading_enabled,
+        "submitted_orders": [],
+        "skipped_orders": skipped_orders,
+        "action_done": False,
+        "strategy_run_stage": "NO_ACTION",
+        **empty_strategy_plugin_alert_report_fields(),
+    }
+    return attach_strategy_plugin_result(
+        result,
+        signals=strategy_plugin_signals,
+        error=strategy_plugin_error,
+        translator=translator,
+    )
+
+
 def run_strategy_cycle(
     *,
     runtime_settings: PlatformRuntimeSettings | None = None,
@@ -374,6 +407,15 @@ def run_strategy_cycle(
         settings.strategy_plugin_mounts_json,
         strategy_profile=settings.strategy_profile,
     )
+    unsupported_reason = dca_execution_unsupported_reason(settings.strategy_profile)
+    if unsupported_reason is not None:
+        return _unsupported_strategy_execution_result(
+            settings=settings,
+            skip_reason=unsupported_reason,
+            strategy_plugin_signals=strategy_plugin_signals,
+            strategy_plugin_error=strategy_plugin_error,
+            translator=translator,
+        )
     resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
     store = state_store or build_gcs_state_store_from_env(env_reader)
     persist_strategy_runs = bool(settings.persist_strategy_runs and store is not None)
@@ -566,6 +608,7 @@ def run_strategy_cycle(
         max_order_notional_usd=settings.max_order_notional_usd,
         safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
         cash_only_execution=settings.cash_only_execution,
+        notional_buy_execution=notional_buy_execution_enabled(settings.strategy_profile),
     )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)

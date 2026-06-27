@@ -58,6 +58,7 @@ def test_run_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
 
 def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
     monkeypatch.setattr(main, "_run_strategy_cycle_with_report", lambda **_kwargs: {"ok": True, "action_done": False})
     client = main.app.test_client()
 
@@ -67,8 +68,41 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     assert response.get_json() == {"ok": True, "action_done": False}
 
 
+def test_run_endpoint_skips_when_market_closed(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(
+        main,
+        "_should_skip_for_market_hours",
+        lambda: (
+            True,
+            {
+                "ok": True,
+                "status": "skipped",
+                "skip_reason": "market_closed",
+                "action_done": False,
+                "submitted_orders": [],
+                "skipped_orders": [{"reason": "market_closed"}],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("strategy cycle should not run")),
+    )
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["skip_reason"] == "market_closed"
+    assert payload["submitted_orders"] == []
+
+
 def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
     monkeypatch.setattr(
         main,
         "_run_strategy_cycle_with_report",
