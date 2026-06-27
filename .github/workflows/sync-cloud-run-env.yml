@@ -861,15 +861,52 @@ jobs:
               --quiet
           fi
 
+          invoke_bridge_jobs=(
+            "${CLOUD_RUN_SERVICE}-probe-scheduler|${service_url}/probe"
+            "${CLOUD_RUN_SERVICE}-precheck-scheduler|${service_url}/dry-run"
+          )
+          if [[ "${CLOUD_RUN_SERVICE}" == *-service ]]; then
+            invoke_bridge_jobs+=(
+              "${CLOUD_RUN_SERVICE%-service}-probe-scheduler|${service_url}/probe"
+              "${CLOUD_RUN_SERVICE%-service}-precheck-scheduler|${service_url}/dry-run"
+            )
+          fi
+          for bridge_entry in "${invoke_bridge_jobs[@]}"; do
+            bridge_job="${bridge_entry%%|*}"
+            bridge_uri="${bridge_entry#*|}"
+            if gcloud scheduler jobs describe "${bridge_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${scheduler_location}" >/dev/null 2>&1; then
+              echo "Updating invoke-bridge Cloud Scheduler job ${bridge_job} to ${bridge_uri}."
+              gcloud scheduler jobs update http "${bridge_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${scheduler_location}" \
+                --uri="${bridge_uri}" \
+                --http-method=POST \
+                --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+                --oidc-token-audience="${service_url}" \
+                --quiet
+            else
+              echo "Creating invoke-bridge Cloud Scheduler job ${bridge_job} at ${bridge_uri}."
+              gcloud scheduler jobs create http "${bridge_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${scheduler_location}" \
+                --uri="${bridge_uri}" \
+                --http-method=POST \
+                --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+                --oidc-token-audience="${service_url}" \
+                --schedule="0 0 1 1 *" \
+                --time-zone="UTC" \
+                --attempt-deadline=600s \
+                --quiet
+            fi
+          done
+
           legacy_jobs=(
-            "${CLOUD_RUN_SERVICE}-probe-scheduler"
-            "${CLOUD_RUN_SERVICE}-precheck-scheduler"
             "${CLOUD_RUN_SERVICE}-session-check-scheduler"
           )
           if [[ "${CLOUD_RUN_SERVICE}" == *-service ]]; then
             legacy_jobs+=(
-              "${CLOUD_RUN_SERVICE%-service}-probe-scheduler"
-              "${CLOUD_RUN_SERVICE%-service}-precheck-scheduler"
               "${CLOUD_RUN_SERVICE%-service}-session-check-scheduler"
             )
           fi
@@ -877,7 +914,7 @@ jobs:
             if gcloud scheduler jobs describe "${legacy_job}" \
               --project="${GCP_PROJECT_ID}" \
               --location="${scheduler_location}" >/dev/null 2>&1; then
-              echo "Deleting legacy Cloud Scheduler job ${legacy_job}; monitor dispatcher now owns probe/precheck."
+              echo "Deleting legacy Cloud Scheduler job ${legacy_job}; session checks are handled elsewhere."
               gcloud scheduler jobs delete "${legacy_job}" \
                 --project="${GCP_PROJECT_ID}" \
                 --location="${scheduler_location}" \

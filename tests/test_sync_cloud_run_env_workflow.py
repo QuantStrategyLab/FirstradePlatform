@@ -157,6 +157,10 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_runtime_target():
     assert 'gcloud scheduler jobs create http "${job_name}"' in workflow
     assert 'monitor_job_name="firstrade-monitor-dispatcher-scheduler"' in workflow
     assert 'monitor_uri="${service_url}/monitor-dispatch"' in workflow
+    assert 'invoke_bridge_jobs=(' in workflow
+    assert '"${CLOUD_RUN_SERVICE}-probe-scheduler|${service_url}/probe"' in workflow
+    assert '"${CLOUD_RUN_SERVICE}-precheck-scheduler|${service_url}/dry-run"' in workflow
+    assert 'Creating invoke-bridge Cloud Scheduler job ${bridge_job} at ${bridge_uri}.' in workflow
     assert '"${CLOUD_RUN_SERVICE}-session-check-scheduler"' in workflow
     assert 'gcloud scheduler jobs delete "${legacy_job}"' in workflow
     assert '--schedule="${desired_schedule}"' in workflow
