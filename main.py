@@ -33,10 +33,10 @@ from runtime_config_support import (
     _runtime_target_enabled_env,
     load_platform_runtime_settings,
 )
+from strategy_registry import get_platform_profile_status_matrix
 
 MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
 MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
-from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
 
