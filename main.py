@@ -27,11 +27,15 @@ from quant_platform_kit.common.runtime_reports import (
     finalize_runtime_report,
     persist_runtime_report,
 )
+from entrypoints.cloud_run import is_market_open_now
 from runtime_config_support import (
     PlatformRuntimeSettings,
     _runtime_target_enabled_env,
     load_platform_runtime_settings,
 )
+
+MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
+MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
 from strategy_registry import get_platform_profile_status_matrix
 
 app = Flask(__name__)
@@ -255,6 +259,47 @@ def _persist_runtime_report(report: dict[str, Any]) -> str | None:
     return getattr(persisted, "gcs_uri", None) or getattr(persisted, "local_path", None)
 
 
+def _force_strategy_run_env() -> bool:
+    return _flag("FIRSTRADE_FORCE_RUN")
+
+
+def _market_open_skip_payload(*, market_open: bool, error: Exception | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "status": "skipped",
+        "skip_reason": "market_closed",
+        "action_done": False,
+        "submitted_orders": [],
+        "skipped_orders": [{"reason": "market_closed"}],
+    }
+    if error is not None:
+        payload["market_hours_check_error"] = f"{type(error).__name__}: {error}"
+    if _force_strategy_run_env() and not market_open:
+        payload["market_hours_bypass_requested"] = True
+    return payload
+
+
+def _should_skip_for_market_hours() -> tuple[bool, dict[str, Any] | None]:
+    if _force_strategy_run_env():
+        return False, None
+    market_open = is_market_open_now(
+        calendar_name=MARKET_CALENDAR,
+        timezone_name=MARKET_TIMEZONE,
+    )
+    error = None
+    if isinstance(market_open, tuple):
+        market_open, error = market_open
+    if market_open:
+        return False, None
+    print(
+        "Firstrade strategy run skipped: outside US equity regular session.",
+        flush=True,
+    )
+    if error is not None:
+        print(f"Firstrade market hours check failed: {error}", flush=True)
+    return True, _market_open_skip_payload(market_open=False, error=error)
+
+
 def _run_strategy_cycle_with_report(
     *,
     dry_run_override: bool | None = None,
@@ -419,6 +464,9 @@ def run_strategy():
         )
     if not _runtime_target_enabled_env():
         return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
+    skip_for_market, skip_payload = _should_skip_for_market_hours()
+    if skip_for_market and skip_payload is not None:
+        return jsonify(skip_payload), 200
     try:
         result = _run_strategy_cycle_with_report()
         return jsonify(result), _strategy_result_http_status(result)
@@ -451,6 +499,9 @@ def run_strategy():
 @app.post("/dry-run")
 @app.get("/dry-run")
 def dry_run():
+    skip_for_market, skip_payload = _should_skip_for_market_hours()
+    if skip_for_market and skip_payload is not None:
+        return jsonify(skip_payload), 200
     try:
         return jsonify(
             _run_strategy_cycle_with_report(

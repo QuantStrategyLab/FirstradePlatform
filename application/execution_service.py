@@ -137,6 +137,7 @@ class ExecutionCycleResult:
 
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
+MIN_NOTIONAL_BUY_USD = 1.0
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = frozenset({"TQQQ", "SOXL"})
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
     "SOXX": 0.90,
@@ -443,6 +444,38 @@ def _submit_order(
     }
 
 
+def _submit_notional_buy_order(
+    execution_port: ExecutionPort,
+    *,
+    symbol: str,
+    notional_usd: float,
+    max_notional_usd: float | None,
+) -> dict[str, Any]:
+    metadata = {"notional_usd": round(float(notional_usd), 2)}
+    if max_notional_usd is not None:
+        metadata["max_notional_usd"] = float(max_notional_usd)
+    report = execution_port.submit_order(
+        OrderIntent(
+            symbol=symbol,
+            side="buy",
+            quantity=0.0,
+            order_type="market",
+            time_in_force="day",
+            metadata=metadata,
+        )
+    )
+    return {
+        "symbol": report.symbol,
+        "side": report.side,
+        "quantity": report.quantity,
+        "order_type": "market",
+        "notional_usd": round(float(notional_usd), 2),
+        "status": report.status,
+        "broker_order_id": report.broker_order_id,
+        "raw_payload": report.raw_payload,
+    }
+
+
 def execute_value_target_plan(
     *,
     plan: dict[str, Any],
@@ -455,6 +488,7 @@ def execute_value_target_plan(
     max_order_notional_usd: float | None = None,
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
     cash_only_execution: bool = True,
+    notional_buy_execution: bool = False,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
     plan = substitute_small_safe_haven_targets_with_cash(
@@ -466,12 +500,13 @@ def execute_value_target_plan(
         dict(plan.get("allocation") or {}),
         portfolio=plan_portfolio,
     )
-    plan = _apply_small_account_whole_share_compatibility(
-        plan,
-        market_data_port=market_data_port,
-        limit_buy_premium=limit_buy_premium,
-        limit_buy_premium_by_symbol=limit_buy_premium_by_symbol,
-    )
+    if not notional_buy_execution:
+        plan = _apply_small_account_whole_share_compatibility(
+            plan,
+            market_data_port=market_data_port,
+            limit_buy_premium=limit_buy_premium,
+            limit_buy_premium_by_symbol=limit_buy_premium_by_symbol,
+        )
     allocation = dict(plan.get("allocation") or {})
     portfolio = dict(plan.get("portfolio") or {})
     execution = dict(plan.get("execution") or {})
@@ -578,12 +613,16 @@ def execute_value_target_plan(
             buy_budget = min(float(delta_value), investable_cash)
             if order_notional_cap is not None:
                 buy_budget = min(buy_budget, order_notional_cap)
-            limit_price = _limit_buy_price(
-                symbol, price, limit_buy_premium, limit_buy_premium_by_symbol
-            )
-            quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
-            if quantity > 0:
-                estimated_buy_cost += quantity * limit_price
+            if notional_buy_execution:
+                if buy_budget >= MIN_NOTIONAL_BUY_USD:
+                    estimated_buy_cost += buy_budget
+            else:
+                limit_price = _limit_buy_price(
+                    symbol, price, limit_buy_premium, limit_buy_premium_by_symbol
+                )
+                quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
+                if quantity > 0:
+                    estimated_buy_cost += quantity * limit_price
         if estimated_buy_cost > investable_cash:
             _buys_blocked_reason = "pending_sell_release"
             for symbol, _delta_value, _price in buy_deltas:
@@ -611,6 +650,27 @@ def execute_value_target_plan(
         buy_budget = min(float(delta_value), investable_cash)
         if order_notional_cap is not None:
             buy_budget = min(buy_budget, order_notional_cap)
+        if notional_buy_execution:
+            if buy_budget < MIN_NOTIONAL_BUY_USD:
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "reason": "buy_notional_below_minimum",
+                        "notional_usd": round(buy_budget, 2),
+                        "min_notional_usd": MIN_NOTIONAL_BUY_USD,
+                    }
+                )
+                continue
+            submitted.append(
+                _submit_notional_buy_order(
+                    execution_port,
+                    symbol=symbol,
+                    notional_usd=buy_budget,
+                    max_notional_usd=max_order_notional_usd,
+                )
+            )
+            investable_cash = max(0.0, investable_cash - buy_budget)
+            continue
         limit_price = _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
         quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
         if quantity <= 0:

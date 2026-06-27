@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from quant_platform_kit.common.execution_capabilities import (
+    FRACTIONAL_SHARE_EXECUTION_CAPABILITY,
+)
 from quant_platform_kit.common.strategies import (
     PlatformCapabilityMatrix,
     PlatformStrategyPolicy,
@@ -44,7 +47,7 @@ PLATFORM_CAPABILITY_MATRIX = PlatformCapabilityMatrix(
             "snapshot",
         }
     ),
-    supported_capabilities=frozenset(),
+    supported_capabilities=frozenset({FRACTIONAL_SHARE_EXECUTION_CAPABILITY}),
 )
 ELIGIBLE_STRATEGY_PROFILES = derive_eligible_profiles_for_platform(
     STRATEGY_CATALOG,

@@ -14,8 +14,10 @@ authors = [
 ]
 dependencies = [
   "firstrade==0.0.39",
-  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@aee8121d530c2e92c72b68aee434bf174b3b9c85",
-  "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@b2fa659304c02cc19f7c82e86b0ce36ef592846a",
+  "pandas_market_calendars",
+  "pytz",
+  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@dfdbef6b58ab46f357d67800510bb9e8c4a01182",
+  "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@5537c0ad2ce0d34113381d4af19656b0bcdd82ec",
   "google-cloud-storage",
   "requests",
 ]
@@ -25,6 +27,7 @@ py-modules = [
   "decision_mapper",
   "main",
   "runtime_config_support",
+  "runtime_execution_policy",
   "strategy_loader",
   "strategy_registry",
   "strategy_runtime",
@@ -33,6 +36,7 @@ py-modules = [
 [tool.setuptools.packages.find]
 include = [
   "application*",
+  "entrypoints*",
   "notifications*",
 ]
 

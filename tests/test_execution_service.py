@@ -478,3 +478,93 @@ def test_execute_value_target_plan_keeps_safe_haven_when_mixed_case_risk_target_
         ("buy", "BOXX", 10.0),
         ("buy", "SOXL", 5.0),
     ]
+
+
+def test_execute_value_target_plan_uses_notional_buy_when_enabled():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"QQQM": 50.0}},
+            "portfolio": {
+                "market_values": {"QQQM": 0.0},
+                "liquid_cash": 100.0,
+            },
+            "execution": {"current_min_trade": 1.0, "investable_cash": 100.0},
+        },
+        market_data_port=FakeMarketDataPort({"QQQM": 500.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        notional_buy_execution=True,
+    )
+
+    assert result.action_done is True
+    assert len(execution_port.orders) == 1
+    order = execution_port.orders[0]
+    assert order.side == "buy"
+    assert order.symbol == "QQQM"
+    assert order.order_type == "market"
+    assert order.metadata["notional_usd"] == 50.0
+
+
+def test_execute_value_target_plan_notional_buy_skips_below_minimum():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"QQQM": 0.5}},
+            "portfolio": {
+                "market_values": {"QQQM": 0.0},
+                "liquid_cash": 100.0,
+            },
+            "execution": {"current_min_trade": 0.0, "investable_cash": 100.0},
+        },
+        market_data_port=FakeMarketDataPort({"QQQM": 500.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        notional_buy_execution=True,
+    )
+
+    assert result.action_done is False
+    assert execution_port.orders == []
+    assert result.skipped_orders == (
+        {
+            "symbol": "QQQM",
+            "reason": "buy_notional_below_minimum",
+            "notional_usd": 0.5,
+            "min_notional_usd": 1.0,
+        },
+    )
+
+
+def test_execute_value_target_plan_notional_buy_preserves_sub_share_budget():
+    plan = {
+        "allocation": {"targets": {"SPY": 50.0}},
+        "portfolio": {
+            "market_values": {"SPY": 0.0},
+            "liquid_cash": 100.0,
+        },
+        "execution": {"current_min_trade": 1.0, "investable_cash": 100.0},
+    }
+    market_data_port = FakeMarketDataPort({"SPY": 500.0})
+
+    whole_share_port = FakeExecutionPort()
+    whole_share_result = execute_value_target_plan(
+        plan=plan,
+        market_data_port=market_data_port,
+        execution_port=whole_share_port,
+        dry_run_only=True,
+        notional_buy_execution=False,
+    )
+
+    notional_port = FakeExecutionPort()
+    notional_result = execute_value_target_plan(
+        plan=plan,
+        market_data_port=market_data_port,
+        execution_port=notional_port,
+        dry_run_only=True,
+        notional_buy_execution=True,
+    )
+
+    assert whole_share_result.action_done is False
+    assert whole_share_port.orders == []
+    assert notional_result.action_done is True
+    assert notional_port.orders[0].metadata["notional_usd"] == 50.0

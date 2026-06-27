@@ -30,7 +30,13 @@ class FakeClient:
         return {"items": [{"symbol": "SPY", "quantity": "2", "market_value": "21.00"}]}
 
     def place_stock_order(self, request, dry_run=True):
-        return {"symbol": request.symbol, "dry_run": dry_run}
+        return {
+            "symbol": request.symbol,
+            "dry_run": dry_run,
+            "notional": request.notional_usd is not None,
+            "quantity": request.quantity,
+            "notional_usd": request.notional_usd,
+        }
 
 
 def test_runtime_adapters_build_quote_and_portfolio_ports():
@@ -182,3 +188,36 @@ def test_price_series_falls_back_to_history_when_quote_unavailable():
     series = adapters.build_market_data_port().get_price_series("SPY")
 
     assert [point.close for point in series.points] == [10.0]
+
+
+def test_execution_port_submits_notional_buy_from_metadata():
+    captured = {}
+
+    class CapturingClient(FakeClient):
+        def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
+            captured["request"] = request
+            return super().place_stock_order(request, dry_run=dry_run)
+
+    from quant_platform_kit.common.models import OrderIntent
+
+    adapters = build_runtime_broker_adapters(
+        client=CapturingClient(),
+        account="12345678",
+    )
+    report = adapters.build_execution_port().submit_order(
+        OrderIntent(
+            symbol="QQQM",
+            side="buy",
+            quantity=0.0,
+            order_type="market",
+            metadata={"notional_usd": 50.0, "max_notional_usd": 100.0},
+        )
+    )
+
+    request = captured["request"]
+    assert request.notional_usd == 50.0
+    assert request.quantity is None
+    assert request.price_type == "market"
+    assert request.max_notional_usd == 100.0
+    assert report.quantity == 50.0
+    assert report.status == "previewed"

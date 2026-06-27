@@ -64,6 +64,7 @@ def test_runtime_metadata_uses_platform_execution_policy_over_strategy_metadata(
     }
 
 
+
 class FakeFirstradeClient:
     def __init__(self, _credentials, *, live_trading_enabled=False):
         self.live_trading_enabled = live_trading_enabled

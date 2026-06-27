@@ -288,26 +288,34 @@ class FirstradeBrokerAdapters:
 
     def build_execution_port(self) -> ExecutionPort:
         def submit(order_intent) -> ExecutionReport:
-            request = StockOrderRequest(
-                account=self.account,
-                symbol=order_intent.symbol,
-                side=order_intent.side,
-                quantity=int(order_intent.quantity),
-                price_type=str(order_intent.order_type or "market").lower(),
-                duration=str(order_intent.time_in_force or "day").lower(),
-                limit_price=order_intent.limit_price,
-                max_notional_usd=(
-                    float(max_notional)
-                    if (
-                        max_notional := (getattr(order_intent, "metadata", {}) or {}).get(
-                            "max_notional_usd",
-                            self.max_order_notional_usd,
-                        )
-                    )
-                    is not None
-                    else None
-                ),
-            )
+            metadata = dict(getattr(order_intent, "metadata", {}) or {})
+            notional_usd = metadata.get("notional_usd")
+            max_notional = metadata.get("max_notional_usd", self.max_order_notional_usd)
+            if notional_usd is not None:
+                request = StockOrderRequest(
+                    account=self.account,
+                    symbol=order_intent.symbol,
+                    side=order_intent.side,
+                    notional_usd=float(notional_usd),
+                    price_type="market",
+                    duration=str(order_intent.time_in_force or "day").lower(),
+                    max_notional_usd=(
+                        float(max_notional) if max_notional is not None else None
+                    ),
+                )
+            else:
+                request = StockOrderRequest(
+                    account=self.account,
+                    symbol=order_intent.symbol,
+                    side=order_intent.side,
+                    quantity=int(order_intent.quantity),
+                    price_type=str(order_intent.order_type or "market").lower(),
+                    duration=str(order_intent.time_in_force or "day").lower(),
+                    limit_price=order_intent.limit_price,
+                    max_notional_usd=(
+                        float(max_notional) if max_notional is not None else None
+                    ),
+                )
             raw = self.client.place_stock_order(
                 request,
                 dry_run=not self.live_orders,
@@ -316,7 +324,7 @@ class FirstradeBrokerAdapters:
             return ExecutionReport(
                 symbol=request.symbol,
                 side=request.side,
-                quantity=float(request.quantity or 0),
+                quantity=float(request.quantity or request.notional_usd or 0),
                 status="previewed" if not self.live_orders else "submitted",
                 raw_payload=raw,
             )
