@@ -13,13 +13,83 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve QuantPlatformKit ref
+        id: quant-platform-kit-ref
+        run: |
+          set -euo pipefail
+          ref="main"
+          for candidate in "${GITHUB_HEAD_REF:-}" "${GITHUB_BASE_REF:-}"; do
+            if [ -n "$candidate" ] && git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/QuantPlatformKit.git "$candidate" >/dev/null 2>&1; then
+              ref="$candidate"
+              break
+            fi
+          done
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve UsEquityStrategies ref
+        id: us-equity-strategies-ref
+        run: |
+          set -euo pipefail
+          ref="main"
+          for candidate in "${GITHUB_HEAD_REF:-}" "${GITHUB_BASE_REF:-}"; do
+            if [ -n "$candidate" ] && git ls-remote --exit-code --heads https://github.com/QuantStrategyLab/UsEquityStrategies.git "$candidate" >/dev/null 2>&1; then
+              ref="$candidate"
+              break
+            fi
+          done
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}
+          path: external/QuantPlatformKit
+
+      - name: Checkout UsEquityStrategies
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/UsEquityStrategies
+          ref: ${{ steps.us-equity-strategies-ref.outputs.ref }}
+          path: external/UsEquityStrategies
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
       - name: Install dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements.txt pytest ruff
+
+      - name: Smoke import pinned shared packages
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from quant_platform_kit.common.port_adapters import CallableNotificationPort, CallablePortfolioPort
+          from us_equity_strategies import resolve_canonical_profile
+
+          assert CallableNotificationPort
+          assert CallablePortfolioPort
+          assert resolve_canonical_profile("russell_top50_leader_rotation") == "russell_top50_leader_rotation"
+          PY
+
+      - name: Install editable shared repositories
+        run: |
+          set -euo pipefail
+          python -m pip install --no-deps -e external/QuantPlatformKit -e external/UsEquityStrategies
+
+      - name: Run ruff
+        run: |
+          set -euo pipefail
+          ruff check .
+
       - name: Run tests
-        run: python -m pytest -q
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests
