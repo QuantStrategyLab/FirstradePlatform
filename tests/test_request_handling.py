@@ -7,6 +7,13 @@ pytest.importorskip("flask")
 import main
 
 
+@pytest.fixture(autouse=True)
+def _assume_market_open_for_http_tests(monkeypatch, request):
+    if request.node.name == "test_run_endpoint_skips_when_market_closed":
+        return
+    monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
+
+
 def route_methods():
     methods_by_route = {}
     for rule in main.app.url_map.iter_rules():
