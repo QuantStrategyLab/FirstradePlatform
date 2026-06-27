@@ -571,7 +571,7 @@ def execute_value_target_plan(
             continue
 
     buy_deltas = [item for item in tradable_deltas if item[1] > 0]
-    buys_blocked_reason: str | None = None
+    _buys_blocked_reason: str | None = None
     if cash_only_execution and buy_deltas and pending_sell_release_symbols:
         estimated_buy_cost = 0.0
         for symbol, delta_value, price in buy_deltas:
