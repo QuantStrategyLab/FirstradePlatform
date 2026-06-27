@@ -61,7 +61,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
 )
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
 from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
-from market_signal_runtime import resolve_external_market_signal_inputs
+from us_equity_strategies.signals import resolve_external_market_signal_inputs
 from strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
