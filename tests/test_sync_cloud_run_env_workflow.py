@@ -3,9 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
+def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "Resolve Cloud Run sync targets" in workflow
+    assert "scripts/build_cloud_run_env_sync_plan.py --json" in workflow
+    assert "sync_plan_json<<__SYNC_PLAN_JSON__" in workflow
+    assert "SYNC_PLAN_JSON: ${{ steps.strategy_requirements.outputs.sync_plan_json }}" in workflow
+    assert "Cloud Run env sync did not resolve any targets" in workflow
+    assert "Cloud Run sync target is missing service_name" in workflow
+    assert "Cloud Run sync target {service_name} is missing env" in workflow
 
     for name in (
         "CLOUD_SCHEDULER_LOCATION",
@@ -41,11 +49,6 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_PARSE_MODE",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_DISABLE_WEB_PAGE_PREVIEW",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_BODY_MAX_CHARS",
-    ):
-        assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
-        assert f"add_optional_env {name}" in workflow
-
-    for name in (
         "INCOME_LAYER_ENABLED",
         "INCOME_LAYER_START_USD",
         "INCOME_LAYER_MAX_RATIO",
@@ -69,7 +72,6 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
         "FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
-        assert f"add_optional_env {name}" in workflow
 
     assert (
         "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME: "
@@ -132,9 +134,16 @@ def test_sync_cloud_run_env_workflow_syncs_strategy_plugin_alert_settings():
     assert '"CRISIS_ALERT_GOOGLE_VOICE_SMTP_PORT"' in workflow
     assert '"CRISIS_ALERT_GOOGLE_VOICE_SMTP_SECURITY"' in workflow
     assert '"CRISIS_ALERT_SMTP_HOST"' in workflow
+    assert 'env_pairs+=("GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}")' in workflow
+    assert "for key, value in sorted(target[\"env\"].items()):" in workflow
+    assert "target.get(\"remove_env_vars\")" in workflow
+
+    assert "add_optional_env " not in workflow
+    assert "requires_snapshot_artifacts=" not in workflow
+    assert "Resolve selected strategy runtime requirements" not in workflow
 
 
-def test_sync_cloud_run_env_workflow_syncs_scheduler_from_runtime_target():
+def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
 
@@ -142,12 +151,12 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_runtime_target():
     assert "GCP_SCHEDULER_SERVICE_ACCOUNT: firstrade-platform-scheduler@firstradequant.iam.gserviceaccount.com" in workflow
     assert "MONITOR_DISPATCH_TARGETS_JSON=${monitor_targets_json}" in workflow
     assert 'scheduler_location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"' in workflow
-    assert 'raw_runtime_target = os.environ.get("RUNTIME_TARGET_JSON", "").strip()' in workflow
-    assert 'scheduler = runtime_target.get("scheduler") if isinstance(runtime_target, dict) else {}' in workflow
-    assert 'print(str(runtime_scheduler.get("timezone") or "America/New_York").strip())' in workflow
-    assert 'configured_time("main_time", "CLOUD_SCHEDULER_MAIN_TIME", "45 15")' in workflow
-    assert 'configured_time("probe_time", "CLOUD_SCHEDULER_PROBE_TIME", "35 9,15")' in workflow
-    assert 'configured_time("precheck_time", "CLOUD_SCHEDULER_PRECHECK_TIME", "45 9")' in workflow
+    assert 'plan = json.loads(os.environ["SYNC_PLAN_JSON"])' in workflow
+    assert 'scheduler = target.get("scheduler") or {}' in workflow
+    assert 'print(str(scheduler.get("timezone") or "America/New_York").strip())' in workflow
+    assert 'scheduler.get("main_time") or os.environ.get("CLOUD_SCHEDULER_MAIN_TIME"' in workflow
+    assert 'scheduler.get("probe_time") or os.environ.get("CLOUD_SCHEDULER_PROBE_TIME"' in workflow
+    assert 'scheduler.get("precheck_time") or os.environ.get("CLOUD_SCHEDULER_PRECHECK_TIME"' in workflow
     assert 'scheduler_job_candidates=("${CLOUD_RUN_SERVICE}-scheduler")' in workflow
     assert 'scheduler_job_candidates+=("${CLOUD_RUN_SERVICE%-service}-scheduler")' in workflow
     assert 'if len(time_fields) == 5:' in workflow
