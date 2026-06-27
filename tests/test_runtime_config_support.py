@@ -108,6 +108,11 @@ def test_cash_only_execution_defaults_true_and_loads_override(monkeypatch):
     assert default_settings.cash_only_execution is True
 
     monkeypatch.setenv("CASH_ONLY_EXECUTION", "false")
+    legacy_settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+    assert legacy_settings.cash_only_execution is False
+
+    monkeypatch.delenv("CASH_ONLY_EXECUTION", raising=False)
+    monkeypatch.setenv("FIRSTRADE_CASH_ONLY_EXECUTION", "false")
     disabled_settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
     assert disabled_settings.cash_only_execution is False
 
