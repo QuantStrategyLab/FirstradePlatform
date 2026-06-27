@@ -18,6 +18,7 @@ env:
   GCP_PROJECT_ID: firstradequant
   GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
   GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+  GCP_SCHEDULER_SERVICE_ACCOUNT: firstrade-platform-scheduler@firstradequant.iam.gserviceaccount.com
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -123,6 +124,45 @@ jobs:
           scheduler_job=""
           scheduler_location=""
           scheduler_expected_path=""
+          ensure_invoke_bridge_job() {
+            local bridge_job="$1"
+            local bridge_uri="$2"
+            local bridge_location="$3"
+            if gcloud scheduler jobs describe "${bridge_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${bridge_location}" >/dev/null 2>&1; then
+              current_uri="$(
+                gcloud scheduler jobs describe "${bridge_job}" \
+                  --project="${GCP_PROJECT_ID}" \
+                  --location="${bridge_location}" \
+                  --format='value(httpTarget.uri)' 2>/dev/null || true
+              )"
+              if [ -n "${current_uri}" ] && [ "${current_uri}" != "${bridge_uri}" ]; then
+                echo "Updating invoke-bridge Cloud Scheduler job ${bridge_job} to ${bridge_uri}."
+                gcloud scheduler jobs update http "${bridge_job}" \
+                  --project="${GCP_PROJECT_ID}" \
+                  --location="${bridge_location}" \
+                  --uri="${bridge_uri}" \
+                  --http-method=POST \
+                  --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+                  --oidc-token-audience="${service_url}" \
+                  --quiet
+              fi
+              return 0
+            fi
+            echo "Creating invoke-bridge Cloud Scheduler job ${bridge_job} -> ${bridge_uri}."
+            gcloud scheduler jobs create http "${bridge_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${bridge_location}" \
+              --uri="${bridge_uri}" \
+              --http-method=POST \
+              --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+              --oidc-token-audience="${service_url}" \
+              --schedule="0 0 1 1 *" \
+              --time-zone="UTC" \
+              --attempt-deadline=600s \
+              --quiet
+          }
           if [ "${service_ingress}" = "internal" ]; then
             scheduler_location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"
             case "${raw_path}" in
@@ -133,10 +173,12 @@ jobs:
               /probe)
                 scheduler_job="${CLOUD_RUN_SERVICE}-probe-scheduler"
                 scheduler_expected_path="/probe"
+                ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/probe" "${scheduler_location}"
                 ;;
               /dry-run)
                 scheduler_job="${CLOUD_RUN_SERVICE}-precheck-scheduler"
                 scheduler_expected_path="/dry-run"
+                ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/dry-run" "${scheduler_location}"
                 ;;
               *)
                 echo "Cloud Run service ${CLOUD_RUN_SERVICE} has internal ingress, so GitHub-hosted runners cannot curl ${raw_path} directly." >&2
@@ -147,6 +189,7 @@ jobs:
 
             scheduler_uri="$(
               gcloud scheduler jobs describe "${scheduler_job}" \
+                --project="${GCP_PROJECT_ID}" \
                 --location="${scheduler_location}" \
                 --format='value(httpTarget.uri)' 2>/dev/null || true
             )"
