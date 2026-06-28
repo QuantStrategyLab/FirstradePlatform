@@ -296,8 +296,8 @@ def build_strategy_plugin_alert_state_settings(
     state_gcs_uri = f"gs://{state_bucket}/{state_prefix}" if state_bucket else None
     return StrategyPluginAlertStateSettings.from_env(
         env_reader=env_reader,
-        gcp_project_id=settings.project_id,
-        fallback_gcs_prefix_uri=state_gcs_uri,
+        project_id=settings.project_id,
+        fallback_cloud_prefix_uri=state_gcs_uri,
     )
 
 

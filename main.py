@@ -260,8 +260,8 @@ def _strategy_result_http_status(result: dict[str, Any]) -> int:
 def _persist_runtime_report(report: dict[str, Any]) -> str | None:
     persisted = persist_runtime_report(
         report,
-        gcs_prefix_uri=os.getenv("EXECUTION_REPORT_GCS_URI"),
-        gcp_project_id=get_project_id(),
+        cloud_prefix_uri=os.getenv("EXECUTION_REPORT_GCS_URI"),
+        project_id=get_project_id(),
     )
     if isinstance(persisted, str):
         return persisted
