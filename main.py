@@ -10,7 +10,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
-from application.monitor_dispatcher import dispatch_due_monitors, load_monitor_targets
+from quant_platform_kit.common.platform_runner import dispatch_due_monitors, load_monitor_targets
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -57,9 +57,18 @@ def _split_env_list(value: str | None) -> tuple[str, ...]:
     )
 
 
+def _get_telegram_token() -> str:
+    try:
+        from quant_platform_kit.cloud import get_secret_store
+
+        return get_secret_store().get_secret("firstrade-telegram-token", project_id="firstradequant")
+    except Exception:
+        return os.environ.get("TELEGRAM_TOKEN", "")
+
+
 def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
     targets: list[tuple[str, str]] = []
-    main_token = os.getenv("TELEGRAM_TOKEN")
+    main_token = _get_telegram_token()
     main_chat_id = os.getenv("GLOBAL_TELEGRAM_CHAT_ID")
     if main_token and main_chat_id:
         targets.append((main_token, main_chat_id))

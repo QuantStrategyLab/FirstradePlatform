@@ -31,6 +31,18 @@ DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
 
+def _get_credential(secret_name: str, env_var: str) -> str:
+    try:
+        from quant_platform_kit.cloud import get_secret_store
+
+        return get_secret_store().get_secret(secret_name, project_id="firstradequant")
+    except Exception:
+        val = os.environ.get(env_var)
+        if val is None:
+            raise ValueError(f"Missing credential: {secret_name} (tried env {env_var})")
+        return val
+
+
 @dataclass(frozen=True)
 class PlatformRuntimeSettings:
     project_id: str | None
@@ -162,7 +174,7 @@ def load_platform_runtime_settings(
         strategy_display_name=runtime_paths.strategy_display_name,
         strategy_domain=runtime_paths.strategy_domain,
         notify_lang=os.getenv("NOTIFY_LANG", "en"),
-        tg_token=os.getenv("TELEGRAM_TOKEN"),
+        tg_token=_get_credential("firstrade-telegram-token", "TELEGRAM_TOKEN"),
         tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
         runtime_target_enabled=_runtime_target_enabled_env(),
