@@ -52,15 +52,23 @@ class FirstradeCredentials:
 
     @classmethod
     def from_env(cls, env: Callable[[str, str | None], str | None] = os.getenv) -> "FirstradeCredentials":
-        username = env("FIRSTRADE_USERNAME", "") or ""
-        password = env("FIRSTRADE_PASSWORD", "") or ""
+        def _get_credential(secret_name: str, env_var: str) -> str:
+            try:
+                from quant_platform_kit.cloud import get_secret_store
+
+                return get_secret_store().get_secret(secret_name, project_id="firstradequant")
+            except Exception:
+                return env(env_var, "") or ""
+
+        username = _get_credential("firstrade-username", "FIRSTRADE_USERNAME")
+        password = _get_credential("firstrade-password", "FIRSTRADE_PASSWORD")
         return cls(
             username=username.strip(),
             password=password,
             pin=env("FIRSTRADE_PIN", "") or "",
             email=env("FIRSTRADE_MFA_EMAIL", "") or "",
             phone=env("FIRSTRADE_MFA_PHONE", "") or "",
-            mfa_secret=env("FIRSTRADE_MFA_SECRET", "") or "",
+            mfa_secret=_get_credential("firstrade-mfa-secret", "FIRSTRADE_MFA_SECRET"),
             mfa_code=env("FIRSTRADE_MFA_CODE", "") or "",
             cookie_dir=env("FIRSTRADE_COOKIE_DIR", ".runtime/firstrade-cookies")
             or ".runtime/firstrade-cookies",
