@@ -25,12 +25,14 @@ from us_equity_strategies import (
 
 FIRSTRADE_PLATFORM = "firstrade"
 
+FIRSTRADE_EXCLUDED_LIVE_PROFILES: frozenset[str] = frozenset()
+
 PLATFORM_SUPPORTED_DOMAINS: dict[str, frozenset[str]] = {
     FIRSTRADE_PLATFORM: frozenset({US_EQUITY_DOMAIN}),
 }
 
 STRATEGY_CATALOG = get_strategy_catalog()
-FIRSTRADE_ROLLOUT_ALLOWLIST = get_runtime_enabled_profiles()
+FIRSTRADE_ROLLOUT_ALLOWLIST = get_runtime_enabled_profiles() - FIRSTRADE_EXCLUDED_LIVE_PROFILES
 PLATFORM_CAPABILITY_MATRIX = PlatformCapabilityMatrix(
     platform_id=FIRSTRADE_PLATFORM,
     supported_domains=PLATFORM_SUPPORTED_DOMAINS[FIRSTRADE_PLATFORM],
@@ -56,7 +58,7 @@ ELIGIBLE_STRATEGY_PROFILES = derive_eligible_profiles_for_platform(
         profile,
         platform_id=FIRSTRADE_PLATFORM,
     ),
-)
+) - FIRSTRADE_EXCLUDED_LIVE_PROFILES
 FIRSTRADE_ENABLED_PROFILES = derive_enabled_profiles_for_platform(
     STRATEGY_CATALOG,
     capability_matrix=PLATFORM_CAPABILITY_MATRIX,
