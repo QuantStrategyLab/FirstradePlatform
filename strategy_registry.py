@@ -49,6 +49,8 @@ PLATFORM_CAPABILITY_MATRIX = PlatformCapabilityMatrix(
             "snapshot",
         }
     ),
+    # Firstrade supports notional buy orders natively through the
+    # unofficial API client.  DCA / fractional profiles are enabled.
     supported_capabilities=frozenset({FRACTIONAL_SHARE_EXECUTION_CAPABILITY}),
 )
 ELIGIBLE_STRATEGY_PROFILES = derive_eligible_profiles_for_platform(
