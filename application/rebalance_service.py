@@ -640,6 +640,7 @@ def run_strategy_cycle(
         "account": account,
         "strategy_profile": strategy_runtime.profile,
         "strategy_display_name": strategy_runtime.display_name,
+        "strategy_metadata": getattr(settings, "strategy_metadata", None),
         "dry_run_only": settings.dry_run_only,
         "live_trading_enabled": settings.live_trading_enabled,
         "session_reused": bool(getattr(client, "session_reused", False)),

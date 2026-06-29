@@ -4,7 +4,10 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from quant_platform_kit.common.strategies import StrategyMetadata
 
 from quant_platform_kit.common.runtime_config import (
     resolve_bool_value,
@@ -59,6 +62,7 @@ class PlatformRuntimeSettings:
     run_strategy_on_http: bool
     live_order_ack: bool
     max_order_notional_usd: float | None
+    strategy_metadata: Any = None
     runtime_target_enabled: bool = True
     cash_only_execution: bool = True
     reserved_cash_floor_usd: float = DEFAULT_RESERVED_CASH_FLOOR_USD
@@ -173,6 +177,7 @@ def load_platform_runtime_settings(
         strategy_profile=runtime_paths.strategy_profile,
         strategy_display_name=runtime_paths.strategy_display_name,
         strategy_domain=runtime_paths.strategy_domain,
+        strategy_metadata=strategy_metadata,
         notify_lang=os.getenv("NOTIFY_LANG", "en"),
         tg_token=_get_credential("firstrade-telegram-token", "TELEGRAM_TOKEN"),
         tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),

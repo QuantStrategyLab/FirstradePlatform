@@ -539,6 +539,36 @@ def build_translator(lang: str | None) -> Callable[..., str]:
     return translate
 
 
+def build_strategy_display_name(lang: str, translate_fn):
+    """Build a strategy display name resolver consistent with other platforms.
+
+    Returns a callable that resolves a strategy's display name using catalog
+    metadata (if available) or the legacy i18n dictionary fallback.
+    """
+    def strategy_display_name(
+        profile: str,
+        *,
+        fallback_name: str | None = None,
+        metadata=None,
+    ) -> str:
+        if metadata is not None:
+            from quant_platform_kit.common.notification_localization import (
+                resolve_strategy_display_name,
+            )
+            return resolve_strategy_display_name(
+                lang, metadata, translator=translate_fn,
+            )
+        key = f"strategy_name_{str(profile or '').strip()}"
+        translated = translate_fn(key)
+        if translated != key:
+            return translated
+        fallback = str(fallback_name or "").strip()
+        if fallback:
+            return fallback
+        return str(profile or "").strip()
+    return strategy_display_name
+
+
 def build_sender(token: str | None, chat_id: str | None, *, requests_module=None):
     if requests_module is None:
         import requests as requests_module
@@ -1158,9 +1188,18 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     has_rebalance_attempt = bool(submitted or target_diff_lines or has_meaningful_skip)
     strategy_profile = str(result.get("strategy_profile") or "").strip()
     strategy_name = str(result.get("strategy_display_name") or strategy_profile).strip()
-    translated_strategy_name = translator(f"strategy_name_{strategy_profile}") if strategy_profile else ""
-    if translated_strategy_name and translated_strategy_name != f"strategy_name_{strategy_profile}":
-        strategy_name = translated_strategy_name
+    strategy_metadata = result.get("strategy_metadata")
+    if strategy_metadata is not None:
+        from quant_platform_kit.common.notification_localization import (
+            resolve_strategy_display_name,
+        )
+        strategy_name = resolve_strategy_display_name(
+            lang, strategy_metadata, translator=translator,
+        )
+    else:
+        translated_strategy_name = translator(f"strategy_name_{strategy_profile}") if strategy_profile else ""
+        if translated_strategy_name and translated_strategy_name != f"strategy_name_{strategy_profile}":
+            strategy_name = translated_strategy_name
     account = str(result.get("account") or "").strip()
     lines = [translator("rebalance_title" if has_rebalance_attempt else "heartbeat_title")]
     if strategy_name:
