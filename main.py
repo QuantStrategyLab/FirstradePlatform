@@ -10,6 +10,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
+from quant_platform_kit.common.health import register_health_endpoint
 from quant_platform_kit.common.platform_runner import dispatch_due_monitors, load_monitor_targets
 from application.firstrade_client import (
     FirstradeBrokerClient,
@@ -39,6 +40,7 @@ MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
 MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
 
 app = Flask(__name__)
+register_health_endpoint(app)  # GET /health /healthz
 
 
 def get_project_id() -> str | None:
