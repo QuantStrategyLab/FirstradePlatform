@@ -823,7 +823,7 @@ jobs:
             gcloud run revisions delete "${revision}" \
               --project="${GCP_PROJECT_ID}" \
               --region="${CLOUD_RUN_REGION}" \
-              --quiet
+              --quiet 2>&1 || true
           done < <(gcloud run revisions list \
             --project="${GCP_PROJECT_ID}" \
             --region="${CLOUD_RUN_REGION}" \
