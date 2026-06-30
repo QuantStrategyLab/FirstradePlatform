@@ -14,12 +14,16 @@ authors = [
 ]
 dependencies = [
   "firstrade==0.0.39",
+  "flask",
+  "google-auth",
+  "google-cloud-storage",
+  "gunicorn",
   "pandas_market_calendars",
+  "pytest",
   "pytz",
+  "requests",
   "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@e86554b",
   "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@a9546362a27abdfc9cd5184b30ca8d26fd774187",
-  "google-cloud-storage",
-  "requests",
 ]
 
 [tool.setuptools]
@@ -56,3 +60,11 @@ line-length = 100
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["E402", "F841"]
 
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = ["tests/*", "*/external/*"]
+
+[tool.coverage.report]
+show_missing = true
