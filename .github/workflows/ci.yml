@@ -92,4 +92,4 @@ jobs:
       - name: Run tests
         run: |
           set -euo pipefail
-          PYTHONPATH=. PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests
+          PYTHONPATH=. PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests --cov --cov-report=term
