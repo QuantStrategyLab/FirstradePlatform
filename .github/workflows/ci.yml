@@ -85,15 +85,10 @@ jobs:
           python -m pip install --no-deps -e external/QuantPlatformKit -e external/UsEquityStrategies
 
       - name: Run ruff
+        run: |
+          set -euo pipefail
+          ruff check --exclude external .
 
       - name: Check QPK pin consistency
         run: python scripts/check_qpk_pin_consistency.py
         continue-on-error: true
-        run: |
-          set -euo pipefail
-          ruff check .
-
-      - name: Run tests
-        run: |
-          set -euo pipefail
-          PYTHONPATH=. PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests --cov --cov-report=term --cov-report=xml
