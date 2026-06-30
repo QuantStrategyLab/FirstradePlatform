@@ -49,6 +49,7 @@ pythonpath = [
 testpaths = ["tests"]
 
 [tool.ruff]
+ignore = ["E701"]
 target-version = "py311"
 line-length = 100
 
