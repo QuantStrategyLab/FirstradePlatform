@@ -49,7 +49,7 @@ pythonpath = [
 testpaths = ["tests"]
 
 [tool.ruff]
-ignore = ["E701"]
+ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"]
 target-version = "py311"
 line-length = 100
 

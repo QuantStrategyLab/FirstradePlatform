@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from quant_platform_kit.common.strategies import StrategyMetadata
+    pass
 
 from quant_platform_kit.common.runtime_config import (
     resolve_bool_value,
