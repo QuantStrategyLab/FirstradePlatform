@@ -8,4 +8,4 @@ pytest
 pytz
 requests
 quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@a9085d6d46147f62b80bbd441d19d85acaa3dda6
-us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@2d092fc7c2ac26591b38f4f9b2e9f26ed727a099
+us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@635f64207a9db8dc7af51e7ad496557a57be5579
