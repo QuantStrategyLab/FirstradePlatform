@@ -69,7 +69,7 @@ def _get_telegram_token() -> str:
 def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
     targets: list[tuple[str, str]] = []
     main_token = _get_telegram_token()
-    main_chat_id = os.getenv("GLOBAL_TELEGRAM_CHAT_ID")
+    main_chat_id = os.getenv("QSL_GLOBAL_TELEGRAM_CHAT_ID") or os.getenv("GLOBAL_TELEGRAM_CHAT_ID")
     if main_token and main_chat_id:
         targets.append((main_token, main_chat_id))
 
@@ -88,7 +88,7 @@ def _runtime_error_notification_message(exc: Exception) -> str:
     if len(error_text) > 1200:
         error_text = error_text[:1197] + "..."
     is_health_check = request.path == "/probe"
-    if str(os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
+    if str(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
         return "\n".join(
             (
                 "Firstrade 健康检查失败" if is_health_check else "Firstrade 策略运行失败",
@@ -260,7 +260,7 @@ def _strategy_result_http_status(result: dict[str, Any]) -> int:
 def _persist_runtime_report(report: dict[str, Any]) -> str | None:
     persisted = persist_runtime_report(
         report,
-        cloud_prefix_uri=os.getenv("EXECUTION_REPORT_GCS_URI"),
+        cloud_prefix_uri=os.getenv("QSL_EXECUTION_REPORT_GCS_URI") or os.getenv("EXECUTION_REPORT_GCS_URI"),
         project_id=get_project_id(),
     )
     if isinstance(persisted, str):

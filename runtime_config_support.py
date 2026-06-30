@@ -185,9 +185,9 @@ def load_platform_runtime_settings(
         strategy_display_name=runtime_paths.strategy_display_name,
         strategy_domain=runtime_paths.strategy_domain,
         strategy_metadata=strategy_metadata,
-        notify_lang=os.getenv("NOTIFY_LANG", "en"),
+        notify_lang=os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG", "en"),
         tg_token=_get_credential("firstrade-telegram-token", "TELEGRAM_TOKEN"),
-        tg_chat_id=os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
+        tg_chat_id=os.getenv("QSL_GLOBAL_TELEGRAM_CHAT_ID") or os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
         runtime_target_enabled=_runtime_target_enabled_env(),
         cash_only_execution=resolve_cash_only_execution_env(
@@ -287,6 +287,7 @@ def load_platform_runtime_settings(
         strategy_config_source=runtime_paths.strategy_config_source,
         strategy_plugin_mounts_json=(
             os.getenv("FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON")
+            or os.getenv("QSL_STRATEGY_PLUGIN_MOUNTS_JSON")
             or os.getenv("STRATEGY_PLUGIN_MOUNTS_JSON")
         ),
         strategy_plugin_alert_channels=resolve_split_env_list("STRATEGY_PLUGIN_ALERT_CHANNELS"),
@@ -327,7 +328,8 @@ def load_platform_runtime_settings(
             "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"
         ),
         strategy_plugin_alert_telegram_bot_token=_first_non_empty(
-            os.getenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
+            os.getenv("QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
+            or os.getenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
         ),
         strategy_plugin_alert_telegram_api_base_url=_first_non_empty(
             os.getenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_API_BASE_URL")
@@ -346,7 +348,7 @@ def load_platform_runtime_settings(
 
 
 def _resolve_runtime_target(*, dry_run_only: bool) -> RuntimeTarget:
-    if os.getenv("RUNTIME_TARGET_JSON"):
+    if os.getenv("QSL_RUNTIME_TARGET_JSON") or os.getenv("RUNTIME_TARGET_JSON"):
         return resolve_runtime_target_from_env(
             env=os.environ,
             expected_platform_id=FIRSTRADE_PLATFORM,
@@ -436,7 +438,7 @@ def _resolve_market_signal_handoff_index_uri() -> str | None:
     if explicit:
         return explicit
     return _default_market_signal_handoff_index_uri_from_report_bucket(
-        os.getenv("EXECUTION_REPORT_GCS_URI"),
+        os.getenv("QSL_EXECUTION_REPORT_GCS_URI") or os.getenv("EXECUTION_REPORT_GCS_URI"),
     )
 
 
