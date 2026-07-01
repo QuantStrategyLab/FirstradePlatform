@@ -85,6 +85,19 @@ def _load_services() -> list[str]:
     return unique
 
 
+def _scheduler_job_pattern_for_services(services: list[str]) -> str:
+    candidates: list[str] = []
+    for service in services:
+        service_name = str(service or "").strip()
+        if not service_name:
+            continue
+        candidates.append(service_name)
+        if service_name.endswith("-service"):
+            candidates.append(service_name.removesuffix("-service"))
+    unique = list(dict.fromkeys(candidates))
+    return "|".join(re.escape(candidate) for candidate in unique)
+
+
 def _run_gcloud(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=False)
 
@@ -254,7 +267,6 @@ def main() -> int:
     require_success = _env_bool("RUNTIME_GUARD_REQUIRE_SUCCESS", False)
     fail_workflow = _env_bool("RUNTIME_GUARD_FAIL_WORKFLOW_ON_ALERT", True)
     check_scheduler = _env_bool("RUNTIME_GUARD_CHECK_SCHEDULER", True)
-    scheduler_pattern = os.environ.get("RUNTIME_GUARD_SCHEDULER_JOB_PATTERN") or ""
 
     since = (
         dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=lookback_minutes)
@@ -270,6 +282,10 @@ def main() -> int:
     except RuntimeError as exc:
         services = []
         issues.append(f"service configuration error: {exc}")
+    scheduler_pattern = (
+        os.environ.get("RUNTIME_GUARD_SCHEDULER_JOB_PATTERN")
+        or _scheduler_job_pattern_for_services(services)
+    )
 
     for service in services:
         log_filter = (
@@ -293,7 +309,7 @@ def main() -> int:
             f"no successful Cloud Run request found for {', '.join(services)} in the last {lookback_minutes} minutes"
         )
 
-    if check_scheduler:
+    if check_scheduler and scheduler_pattern:
         log_filter = f'resource.type="cloud_scheduler_job" AND timestamp >= "{since_text}"'
         try:
             entries = _run_gcloud_logging(project, log_filter, limit)
@@ -310,6 +326,8 @@ def main() -> int:
                 details.extend(_summarize(entry) for entry in failures[:5])
         except RuntimeError as exc:
             issues.append(f"Cloud Scheduler log query failed: {exc}")
+    elif check_scheduler:
+        print("Skipping Cloud Scheduler check because no scheduler job pattern could be derived.", file=sys.stderr)
 
     if not issues:
         service_text = ", ".join(services) if services else "<none configured>"
