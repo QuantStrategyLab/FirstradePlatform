@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import subprocess
+import re
 
 from scripts import cloud_run_runtime_guard as guard
+
+
+def test_scheduler_job_pattern_includes_service_alias():
+    pattern = guard._scheduler_job_pattern_for_services(["firstrade-service"])
+
+    assert re.search(pattern, "firstrade-service-scheduler")
+    assert re.search(pattern, "firstrade-scheduler")
+    assert not re.search(pattern, "charles-schwab-scheduler")
 
 
 def test_telegram_token_falls_back_to_secret_manager(monkeypatch):
