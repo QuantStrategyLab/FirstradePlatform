@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Experimental QuantStrategyLab platform layer for Firstrade through an unofficial API wrapper."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "QuantStrategyLab" }
 ]
