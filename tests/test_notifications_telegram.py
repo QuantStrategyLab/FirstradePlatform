@@ -49,7 +49,7 @@ def test_render_cycle_summary_dashboard_text_does_not_hide_account_overview():
     assert "Total assets (strategy symbols + cash): $2,000.00" not in message
     assert "Buying power: $100.00" not in message
     assert "📌 Strategy portfolio" not in message
-    assert message.count("🎯 Signal:") == 1
+    assert "🎯 Signal:" not in message
 
 
 def test_render_cycle_summary_includes_tqqq_volatility_delever_risk_control():
@@ -94,8 +94,30 @@ def test_render_cycle_summary_includes_tqqq_volatility_delever_risk_control():
         lang="en",
     )
 
-    assert (
-        "🛡️ Risk control: QQQ 5d annualized volatility 31.2% is above effective threshold 30.0% "
-        "(dynamic p90, 252d lookback, bounded 24.0%-36.0%, samples 252); TQQQ redirects to QQQM "
-        "(leveraged sleeve: TQQQ retained 0.0%, QQQM 100.0%)"
-    ) in message
+    assert "🛡️ Risk control:" not in message
+
+
+def test_render_cycle_summary_relabels_total_assets_when_margin_is_enabled():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "tqqq_growth_income",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 50000.0,
+                "liquid_cash": 75000.0,
+                "portfolio_rows": (("TQQQ",),),
+                "market_values": {"TQQQ": 8000.0},
+                "quantities": {"TQQQ": 10},
+            },
+            "allocation": {"targets": {"TQQQ": 8000.0}},
+            "execution": {"cash_only_execution": False},
+            "submitted_orders": [],
+            "skipped_orders": [],
+        },
+        lang="zh",
+    )
+
+    assert "总资产（策略净值）: $50,000.00" in message
+    assert "购买力: $75,000.00" in message
+    assert "不含融资额度" not in message

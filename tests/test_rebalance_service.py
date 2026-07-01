@@ -795,8 +795,8 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template
     assert "🔔 【调仓指令】" in message
     assert "🆔 账户: ****1234" in message
     assert "📌 策略账户概览" in message
-    assert "⏱ 执行时点: 2026-05-20 -> 2026-05-21 (次一交易日执行)" in message
-    assert "🎯 信号: 入场信号" in message
+    assert "⏱ 执行时点:" not in message
+    assert "🎯 信号:" not in message
     assert "调仓变化: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
     assert "🧾 执行明细" in message
     assert "未下单: 原因=TQQQ,QQQ（整数股不足 1 股，无需下单）, BOXX（低于调仓阈值）" in message
@@ -842,10 +842,9 @@ def test_render_cycle_summary_localizes_strategy_signal_codes():
         lang="zh",
     )
 
-    assert "📊 市场状态: 🚀 风险开启（SOXX+SOXL）" in message
-    assert "🎯 信号: SOXX 站上 140 日门槛线，持有 SOXL 70.0% + SOXX 20.0%" in message
-    assert "  - 小账户提示：净值 $0 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测" in message
-    assert message.count("🎯 信号:") == 1
+    assert "📊 市场状态:" not in message
+    assert "🎯 信号:" not in message
+    assert "小账户提示" not in message
     assert "signal_blend_gate_risk_on" not in message
     assert "soxl_ratio" not in message
     assert "small_account_warning_note" not in message
@@ -970,8 +969,8 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     assert "🔔 【Rebalance Instruction】" in message
     assert "🆔 Account: ****1234" in message
     assert "📌 Strategy Account" in message
-    assert "⏱ Timing: 2026-05-20 -> 2026-05-21 (next trading day)" in message
-    assert "🎯 Signal: Entry Signal" in message
+    assert "⏱ Timing:" not in message
+    assert "🎯 Signal:" not in message
     assert "Target changes: BOXX +7.89 USD, QQQ +44.39 USD, TQQQ +44.39 USD" in message
     assert "🧾 Execution details" in message
     assert (
