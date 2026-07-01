@@ -357,7 +357,7 @@ def _run_strategy_cycle_with_report(
 
 
 @app.get("/")
-def health():
+def service_info():
     return jsonify(
         {
             "service": "firstrade-platform",
