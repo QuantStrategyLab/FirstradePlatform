@@ -24,6 +24,8 @@ def route_methods():
 def test_cloud_run_route_contracts_are_registered():
     assert route_methods() == {
         "/": ["GET"],
+        "/health": ["GET"],
+        "/healthz": ["GET"],
         "/profiles": ["GET"],
         "/smoke": ["GET"],
         "/run": ["GET", "POST"],
@@ -286,6 +288,41 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
     assert "Firstrade 策略运行失败" in text
     assert "策略: russell_top50_leader_rotation" in text
     assert "错误: ValueError: snapshot denied" in text
+
+
+def test_run_endpoint_redacts_sensitive_error_text(monkeypatch):
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
+    monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
+    sent_messages = []
+
+    def fake_build_sender(token, chat_id):
+        def send(message):
+            sent_messages.append((token, chat_id, message))
+
+        return send
+
+    sensitive_error = (
+        "request failed: password=supersecret123 token=abcd1234efgh "
+        "https://api.telegram.org/bot123456789:ABC/sendMessage?api_key=key987654"
+    )
+    monkeypatch.setattr(main, "build_sender", fake_build_sender)
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda: (_ for _ in ()).throw(RuntimeError(sensitive_error)),
+    )
+    client = main.app.test_client()
+
+    response = client.post("/run")
+
+    assert response.status_code == 500
+    payload = response.get_json()
+    assert "<redacted>" in payload["error"]
+    assert "<redacted>" in sent_messages[0][2]
+    for raw_secret in ("supersecret123", "abcd1234efgh", "123456789:ABC", "key987654"):
+        assert raw_secret not in payload["error"]
+        assert raw_secret not in sent_messages[0][2]
 
 
 def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
