@@ -1203,19 +1203,29 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     account = str(result.get("account") or "").strip()
     lines = [translator("rebalance_title" if has_rebalance_attempt else "heartbeat_title")]
     if strategy_name:
-        lines.append(f"策略: {strategy_name} | 账户: {account}" if lang == "zh" else f"Strategy: {strategy_name} | Account: {account}")
+        lines.append(translator("strategy_label", name=strategy_name))
+    if account:
+        lines.append(translator("account_label", account=account))
     if dry_run_only:
         lines.append(translator("dry_run_banner"))
     if bool(result.get("execution_blocked")):
         blocked = list(result.get("execution_blocking_skips") or skipped)
         reason = _format_skipped_reason(blocked, translator=translator)
-        lines.append(translator("execution_blocked_banner", reason=reason))
+        if bool(result.get("funding_blocked")):
+            banner_key = "funding_blocked_banner"
+        elif bool(result.get("execution_block_retryable")):
+            banner_key = "execution_blocked_retryable_banner"
+        else:
+            banner_key = "execution_blocked_banner"
+        lines.append(translator(banner_key, reason=reason))
 
     dashboard_lines = _format_dashboard_lines(portfolio, execution, translator=translator)
     if dashboard_lines:
         lines.append(SEPARATOR)
         lines.extend(dashboard_lines)
     lines.append(SEPARATOR)
+    lines.extend(_format_timing_lines(execution, translator=translator))
+    lines.extend(_format_signal_lines(execution, translator=translator))
     lines.extend(target_diff_lines)
     lines.extend(
         str(line).strip()

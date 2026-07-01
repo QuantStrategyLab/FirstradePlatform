@@ -13,7 +13,10 @@ RUN apt-get update \
 COPY requirements.txt ./
 COPY constraints.txt ./
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt -c constraints.txt \
+    && grep -vE "^\s*(#|$)|git\+" requirements.txt | xargs -r python -m pip install -c constraints.txt \
+    && grep "git+" requirements.txt | while IFS= read -r pkg; do \
+        [ -n "$pkg" ] && python -m pip install --no-deps "$pkg"; \
+    done \
     && apt-get purge -y git \
     && apt-get autoremove -y --purge \
     && rm -rf /var/lib/apt/lists/*

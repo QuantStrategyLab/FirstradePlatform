@@ -65,7 +65,6 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install --upgrade pip
           # Install non-git packages first to avoid cross-package dependency conflicts
           grep -vE "^\s*(#|$)|git\+" requirements.txt | xargs -r python -m pip install -c https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/constraints.txt
           # Install git-based packages individually with --no-deps
@@ -91,11 +90,16 @@ jobs:
           set -euo pipefail
           python -m pip install --no-deps -e external/QuantPlatformKit -e external/UsEquityStrategies
 
+      - name: Verify Python dependencies
+        run: python -m pip check
+
       - name: Run ruff
         run: |
           set -euo pipefail
           ruff check --exclude external .
 
+      - name: Run tests
+        run: python -m pytest -q
+
       - name: Check QPK pin consistency
         run: python scripts/check_qpk_pin_consistency.py
-        continue-on-error: true

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import traceback
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -42,6 +43,16 @@ MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
 app = Flask(__name__)
 register_health_endpoint(app)  # GET /health /healthz
 
+_REDACTED = "<redacted>"
+_TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|key|password|secret|signature|token)=)([^&\s]+)"
+)
+_AUTH_HEADER_RE = re.compile(r"(?i)\b(Bearer|Basic)\s+([A-Za-z0-9._~+/=-]{8,})")
+_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|auth[_-]?token|credential|password|private[_-]?key|secret|token)\s*[:=]\s*([\"']?)([^\"'\s,;]{8,})([\"']?)"
+)
+
 
 def get_project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -57,6 +68,14 @@ def _split_env_list(value: str | None) -> tuple[str, ...]:
         for item in str(value or "").replace(";", ",").split(",")
         if item.strip()
     )
+
+
+def redact_sensitive_text(value: object) -> str:
+    text = str(value)
+    text = _TELEGRAM_BOT_PATH_RE.sub(r"\1" + _REDACTED, text)
+    text = _SENSITIVE_QUERY_RE.sub(r"\1" + _REDACTED, text)
+    text = _AUTH_HEADER_RE.sub(r"\1 " + _REDACTED, text)
+    return _ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}={_REDACTED}", text)
 
 
 def _get_telegram_token() -> str:
@@ -86,7 +105,7 @@ def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
 
 
 def _runtime_error_notification_message(exc: Exception) -> str:
-    error_text = f"{type(exc).__name__}: {exc}"
+    error_text = _safe_exception_text(exc, include_type=True)
     if len(error_text) > 1200:
         error_text = error_text[:1197] + "..."
     is_health_check = request.path == "/probe"
@@ -131,13 +150,22 @@ def _notify_runtime_error(exc: Exception) -> bool:
         try:
             build_sender(token, chat_id)(message)
         except Exception as send_exc:  # pragma: no cover - build_sender normally handles this.
-            print(f"Firstrade runtime error Telegram send failed: {send_exc}", flush=True)
+            print(
+                f"Firstrade runtime error Telegram send failed: {redact_sensitive_text(send_exc)}",
+                flush=True,
+            )
     return attempted
 
 
+def _safe_exception_text(exc: Exception, *, include_type: bool = False) -> str:
+    text = redact_sensitive_text(exc)
+    return f"{type(exc).__name__}: {text}" if include_type else text
+
+
 def _handle_strategy_run_exception(exc: Exception) -> bool:
-    print(f"Firstrade strategy run failed: {type(exc).__name__}: {exc}", flush=True)
-    traceback.print_exc()
+    print(f"Firstrade strategy run failed: {_safe_exception_text(exc, include_type=True)}", flush=True)
+    for line in traceback.format_exception(type(exc), exc, exc.__traceback__):
+        print(redact_sensitive_text(line.rstrip()), flush=True)
     return _notify_runtime_error(exc)
 
 
@@ -412,7 +440,7 @@ def smoke():
             }
         )
     except FirstradePlatformError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        return jsonify({"ok": False, "error": _safe_exception_text(exc)}), 500
 
 
 def session_check():
@@ -437,7 +465,7 @@ def session_check():
             jsonify(
                 {
                     "ok": False,
-                    "error": str(exc),
+                    "error": _safe_exception_text(exc),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -449,7 +477,7 @@ def session_check():
             jsonify(
                 {
                     "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_exception_text(exc, include_type=True),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -487,7 +515,7 @@ def run_strategy():
             jsonify(
                 {
                     "ok": False,
-                    "error": str(exc),
+                    "error": _safe_exception_text(exc),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -499,7 +527,7 @@ def run_strategy():
             jsonify(
                 {
                     "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_exception_text(exc, include_type=True),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -527,7 +555,7 @@ def dry_run():
             jsonify(
                 {
                     "ok": False,
-                    "error": str(exc),
+                    "error": _safe_exception_text(exc),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -539,7 +567,7 @@ def dry_run():
             jsonify(
                 {
                     "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_exception_text(exc, include_type=True),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),
@@ -566,7 +594,7 @@ def monitor_dispatch():
             jsonify(
                 {
                     "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_exception_text(exc, include_type=True),
                     "runtime_error_notification_attempted": notification_attempted,
                 }
             ),

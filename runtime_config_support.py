@@ -41,16 +41,16 @@ DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
 
-def _get_credential(secret_name: str, env_var: str) -> str:
+def _get_credential(secret_name: str, env_var: str) -> str | None:
+    val = os.environ.get(env_var)
+    if val is not None:
+        return val
     try:
         from quant_platform_kit.cloud import get_secret_store
 
         return get_secret_store().get_secret(secret_name, project_id="firstradequant")
     except Exception:
-        val = os.environ.get(env_var)
-        if val is None:
-            raise ValueError(f"Missing credential: {secret_name} (tried env {env_var})")
-        return val
+        return None
 
 
 @dataclass(frozen=True)
@@ -218,19 +218,19 @@ def load_platform_runtime_settings(
         debug_position_snapshot=resolve_bool_value(os.getenv("FIRSTRADE_DEBUG_POSITION_SNAPSHOT")),
         income_threshold_usd=resolve_optional_float_env(os.environ, "INCOME_THRESHOLD_USD"),
         qqqi_income_ratio=_qqqi_income_ratio_env(),
-        income_layer_enabled=resolve_optional_bool_env("INCOME_LAYER_ENABLED"),
+        income_layer_enabled=_optional_bool_env("INCOME_LAYER_ENABLED"),
         income_layer_start_usd=_optional_non_negative_float_env("INCOME_LAYER_START_USD"),
         income_layer_max_ratio=resolve_optional_ratio_env("INCOME_LAYER_MAX_RATIO"),
         dca_mode=resolve_optional_dca_mode_env("DCA_MODE"),
         dca_base_investment_usd=resolve_optional_positive_float_env("DCA_BASE_INVESTMENT_USD"),
-        ibit_zscore_exit_enabled=resolve_optional_bool_env("IBIT_ZSCORE_EXIT_ENABLED"),
+        ibit_zscore_exit_enabled=_optional_bool_env("IBIT_ZSCORE_EXIT_ENABLED"),
         ibit_zscore_exit_mode=resolve_optional_ibit_zscore_exit_mode_env("IBIT_ZSCORE_EXIT_MODE"),
         ibit_zscore_exit_parking_symbol=resolve_optional_symbol_env("IBIT_ZSCORE_EXIT_PARKING_SYMBOL"),
         ibit_zscore_exit_risk_reduced_exposure=resolve_optional_ratio_env(
             "IBIT_ZSCORE_EXIT_RISK_REDUCED_EXPOSURE"
         ),
         ibit_zscore_exit_risk_off_exposure=resolve_optional_ratio_env("IBIT_ZSCORE_EXIT_RISK_OFF_EXPOSURE"),
-        ibit_zscore_exit_allow_outside_execution_window=resolve_optional_bool_env(
+        ibit_zscore_exit_allow_outside_execution_window=_optional_bool_env(
             "IBIT_ZSCORE_EXIT_ALLOW_OUTSIDE_EXECUTION_WINDOW"
         ),
         runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
@@ -384,9 +384,15 @@ def _qqqi_income_ratio_env() -> float | None:
 
 
 def _runtime_target_enabled_env() -> bool:
-    value = resolve_optional_bool_env("RUNTIME_TARGET_ENABLED")
+    value = _optional_bool_env("RUNTIME_TARGET_ENABLED")
     return True if value is None else value
 
+
+def _optional_bool_env(name: str) -> bool | None:
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return resolve_optional_bool_env(name)
 
 
 def _optional_non_negative_float_env(name: str) -> float | None:
