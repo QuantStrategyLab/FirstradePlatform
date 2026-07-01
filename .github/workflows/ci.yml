@@ -71,7 +71,7 @@ jobs:
           grep 'git+' requirements.txt | while IFS= read -r pkg; do
             [ -n "$pkg" ] && python -m pip install --no-deps "$pkg"
           done
-          python -m pip install pytest pytest-cov ruff
+          python -m pip install pytest pytest-cov ruff build
 
       - name: Smoke import pinned shared packages
         run: |
@@ -103,3 +103,6 @@ jobs:
 
       - name: Check QPK pin consistency
         run: python scripts/check_qpk_pin_consistency.py
+
+      - name: Build package
+        run: python -m build

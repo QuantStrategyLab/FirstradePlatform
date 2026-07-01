@@ -25,6 +25,8 @@ Rules for contributions:
 Run the local unit tests before opening a pull request:
 
 ```bash
+.venv/bin/python -m pip check
+.venv/bin/ruff check --exclude external .
 .venv/bin/python -m pytest -q
+.venv/bin/python -m build
 ```
-
