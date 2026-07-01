@@ -185,6 +185,7 @@ I18N = {
         "account_overview_title": "📌 策略账户概览",
         "equity": "净值",
         "total_assets": "总资产（策略标的+现金）",
+        "total_assets_margin": "总资产（策略净值）",
         "buying_power": "可用现金",
         "buying_power_margin": "购买力",
         "reserved_cash": "预留现金",
@@ -353,6 +354,7 @@ I18N = {
         "account_overview_title": "📌 Strategy Account",
         "equity": "Equity",
         "total_assets": "Total assets",
+        "total_assets_margin": "Total assets (strategy net liquidation)",
         "buying_power": "Available cash",
         "buying_power_margin": "Buying power",
         "reserved_cash": "Reserved cash",
@@ -724,11 +726,15 @@ def _is_dashboard_account_metric_line(line: str, *, translator: Callable[..., st
         translator("investable_cash"),
         translator("equity"),
         "Total assets (strategy symbols + cash)",
+        "Total assets (strategy symbols + cash, ex-margin)",
+        "Total assets (strategy net liquidation)",
         "Buying power",
         "Reserved cash",
         "Investable cash",
         "Equity",
         "总资产（策略标的+现金）",
+        "总资产（策略标的+现金，不含融资额度）",
+        "总资产（策略净值）",
         "购买力",
         "预留现金",
         "可投资现金",
@@ -744,14 +750,15 @@ def _format_generated_dashboard_lines(
     translator: Callable[..., str],
 ) -> list[str]:
     lines = [translator("account_overview_title")]
+    cash_only_execution = bool(execution.get("cash_only_execution", portfolio.get("cash_only_execution", True)))
     total_equity = _safe_float(portfolio.get("total_equity"))
     if total_equity is not None:
-        lines.append(f"  - {translator('total_assets')}: {_format_money(total_equity)}")
+        total_assets_label = "total_assets" if cash_only_execution else "total_assets_margin"
+        lines.append(f"  - {translator(total_assets_label)}: {_format_money(total_equity)}")
     buying_power = _safe_float(portfolio.get("liquid_cash"))
     if buying_power is None:
         buying_power = _safe_float(portfolio.get("buying_power"))
     if buying_power is not None:
-        cash_only_execution = bool(execution.get("cash_only_execution", portfolio.get("cash_only_execution", True)))
         buying_power_label = "buying_power" if cash_only_execution else "buying_power_margin"
         lines.append(f"  - {translator(buying_power_label)}: {_format_money(buying_power)}")
     reserved_cash = _safe_float(execution.get("reserved_cash"))
@@ -1224,8 +1231,6 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         lines.append(SEPARATOR)
         lines.extend(dashboard_lines)
     lines.append(SEPARATOR)
-    lines.extend(_format_timing_lines(execution, translator=translator))
-    lines.extend(_format_signal_lines(execution, translator=translator))
     lines.extend(target_diff_lines)
     lines.extend(
         str(line).strip()
