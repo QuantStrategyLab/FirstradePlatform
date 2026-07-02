@@ -294,6 +294,8 @@ def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing
 
 
 def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(monkeypatch):
+    messages = []
+
     class ZeroEquityClient(FakeFirstradeClient):
         def get_balances(self, _account):
             return {"total_value": "$0.00", "cash_balance": "$0.00", "buying_power": "$0.00"}
@@ -326,6 +328,7 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
         ),
         credentials=FirstradeCredentials(username="user", password="pass"),
         client_factory=ZeroEquityClient,
+        notification_sender=messages.append,
         env_reader=lambda _name, default=None: default,
     )
 
@@ -336,6 +339,10 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
     assert result["skipped_orders"] == [
         {"symbol": "AAA", "reason": "below_trade_threshold", "delta_value": 0.0}
     ]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert result["notification_suppressed_reason"] == "no_trade_or_error"
+    assert messages == []
 
 
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
