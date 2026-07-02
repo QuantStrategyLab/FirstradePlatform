@@ -240,6 +240,14 @@ def _publish_cycle_notification(
     return True
 
 
+def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
+    if result.get("submitted_orders"):
+        return True
+    if result.get("error") or result.get("ok") is False:
+        return True
+    return False
+
+
 def load_strategy_plugin_signals(
     raw_mounts,
     *,
@@ -705,7 +713,7 @@ def run_strategy_cycle(
         except Exception as exc:
             result["strategy_run_persisted"] = False
             result["strategy_run_persistence_error"] = f"{type(exc).__name__}: {exc}"
-    if send_cycle_notification:
+    if send_cycle_notification and _should_publish_cycle_notification(result):
         try:
             result["notification_sent"] = _publish_cycle_notification(
                 result,
@@ -715,6 +723,10 @@ def run_strategy_cycle(
         except Exception as exc:
             result["notification_sent"] = False
             result["notification_error"] = f"{type(exc).__name__}: {exc}"
+    elif send_cycle_notification:
+        result["notification_sent"] = False
+        result["notification_suppressed"] = True
+        result["notification_suppressed_reason"] = "no_trade_or_error"
     else:
         result["notification_sent"] = False
         result["notification_suppressed"] = True
