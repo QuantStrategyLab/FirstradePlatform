@@ -271,18 +271,14 @@ jobs:
         if: steps.env_sync_config.outputs.enabled == 'true'
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          grep -vE "^\s*(#|$)|git\+" requirements.txt | xargs -r python -m pip install -c https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/constraints.txt
-          grep 'git+' requirements.txt | while IFS= read -r pkg; do
-            [ -n "$pkg" ] && python -m pip install --no-deps "$pkg" -c https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/constraints.txt
-          done
-
+          python -m pip install --upgrade pip uv
+          uv sync --frozen --no-dev --no-install-project
       - name: Resolve Cloud Run sync targets
         id: strategy_requirements
         if: steps.env_sync_config.outputs.enabled == 'true'
         run: |
           set -euo pipefail
-          sync_plan_json="$(python scripts/build_cloud_run_env_sync_plan.py --json)"
+          sync_plan_json="$(uv run --no-sync python scripts/build_cloud_run_env_sync_plan.py --json)"
           {
             echo "sync_plan_json<<__SYNC_PLAN_JSON__"
             printf '%s\n' "${sync_plan_json}"
