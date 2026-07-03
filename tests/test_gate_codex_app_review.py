@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.gate_codex_app_review import scan_diff
+from scripts.gate_codex_app_review import check_metadata, scan_diff
 
 
 def test_scan_diff_redacts_hardcoded_secret_values() -> None:
@@ -19,3 +19,18 @@ def test_scan_diff_redacts_hardcoded_secret_values() -> None:
     assert "<redacted>" in violations[0]
     assert "api_key" in violations[0]
     assert secret_value not in violations[0]
+
+
+def test_metadata_allows_removing_legacy_dependency_manifests() -> None:
+    files = [
+        {"filename": "requirements.txt", "status": "removed"},
+        {"filename": "constraints.txt", "status": "removed"},
+    ]
+
+    assert check_metadata(files, {}) == []
+
+
+def test_metadata_still_blocks_other_deleted_files() -> None:
+    files = [{"filename": "main.py", "status": "removed"}]
+
+    assert check_metadata(files, {}) == ["**File deleted**: `main.py` — verify intentional"]
