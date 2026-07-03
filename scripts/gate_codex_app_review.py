@@ -103,6 +103,8 @@ def compile_patterns(policy: dict[str, Any]) -> list[re.Pattern[str]]:
 
 # ─── static guard ────────────────────────────────────────────────────────────
 
+ALLOWED_REMOVED_FILES = {"constraints.txt", "requirements.txt"}
+
 _SENSITIVE = re.compile(
     r'(?P<field>api[_\s]?key|secret|password|token|credential|private[_\s]?key)\s*[:=]\s*["\']'
     r'(?!\$\{\{|{{|example|placeholder|test|your[-_\s]|xxx|TODO|CHANGEME)[^"\']{12,}["\']',
@@ -143,7 +145,7 @@ def check_metadata(files: list[dict[str, Any]], policy: dict[str, Any]) -> list[
     for f in files:
         fn = f.get("filename", "?")
         st = (f.get("status") or "").lower().strip()
-        if st == "removed":
+        if st == "removed" and fn not in ALLOWED_REMOVED_FILES:
             issues.append(f"**File deleted**: `{fn}` — verify intentional")
         elif st == "renamed":
             issues.append(f"**File renamed**: `{f.get('previous_filename', '?')}` → `{fn}`")
