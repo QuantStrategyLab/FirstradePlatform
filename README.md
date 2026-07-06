@@ -1,5 +1,14 @@
 # FirstradePlatform
 
+
+## QSL architecture role
+
+- **Layer**: `runtime-platform`.
+- **Responsibility**: experimental Firstrade US equity execution runtime.
+- **Owns**: Firstrade-compatible runtime controls, generated orders, notifications.
+- **Consumes**: UsEquityStrategies, UsEquitySnapshotPipelines artifacts, QuantPlatformKit, QuantRuntimeSettings.
+- **Must not**: promote strategies without evidence or store secrets in Git.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
