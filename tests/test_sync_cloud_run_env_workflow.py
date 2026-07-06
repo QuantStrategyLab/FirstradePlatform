@@ -138,6 +138,10 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     assert "for key, value in sorted(target[\"env\"].items()):" in workflow
     assert "target.get(\"remove_env_vars\")" in workflow
 
+    assert "Reconcile Cloud Run traffic" in workflow
+    assert "python scripts/reconcile_cloud_runtime.py traffic" in workflow
+    assert "Reconcile legacy Cloud Scheduler jobs" in workflow
+    assert "python scripts/reconcile_cloud_runtime.py scheduler-cleanup" in workflow
     assert "add_optional_env " not in workflow
     assert "requires_snapshot_artifacts=" not in workflow
     assert "Resolve selected strategy runtime requirements" not in workflow
@@ -170,7 +174,6 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     assert '"${CLOUD_RUN_SERVICE}-probe-scheduler|${service_url}/probe"' in workflow
     assert '"${CLOUD_RUN_SERVICE}-precheck-scheduler|${service_url}/dry-run"' in workflow
     assert 'Creating invoke-bridge Cloud Scheduler job ${bridge_job} at ${bridge_uri}.' in workflow
-    assert '"${CLOUD_RUN_SERVICE}-session-check-scheduler"' in workflow
-    assert 'gcloud scheduler jobs delete "${legacy_job}"' in workflow
     assert '--schedule="${desired_schedule}"' in workflow
     assert '--time-zone="${market_timezone}"' in workflow
+    assert "legacy_jobs=(" not in workflow

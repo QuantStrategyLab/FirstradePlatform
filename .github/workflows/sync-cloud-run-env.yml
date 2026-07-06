@@ -563,6 +563,14 @@ jobs:
 
           gcloud "${gcloud_args[@]}"
 
+      - name: Reconcile Cloud Run traffic
+        if: steps.env_sync_config.outputs.enabled == 'true'
+        env:
+          SYNC_PLAN_JSON: ${{ steps.strategy_requirements.outputs.sync_plan_json }}
+        run: |
+          set -euo pipefail
+          python scripts/reconcile_cloud_runtime.py traffic
+
       - name: Sync Cloud Scheduler schedule
         if: steps.env_sync_config.outputs.enabled == 'true'
         env:
@@ -772,25 +780,11 @@ jobs:
             fi
           done
 
-          legacy_jobs=(
-            "${CLOUD_RUN_SERVICE}-session-check-scheduler"
-          )
-          if [[ "${CLOUD_RUN_SERVICE}" == *-service ]]; then
-            legacy_jobs+=(
-              "${CLOUD_RUN_SERVICE%-service}-session-check-scheduler"
-            )
-          fi
-          for legacy_job in "${legacy_jobs[@]}"; do
-            if gcloud scheduler jobs describe "${legacy_job}" \
-              --project="${GCP_PROJECT_ID}" \
-              --location="${scheduler_location}" >/dev/null 2>&1; then
-              echo "Deleting legacy Cloud Scheduler job ${legacy_job}; session checks are handled elsewhere."
-              gcloud scheduler jobs delete "${legacy_job}" \
-                --project="${GCP_PROJECT_ID}" \
-                --location="${scheduler_location}" \
-                --quiet
-            fi
-          done
+      - name: Reconcile legacy Cloud Scheduler jobs
+        if: steps.env_sync_config.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          python scripts/reconcile_cloud_runtime.py scheduler-cleanup
 
       - name: Clean up old Cloud Run revisions and images
         if: steps.deploy_config.outputs.enabled == 'true'
