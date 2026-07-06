@@ -1,5 +1,14 @@
 # FirstradePlatform
 
+
+## QSL 架构角色
+
+- **层级**：`执行平台`。
+- **职责**：实验性 Firstrade 美股执行运行时。
+- **事实源/归属**：Firstrade-compatible runtime 控制、生成订单、通知。
+- **消费对象**：UsEquityStrategies、UsEquitySnapshotPipelines artifacts、QuantPlatformKit、QuantRuntimeSettings。
+- **禁止事项**：无证据推广策略或把 secrets 写入 Git。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
