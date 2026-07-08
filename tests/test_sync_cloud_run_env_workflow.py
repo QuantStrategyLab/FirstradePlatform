@@ -117,7 +117,7 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     ) in workflow
     assert (
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN: "
-        "${{ secrets.STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN }}"
+        "${{ secrets.TG_TOKEN }}"
     ) in workflow
     assert (
         "add_optional_secret STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN "
