@@ -9,6 +9,19 @@ from typing import Any
 from quant_platform_kit.common.notification_localization import (
     localize_notification_text as _base_localize_notification_text,
 )
+from quant_platform_kit.notifications.renderer_base import (
+    as_float_or_none as _as_float_or_none,
+    build_tqqq_risk_control_lines as _build_tqqq_risk_control_lines_shared,
+    effective_volatility_delever_threshold as _effective_volatility_delever_threshold,
+    format_percent as _format_percent,
+    format_percentile as _format_percentile,
+    format_sample_count as _format_sample_count,
+    format_tqqq_volatility_delever_allocation_detail as _format_tqqq_volatility_delever_allocation_detail,
+    format_volatility_delever_threshold_detail as _format_volatility_delever_threshold_detail,
+    is_truthy,
+    localize_price_source_label as _localize_price_source_label,
+    present as _present,
+)
 
 try:
     from quant_platform_kit.common.notification_localization import (
@@ -28,49 +41,6 @@ def _break_telegram_market_symbol_auto_links(value: object) -> str:
         text,
     )
 
-
-_PRICE_SOURCE_LABELS = {
-    "longbridge_candlesticks": ("LongBridge 日线K线", "LongBridge daily candlesticks"),
-    "schwab_daily_history_with_live_quote_overlay": ("Schwab 日线历史", "Schwab daily history"),
-    "firstrade_ohlc_with_live_quote_overlay": ("Firstrade OHLC", "Firstrade OHLC"),
-    "market_quote": ("实时行情报价", "market quote"),
-    "mixed_market_quote_snapshot_close": (
-        "实时行情报价 + 快照收盘价回补",
-        "market quote + snapshot close fallback",
-    ),
-    "mixed_market_quote_historical_close": (
-        "实时行情报价 + 历史收盘价回补",
-        "market quote + historical close fallback",
-    ),
-    "snapshot_close": ("快照收盘价", "snapshot close"),
-    "historical_close": ("历史收盘价", "historical close"),
-    "market_data": ("市场数据", "market data"),
-}
-
-
-def _locale_uses_zh(locale: str | None) -> bool:
-    return str(locale or "").strip().lower().startswith("zh")
-
-
-try:
-    from quant_platform_kit.common.notification_localization import (
-        localize_price_source_label as _shared_localize_price_source_label,
-    )
-except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
-    _shared_localize_price_source_label = None
-
-
-def _localize_price_source_label(value, *, translator=None, locale=None):
-    source = str(value or "").strip()
-    use_zh = _locale_uses_zh(locale)
-    if not source:
-        return "未知" if use_zh else "unknown"
-    label = _PRICE_SOURCE_LABELS.get(source)
-    if label is not None:
-        return label[0] if use_zh else label[1]
-    if _shared_localize_price_source_label is not None:
-        return _shared_localize_price_source_label(source, translator=translator, locale=locale)
-    return source.replace("_", " ")
 
 try:
     from quant_platform_kit.common.small_account_compatibility import (
@@ -915,155 +885,12 @@ def _detail_lines(value: Any, *, translator: Callable[..., str]) -> list[str]:
     return details
 
 
-def _format_percent(value: Any) -> str:
-    try:
-        return f"{float(value) * 100:.1f}%"
-    except (TypeError, ValueError):
-        return "n/a"
-
-
-def _as_float_or_none(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _format_percentile(value: Any) -> str:
-    try:
-        percentile = float(value) * 100
-    except (TypeError, ValueError):
-        return "p?"
-    if float(percentile).is_integer():
-        return f"p{int(percentile)}"
-    return f"p{percentile:.1f}"
-
-
-def _format_sample_count(value: Any) -> str:
-    try:
-        count = float(value)
-    except (TypeError, ValueError):
-        return "n/a"
-    if float(count).is_integer():
-        return str(int(count))
-    return f"{count:.1f}"
-
-
-def _present(value: Any) -> bool:
-    return value not in (None, "")
-
-
-def _is_truthy(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
-
-
-def _effective_volatility_delever_threshold(execution: Mapping[str, Any], *, prefix: str) -> Any:
-    mode = str(execution.get(f"{prefix}_threshold_mode") or "").strip().lower()
-    dynamic_threshold = execution.get(f"{prefix}_dynamic_threshold")
-    if mode == "rolling_percentile" and _present(dynamic_threshold):
-        return dynamic_threshold
-    return execution.get(f"{prefix}_threshold")
-
-
-def _format_volatility_delever_threshold_detail(
-    execution: Mapping[str, Any],
-    *,
-    prefix: str,
-    translator: Callable[..., str],
-) -> str:
-    mode = str(execution.get(f"{prefix}_threshold_mode") or "").strip().lower()
-    fixed_threshold = execution.get(f"{prefix}_threshold")
-    dynamic_threshold = execution.get(f"{prefix}_dynamic_threshold")
-    if mode == "rolling_percentile":
-        kwargs = {
-            "percentile": _format_percentile(execution.get(f"{prefix}_dynamic_percentile")),
-            "lookback": _format_sample_count(execution.get(f"{prefix}_dynamic_lookback")),
-            "min_periods": _format_sample_count(execution.get(f"{prefix}_dynamic_min_periods")),
-            "sample_count": _format_sample_count(execution.get(f"{prefix}_dynamic_sample_count")),
-            "floor": _format_percent(execution.get(f"{prefix}_dynamic_floor")),
-            "cap": _format_percent(execution.get(f"{prefix}_dynamic_cap")),
-            "fixed_threshold": _format_percent(fixed_threshold),
-        }
-        if _present(dynamic_threshold):
-            return translator("blend_gate_volatility_threshold_detail_dynamic", **kwargs)
-        return translator("blend_gate_volatility_threshold_detail_dynamic_fallback", **kwargs)
-    return translator(
-        "blend_gate_volatility_threshold_detail_fixed",
-        threshold=_format_percent(fixed_threshold),
-    )
-
-
-def _format_tqqq_volatility_delever_allocation_detail(
-    execution: Mapping[str, Any],
-    *,
-    prefix: str,
-    redirect_symbol: str,
-    translator: Callable[..., str],
-) -> str:
-    retained_ratio = _as_float_or_none(execution.get(f"{prefix}_retained_ratio"))
-    redirected_ratio = _as_float_or_none(execution.get(f"{prefix}_redirected_ratio"))
-    if retained_ratio is None:
-        retained_ratio = _as_float_or_none(execution.get(f"{prefix}_retention_ratio"))
-    if redirected_ratio is None and retained_ratio is not None:
-        redirected_ratio = max(0.0, min(1.0, 1.0 - retained_ratio))
-    return translator(
-        "tqqq_volatility_delever_allocation_detail",
-        retained_ratio=_format_percent(retained_ratio),
-        redirected_ratio=_format_percent(redirected_ratio),
-        redirect_symbol=redirect_symbol or "QQQ",
-    )
-
-
 def _format_tqqq_risk_control_lines(
     execution: Mapping[str, Any],
     *,
     translator: Callable[..., str],
 ) -> list[str]:
-    prefix = "dual_drive_volatility_delever"
-    if not _is_truthy(execution.get(f"{prefix}_applied")):
-        return []
-    redirect_symbol = str(execution.get(f"{prefix}_redirect_symbol") or "QQQ").strip().upper()
-    window = str(execution.get(f"{prefix}_window") or "5").strip()
-    threshold = _effective_volatility_delever_threshold(execution, prefix=prefix)
-    threshold_detail = _format_volatility_delever_threshold_detail(
-        execution,
-        prefix=prefix,
-        translator=translator,
-    )
-    allocation_detail = _format_tqqq_volatility_delever_allocation_detail(
-        execution,
-        prefix=prefix,
-        redirect_symbol=redirect_symbol or "QQQ",
-        translator=translator,
-    )
-    if str(execution.get(f"{prefix}_trigger_reason") or "").strip() == "hysteresis_hold":
-        return [
-            translator(
-                "risk_control_tqqq_volatility_delever_hysteresis_dynamic",
-                window=window,
-                volatility=_format_percent(execution.get(f"{prefix}_metric")),
-                exit_threshold=_format_percent(execution.get(f"{prefix}_exit_threshold")),
-                threshold=_format_percent(threshold),
-                threshold_detail=threshold_detail,
-                source_symbol="TQQQ",
-                redirect_symbol=redirect_symbol or "QQQ",
-                allocation_detail=allocation_detail,
-            )
-        ]
-    return [
-        translator(
-            "risk_control_tqqq_volatility_delever_applied_dynamic",
-            window=window,
-            volatility=_format_percent(execution.get(f"{prefix}_metric")),
-            threshold=_format_percent(threshold),
-            threshold_detail=threshold_detail,
-            source_symbol="TQQQ",
-            redirect_symbol=redirect_symbol or "QQQ",
-            allocation_detail=allocation_detail,
-        )
-    ]
+    return _build_tqqq_risk_control_lines_shared(execution, translator=translator)
 
 
 def _format_signal_lines(execution: Mapping[str, Any], *, translator: Callable[..., str]) -> list[str]:
