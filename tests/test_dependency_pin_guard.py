@@ -61,5 +61,6 @@ def test_dependency_pin_guard_is_blocking_in_ci() -> None:
     next_step = workflow.find("\n      - name:", step_start + 1)
     step = workflow[step_start : next_step if next_step != -1 else len(workflow)]
 
-    assert "uv run --no-sync python scripts/check_qpk_pin_consistency.py" in step
+    assert "external/QuantPlatformKit/scripts/check_qpk_pin_consistency.py" in step
+    assert "--pin-file external/QuantPlatformKit/QPK_PIN" in step
     assert "continue-on-error" not in step
