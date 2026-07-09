@@ -58,6 +58,20 @@ class LoadedStrategyRuntime:
         configured = self.merged_runtime_config.get("managed_symbols", ())
         return tuple(str(symbol) for symbol in configured)
 
+    def _stamp_portfolio_risk_metadata(self, available_inputs: Mapping[str, Any]) -> dict[str, Any]:
+        resolved = dict(available_inputs)
+        snapshot = resolved.get("portfolio_snapshot")
+        if snapshot is None:
+            return resolved
+        from quant_platform_kit.strategy_lifecycle.live_equity import stamp_consecutive_losses_on_snapshot
+
+        resolved["portfolio_snapshot"] = stamp_consecutive_losses_on_snapshot(
+            snapshot,
+            strategy_profile=self.profile,
+            logger=self.logger,
+        )
+        return resolved
+
     def evaluate(
         self,
         *,
@@ -74,11 +88,11 @@ class LoadedStrategyRuntime:
         if _FEATURE_SNAPSHOT_INPUT in frozenset(self.entrypoint.manifest.required_inputs):
             return self._evaluate_feature_snapshot_strategy(
                 runtime_config=runtime_config,
-                available_inputs=available_inputs,
+                available_inputs=self._stamp_portfolio_risk_metadata(available_inputs),
             )
 
         as_of = datetime.now(timezone.utc)
-        resolved_available_inputs = dict(available_inputs)
+        resolved_available_inputs = self._stamp_portfolio_risk_metadata(available_inputs)
         resolved_available_inputs.update(
             resolve_external_market_signal_inputs(
                 strategy_profile=self.profile,
