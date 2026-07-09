@@ -60,6 +60,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
     publish_strategy_plugin_alerts as dispatch_strategy_plugin_alerts,
 )
 from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
+from quant_platform_kit.strategy_lifecycle.performance_monitor import try_record_platform_execution
 from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
 from runtime_execution_policy import dca_execution_unsupported_reason, notional_buy_execution_enabled
 from us_equity_strategies.signals import resolve_external_market_signal_inputs
@@ -730,4 +731,16 @@ def run_strategy_cycle(
     else:
         result["notification_sent"] = False
         result["notification_suppressed"] = True
+    try_record_platform_execution(
+        strategy_runtime.profile,
+        {
+            "platform": "firstrade",
+            "action_done": result.get("action_done"),
+            "strategy_run_stage": result.get("strategy_run_stage"),
+            "dry_run_only": settings.dry_run_only,
+            "submitted_orders": result.get("submitted_orders"),
+            "skipped_orders": result.get("skipped_orders"),
+            "error": result.get("error"),
+        },
+    )
     return result
