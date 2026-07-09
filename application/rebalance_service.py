@@ -741,6 +741,8 @@ def run_strategy_cycle(
             "submitted_orders": result.get("submitted_orders"),
             "skipped_orders": result.get("skipped_orders"),
             "error": result.get("error"),
+            "total_equity": (result.get("portfolio") or {}).get("total_equity")
+            or (result.get("portfolio") or {}).get("equity"),
         },
     )
     return result
