@@ -11,6 +11,7 @@ import pandas as pd
 
 from application.account_payload_utils import (
     first_numeric_by_keywords,
+    flatten_values,
     float_or_none,
     get_first,
     iter_position_rows,
@@ -61,6 +62,19 @@ _CASH_BALANCE_KEYWORD_GROUPS = (
     ("cash", "available"),
     ("cash",),
 )
+
+
+def _extract_broker_order_id(payload) -> str | None:
+    for key, value in flatten_values(payload).items():
+        normalized = "".join(ch for ch in str(key or "").lower() if ch.isalnum())
+        if "order" not in normalized:
+            continue
+        if not any(token in normalized for token in ("id", "number", "orderno")):
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
 
 
 def _market_date(value: datetime) -> date:
@@ -326,6 +340,7 @@ class FirstradeBrokerAdapters:
                 side=request.side,
                 quantity=float(request.quantity or request.notional_usd or 0),
                 status="previewed" if not self.live_orders else "submitted",
+                broker_order_id=_extract_broker_order_id(raw),
                 raw_payload=raw,
             )
 
