@@ -119,6 +119,35 @@ def test_execute_value_target_plan_keeps_existing_whole_share_when_positive_targ
     ]
 
 
+def test_execute_value_target_plan_tops_up_existing_whole_share_when_target_rounds_up():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {
+                "targets": {"SOXL": 0.0, "SOXX": 260.0},
+                "risk_symbols": ("SOXL", "SOXX"),
+            },
+            "portfolio": {
+                "market_values": {"SOXL": 120.0, "SOXX": 200.0},
+                "quantities": {"SOXL": 3.0, "SOXX": 2.0},
+                "sellable_quantities": {"SOXL": 3.0, "SOXX": 2.0},
+                "liquid_cash": 10.0,
+            },
+            "execution": {"current_min_trade": 10.0, "investable_cash": 10.0},
+        },
+        market_data_port=FakeMarketDataPort({"SOXL": 40.0, "SOXX": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        limit_buy_premium=1.0,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("sell", "SOXL", 3.0),
+        ("buy", "SOXX", 1.0),
+    ]
+
+
 def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(

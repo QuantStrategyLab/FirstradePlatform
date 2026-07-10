@@ -322,6 +322,61 @@ def _should_bootstrap_whole_share_buy(symbol, *, target_value, limit_price) -> b
     return max(0.0, float(target_value or 0.0)) >= effective_limit_price * float(min_target_share_ratio)
 
 
+def _should_top_up_existing_whole_share_buy(
+    symbol,
+    *,
+    target_value,
+    current_value,
+    quantity=0.0,
+    limit_price,
+) -> bool:
+    del symbol
+    held_quantity = max(0.0, float(quantity or 0.0))
+    effective_limit_price = max(0.0, float(limit_price or 0.0))
+    if held_quantity < 1.0 or effective_limit_price <= 0.0:
+        return False
+    remaining_value = max(0.0, float(target_value or 0.0) - float(current_value or 0.0))
+    if remaining_value <= 0.0 or remaining_value >= effective_limit_price:
+        return False
+    held_whole_shares = int(held_quantity)
+    if held_whole_shares <= 0:
+        return False
+    target_quantity = max(0.0, float(target_value or 0.0)) / effective_limit_price
+    return target_quantity >= held_whole_shares + 0.5
+
+
+def _planned_buy_order_quantity(
+    symbol,
+    *,
+    target_value,
+    current_value,
+    quantity=0.0,
+    buy_budget,
+    available_buying_power,
+    limit_price,
+    allow_top_up=False,
+) -> int:
+    effective_limit_price = max(0.0, float(limit_price or 0.0))
+    if effective_limit_price <= 0.0:
+        return 0
+    planned_quantity = _floor_quantity(max(0.0, float(buy_budget or 0.0)) / effective_limit_price)
+    if planned_quantity > 0:
+        return planned_quantity
+    if not allow_top_up:
+        return 0
+    if max(0.0, float(available_buying_power or 0.0)) < effective_limit_price:
+        return 0
+    if _should_top_up_existing_whole_share_buy(
+        symbol,
+        target_value=target_value,
+        current_value=current_value,
+        quantity=quantity,
+        limit_price=effective_limit_price,
+    ):
+        return 1
+    return 0
+
+
 def _quote_price(market_data_port: MarketDataPort, symbol: str) -> float | None:
     try:
         price = float(market_data_port.get_quote(symbol).last_price)
@@ -573,6 +628,7 @@ def execute_value_target_plan(
     skipped: list[dict[str, Any]] = []
     reference_prices: dict[str, float] = {}
     pending_sell_release_symbols: list[str] = []
+    sell_submitted = False
 
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):
@@ -631,6 +687,7 @@ def execute_value_target_plan(
                     max_notional_usd=max_order_notional_usd,
                 )
             )
+            sell_submitted = True
             investable_cash += quantity * sell_limit_price
             continue
 
@@ -649,7 +706,16 @@ def execute_value_target_plan(
                 limit_price = _limit_buy_price(
                     symbol, price, limit_buy_premium, limit_buy_premium_by_symbol
                 )
-                quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
+                quantity = _planned_buy_order_quantity(
+                    symbol,
+                    target_value=delta_value + market_values.get(symbol, 0.0),
+                    current_value=market_values.get(symbol, 0.0),
+                    quantity=current_quantities.get(symbol, 0.0),
+                    buy_budget=buy_budget,
+                    available_buying_power=investable_cash if order_notional_cap is None else min(investable_cash, order_notional_cap),
+                    limit_price=limit_price,
+                    allow_top_up=sell_submitted,
+                )
                 if quantity > 0:
                     estimated_buy_cost += quantity * limit_price
         if estimated_buy_cost > investable_cash:
@@ -701,7 +767,16 @@ def execute_value_target_plan(
             investable_cash = max(0.0, investable_cash - buy_budget)
             continue
         limit_price = _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
-        quantity = _floor_quantity(buy_budget / limit_price) if limit_price > 0 else 0
+        quantity = _planned_buy_order_quantity(
+            symbol,
+            target_value=targets.get(symbol, 0.0),
+            current_value=market_values.get(symbol, 0.0),
+            quantity=current_quantities.get(symbol, 0.0),
+            buy_budget=buy_budget,
+            available_buying_power=investable_cash if order_notional_cap is None else min(investable_cash, order_notional_cap),
+            limit_price=limit_price,
+            allow_top_up=sell_submitted,
+        )
         if quantity <= 0:
             if order_notional_cap is None and investable_cash < limit_price:
                 skipped.append(
