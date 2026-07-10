@@ -88,6 +88,9 @@ class FakeFirstradeClient:
     def get_ohlc(self, _symbol, _range):
         return [(1700000000000 + index * 86400000, 9, 11, 8, 10 + index, 1000) for index in range(5)]
 
+    def get_order_status(self, _account, _order_id):
+        return None
+
     def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
         self.orders.append((request, dry_run, explicit_live_ack))
         return {

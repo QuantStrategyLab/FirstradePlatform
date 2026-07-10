@@ -14,6 +14,7 @@ from pathlib import Path
 from time import time
 from typing import Any, Callable
 
+from application.account_payload_utils import flatten_values, float_or_none
 from application.state_persistence import GcsStateStore
 
 
@@ -447,6 +448,68 @@ class FirstradeBrokerClient:
         _, account_data = self.require_connected()
         return dict(account_data.get_positions(account))
 
+    def get_orders(self, account: str, *, per_page: int = 0) -> list[dict[str, Any]]:
+        _, account_data = self.require_connected()
+        payload = account_data.get_orders(account, per_page=per_page)
+        if isinstance(payload, list):
+            return [dict(row) for row in payload if isinstance(row, dict)]
+        if isinstance(payload, dict):
+            for key in ("items", "orders", "data", "result"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [dict(row) for row in value if isinstance(row, dict)]
+        return []
+
+    def get_order_status(self, account: str, order_id: str) -> dict[str, Any] | None:
+        normalized_order_id = str(order_id or "").strip()
+        if not normalized_order_id:
+            return None
+        for row in self.get_orders(account):
+            if not _payload_contains_order_id(row, normalized_order_id):
+                continue
+            status = _first_text_from_payload(
+                row,
+                "status",
+                "order_status",
+                "state",
+                "status_description",
+                "description",
+            )
+            executed_qty = _first_numeric_from_payload(
+                row,
+                "executed_qty",
+                "executed_quantity",
+                "filled_quantity",
+                "filled_qty",
+                "filled",
+                "filled_shares",
+                "executed_shares",
+                "quantity_filled",
+                "quantity",
+                "shares",
+                "qty",
+            )
+            executed_price = _first_numeric_from_payload(
+                row,
+                "executed_price",
+                "average_fill_price",
+                "avg_fill_price",
+                "avg_price",
+                "average_price",
+                "fill_price",
+                "filled_price",
+                "price",
+                "limit_price",
+            )
+            return {
+                "status": status or "",
+                "executed_qty": max(0.0, float(executed_qty or 0.0)),
+                "executed_price": max(0.0, float(executed_price or 0.0)),
+                "broker_order_id": normalized_order_id,
+                "raw_payload": dict(row),
+            }
+        return None
+
     def get_quote(self, account: str, symbol: str) -> dict[str, Any]:
         session, _ = self.require_connected()
         quote_factory = self._quote_factory
@@ -533,3 +596,41 @@ class FirstradeBrokerClient:
                 notional=notional,
             )
         )
+
+
+def _sanitize_payload_key(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _first_payload_value(payload: Any, *candidate_keys: str) -> Any:
+    flattened = flatten_values(payload)
+    candidates = {_sanitize_payload_key(key) for key in candidate_keys}
+    for key, value in flattened.items():
+        if _sanitize_payload_key(key.rsplit(".", 1)[-1]) in candidates:
+            return value
+    return None
+
+
+def _first_text_from_payload(payload: Any, *candidate_keys: str) -> str | None:
+    value = _first_payload_value(payload, *candidate_keys)
+    text = str(value or "").strip()
+    return text or None
+
+
+def _first_numeric_from_payload(payload: Any, *candidate_keys: str) -> float | None:
+    return float_or_none(_first_payload_value(payload, *candidate_keys))
+
+
+def _payload_contains_order_id(payload: Any, order_id: str) -> bool:
+    normalized_order_id = str(order_id or "").strip()
+    if not normalized_order_id:
+        return False
+    for key, value in flatten_values(payload).items():
+        key_normalized = _sanitize_payload_key(key)
+        if "order" not in key_normalized:
+            continue
+        if not any(token in key_normalized for token in ("id", "number", "orderno")):
+            continue
+        if str(value or "").strip() == normalized_order_id:
+            return True
+    return False
