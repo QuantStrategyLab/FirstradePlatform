@@ -221,3 +221,37 @@ def test_execution_port_submits_notional_buy_from_metadata():
     assert request.max_notional_usd == 100.0
     assert report.quantity == 50.0
     assert report.status == "previewed"
+
+
+def test_execution_port_extracts_broker_order_id_from_raw_payload():
+    class LiveOrderClient(FakeClient):
+        def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
+            del explicit_live_ack
+            return {
+                "order_id": "OID-123",
+                "symbol": request.symbol,
+                "dry_run": dry_run,
+                "notional": request.notional_usd is not None,
+                "quantity": request.quantity,
+                "notional_usd": request.notional_usd,
+            }
+
+    from quant_platform_kit.common.models import OrderIntent
+
+    adapters = build_runtime_broker_adapters(
+        client=LiveOrderClient(),
+        account="12345678",
+        live_orders=True,
+    )
+    report = adapters.build_execution_port().submit_order(
+        OrderIntent(
+            symbol="SPY",
+            side="buy",
+            quantity=1.0,
+            order_type="limit",
+            limit_price=10.5,
+        )
+    )
+
+    assert report.status == "submitted"
+    assert report.broker_order_id == "OID-123"

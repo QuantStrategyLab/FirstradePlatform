@@ -618,6 +618,7 @@ def run_strategy_cycle(
         safe_haven_cash_substitute_threshold_usd=settings.safe_haven_cash_substitute_threshold_usd,
         cash_only_execution=settings.cash_only_execution,
         notional_buy_execution=notional_buy_execution_enabled(settings.strategy_profile),
+        fetch_order_status=lambda broker_order_id: client.get_order_status(account, broker_order_id),
     )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)

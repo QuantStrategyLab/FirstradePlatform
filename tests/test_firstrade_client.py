@@ -42,6 +42,10 @@ class FakeAccountData:
     def get_positions(self, _account):
         return {"items": [{"symbol": "SPY", "quantity": "1", "market_value": "500"}]}
 
+    def get_orders(self, _account, per_page=0):
+        del per_page
+        return []
+
 
 class FakeOrder:
     def __init__(self, _session):
@@ -149,6 +153,43 @@ def test_client_order_preview_uses_dry_run_by_default():
     assert response["preview"] is True
     assert response["notional"] is True
     assert response["price"] == 5.0
+
+
+def test_get_order_status_normalizes_matching_order_payload():
+    class OrdersAccountData(FakeAccountData):
+        def get_orders(self, _account, per_page=0):
+            del per_page
+            return [
+                {
+                    "order_id": "OID-123",
+                    "status": "Filled",
+                    "filled_quantity": "3",
+                    "avg_price": "101.25",
+                }
+            ]
+
+    credentials = FirstradeCredentials(username="user", password="pass")
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=FakeSession,
+        account_data_factory=OrdersAccountData,
+        order_factory=FakeOrder,
+    ).connect()
+
+    status = client.get_order_status("12345678", "OID-123")
+
+    assert status == {
+        "status": "Filled",
+        "executed_qty": 3.0,
+        "executed_price": 101.25,
+        "broker_order_id": "OID-123",
+        "raw_payload": {
+            "order_id": "OID-123",
+            "status": "Filled",
+            "filled_quantity": "3",
+            "avg_price": "101.25",
+        },
+    }
 
 
 def test_get_balances_includes_account_list_total_value():

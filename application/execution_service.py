@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
 from quant_platform_kit.common.models import OrderIntent
 from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort
 try:
@@ -573,6 +574,7 @@ def execute_value_target_plan(
     safe_haven_cash_substitute_threshold_usd: float = DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD,
     cash_only_execution: bool = True,
     notional_buy_execution: bool = False,
+    fetch_order_status=None,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
     plan = substitute_small_safe_haven_targets_with_cash(
@@ -628,6 +630,7 @@ def execute_value_target_plan(
     skipped: list[dict[str, Any]] = []
     reference_prices: dict[str, float] = {}
     pending_sell_release_symbols: list[str] = []
+    submitted_sell_orders: list[dict[str, Any]] = []
     sell_submitted = False
 
     tradable_deltas: list[tuple[str, float, float]] = []
@@ -687,14 +690,26 @@ def execute_value_target_plan(
                     max_notional_usd=max_order_notional_usd,
                 )
             )
+            submitted_sell_orders.append(submitted[-1])
+            pending_sell_release_symbols.append(symbol)
             sell_submitted = True
-            investable_cash += quantity * sell_limit_price
             continue
+
+    confirmed_sell_release_value = compute_confirmed_sell_release_value(
+        submitted_sell_orders=submitted_sell_orders,
+        fetch_order_status=fetch_order_status,
+    )
+    investable_cash = max(
+        0.0,
+        float(execution.get("investable_cash") or portfolio.get("liquid_cash") or 0.0)
+        + confirmed_sell_release_value,
+    )
 
     buy_deltas = [item for item in tradable_deltas if item[1] > 0]
     _buys_blocked_reason: str | None = None
     if cash_only_execution and buy_deltas and pending_sell_release_symbols:
         estimated_buy_cost = 0.0
+        requires_pending_sell_release = False
         for symbol, delta_value, price in buy_deltas:
             buy_budget = min(float(delta_value), investable_cash)
             if order_notional_cap is not None:
@@ -702,6 +717,8 @@ def execute_value_target_plan(
             if notional_buy_execution:
                 if buy_budget >= MIN_NOTIONAL_BUY_USD:
                     estimated_buy_cost += buy_budget
+                elif float(delta_value) >= MIN_NOTIONAL_BUY_USD:
+                    requires_pending_sell_release = True
             else:
                 limit_price = _limit_buy_price(
                     symbol, price, limit_buy_premium, limit_buy_premium_by_symbol
@@ -718,7 +735,9 @@ def execute_value_target_plan(
                 )
                 if quantity > 0:
                     estimated_buy_cost += quantity * limit_price
-        if estimated_buy_cost > investable_cash:
+                elif float(delta_value) > 0.0 and limit_price > max(0.0, buy_budget):
+                    requires_pending_sell_release = True
+        if estimated_buy_cost > investable_cash or requires_pending_sell_release:
             _buys_blocked_reason = "pending_sell_release"
             for symbol, _delta_value, _price in buy_deltas:
                 skipped.append(

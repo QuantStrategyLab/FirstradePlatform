@@ -34,6 +34,7 @@ class FakeExecutionPort:
             side=order_intent.side,
             quantity=order_intent.quantity,
             status="previewed",
+            broker_order_id=f"OID-{len(self.orders)}",
             raw_payload={
                 "limit_price": order_intent.limit_price,
                 "max_notional_usd": order_intent.metadata.get("max_notional_usd"),
@@ -139,6 +140,11 @@ def test_execute_value_target_plan_tops_up_existing_whole_share_when_target_roun
         execution_port=execution_port,
         dry_run_only=True,
         limit_buy_premium=1.0,
+        fetch_order_status=lambda broker_order_id: {
+            "status": "Filled" if broker_order_id else "",
+            "executed_qty": 3.0,
+            "executed_price": 40.0,
+        },
     )
 
     assert result.action_done is True
@@ -146,6 +152,41 @@ def test_execute_value_target_plan_tops_up_existing_whole_share_when_target_roun
         ("sell", "SOXL", 3.0),
         ("buy", "SOXX", 1.0),
     ]
+
+
+def test_execute_value_target_plan_defers_buy_until_sell_release_is_confirmed():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {
+                "targets": {"SOXL": 0.0, "SOXX": 260.0},
+                "risk_symbols": ("SOXL", "SOXX"),
+            },
+            "portfolio": {
+                "market_values": {"SOXL": 120.0, "SOXX": 200.0},
+                "quantities": {"SOXL": 3.0, "SOXX": 2.0},
+                "sellable_quantities": {"SOXL": 3.0, "SOXX": 2.0},
+                "liquid_cash": 10.0,
+            },
+            "execution": {"current_min_trade": 10.0, "investable_cash": 10.0},
+        },
+        market_data_port=FakeMarketDataPort({"SOXL": 40.0, "SOXX": 100.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+        limit_buy_premium=1.0,
+    )
+
+    assert result.action_done is True
+    assert [(order.side, order.symbol, order.quantity) for order in execution_port.orders] == [
+        ("sell", "SOXL", 3.0),
+    ]
+    assert result.skipped_orders == (
+        {
+            "symbol": "SOXX",
+            "reason": "pending_sell_release",
+            "pending_sell_symbols": ["SOXL"],
+        },
+    )
 
 
 def test_execute_value_target_plan_skips_when_cap_cannot_buy_one_share():
@@ -289,6 +330,11 @@ def test_execute_value_target_plan_projects_unbuyable_value_target_to_zero():
         dry_run_only=True,
         max_order_notional_usd=1000.0,
         safe_haven_cash_substitute_threshold_usd=1000.0,
+        fetch_order_status=lambda broker_order_id: {
+            "status": "Filled" if broker_order_id else "",
+            "executed_qty": 1.0,
+            "executed_price": 536.88,
+        },
     )
 
     assert result.action_done is True
