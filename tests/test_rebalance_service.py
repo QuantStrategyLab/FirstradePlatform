@@ -93,12 +93,20 @@ class FakeFirstradeClient:
 
     def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
         self.orders.append((request, dry_run, explicit_live_ack))
-        return {
+        response = {
             "preview": dry_run,
             "symbol": request.symbol,
             "quantity": request.quantity,
             "price_type": request.price_type,
         }
+        if not dry_run:
+            response.update(
+                {
+                    "statusCode": 200,
+                    "result": {"order_id": f"OID-{len(self.orders)}"},
+                }
+            )
+        return response
 
 
 class FakeStrategyRuntime:
@@ -252,6 +260,105 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "Target changes: AAA +50.00 USD" in messages[0]
     assert "🧾 Execution details" in messages[0]
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+
+
+def test_run_strategy_cycle_persists_broker_rejection_as_retryable_block(monkeypatch):
+    class IbitRuntime(FakeStrategyRuntime):
+        profile = "ibit_smart_dca"
+        display_name = "IBIT Smart DCA"
+
+    class RejectedOrderClient(FakeFirstradeClient):
+        def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
+            self.orders.append((request, dry_run, explicit_live_ack))
+            return {
+                "statusCode": 400,
+                "error": "Bad Request",
+                "message": (
+                    "Fractional Shares Trading Disclosure must be accepted before placing order."
+                ),
+                "refCode": 1219,
+            }
+
+    store = FakeStateStore()
+    messages = []
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: IbitRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service.notional_buy_execution_enabled",
+        lambda _profile: True,
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 7, 27, 19, 45, tzinfo=timezone.utc),
+    )
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            strategy_profile="ibit_smart_dca",
+            strategy_display_name="IBIT Smart DCA",
+            notify_lang="zh",
+            dry_run_only=False,
+            live_trading_enabled=True,
+            live_order_ack=True,
+            max_order_notional_usd=None,
+            persist_strategy_runs=True,
+        ),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=RejectedOrderClient,
+        state_store=store,
+        notification_sender=messages.append,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    latest_payload = store.writes[-2][1]
+    assert result["ok"] is False
+    assert result["action_done"] is False
+    assert result["strategy_run_stage"] == "EXECUTION_BLOCKED"
+    assert result["submitted_orders"] == []
+    assert result["skipped_orders"][0]["reason"] == "fractional_trading_disclosure_required"
+    assert latest_payload["stage"] == "EXECUTION_BLOCKED"
+    assert "请先在 Firstrade 接受零碎股交易披露" in messages[0]
+    assert "已提交" not in messages[0]
+
+
+def test_render_cycle_summary_formats_notional_market_buy_as_usd():
+    message = render_cycle_summary(
+        {
+            "account": "****1234",
+            "strategy_profile": "ibit_smart_dca",
+            "strategy_display_name": "IBIT Smart DCA",
+            "dry_run_only": False,
+            "portfolio": {
+                "total_equity": 150.0,
+                "liquid_cash": 80.0,
+                "market_values": {"IBIT": 70.0},
+                "quantities": {"IBIT": 2.0},
+            },
+            "allocation": {"targets": {"IBIT": 150.0}},
+            "execution": {"reserved_cash": 0.0, "investable_cash": 80.0},
+            "submitted_orders": [
+                {
+                    "symbol": "IBIT",
+                    "side": "buy",
+                    "quantity": 0.0,
+                    "notional_usd": 80.0,
+                    "order_type": "market",
+                    "status": "submitted",
+                    "broker_order_id": "OID-123",
+                    "raw_payload": {},
+                }
+            ],
+            "skipped_orders": [],
+            "execution_notes": [],
+        },
+        lang="zh",
+    )
+
+    assert "📈 已提交市价买入 IBIT: $80.00" in message
+    assert "80股" not in message
+    assert "限价单可能未成交或取消" not in message
 
 
 def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing(monkeypatch):

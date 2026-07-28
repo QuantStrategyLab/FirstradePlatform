@@ -77,6 +77,19 @@ def _extract_broker_order_id(payload) -> str | None:
     return None
 
 
+def _extract_broker_status_code(payload) -> int | None:
+    for key, value in flatten_values(payload).items():
+        leaf_key = str(key or "").rsplit(".", 1)[-1]
+        normalized = "".join(ch for ch in leaf_key.lower() if ch.isalnum())
+        if normalized != "statuscode":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _market_date(value: datetime) -> date:
     normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     return normalized.astimezone(_NEW_YORK_TZ).date()
@@ -335,12 +348,22 @@ class FirstradeBrokerAdapters:
                 dry_run=not self.live_orders,
                 explicit_live_ack=self.live_order_ack,
             )
+            broker_order_id = _extract_broker_order_id(raw)
+            broker_status_code = _extract_broker_status_code(raw)
+            live_order_accepted = (
+                broker_order_id is not None
+                and (broker_status_code is None or 200 <= broker_status_code < 300)
+            )
             return ExecutionReport(
                 symbol=request.symbol,
                 side=request.side,
-                quantity=float(request.quantity or request.notional_usd or 0),
-                status="previewed" if not self.live_orders else "submitted",
-                broker_order_id=_extract_broker_order_id(raw),
+                quantity=float(request.quantity or 0),
+                status=(
+                    "previewed"
+                    if not self.live_orders
+                    else ("submitted" if live_order_accepted else "rejected")
+                ),
+                broker_order_id=broker_order_id,
                 raw_payload=raw,
             )
 

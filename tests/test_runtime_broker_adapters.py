@@ -219,8 +219,45 @@ def test_execution_port_submits_notional_buy_from_metadata():
     assert request.quantity is None
     assert request.price_type == "market"
     assert request.max_notional_usd == 100.0
-    assert report.quantity == 50.0
+    assert report.quantity == 0.0
     assert report.status == "previewed"
+
+
+def test_execution_port_rejects_live_broker_error_response():
+    class RejectedOrderClient(FakeClient):
+        def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
+            del request, dry_run, explicit_live_ack
+            return {
+                "statusCode": 400,
+                "error": "Bad Request",
+                "message": (
+                    "Fractional Shares Trading Disclosure must be accepted before placing order."
+                ),
+                "refCode": 1219,
+            }
+
+    from quant_platform_kit.common.models import OrderIntent
+
+    adapters = build_runtime_broker_adapters(
+        client=RejectedOrderClient(),
+        account="12345678",
+        live_orders=True,
+        live_order_ack=True,
+    )
+    report = adapters.build_execution_port().submit_order(
+        OrderIntent(
+            symbol="IBIT",
+            side="buy",
+            quantity=0.0,
+            order_type="market",
+            metadata={"notional_usd": 80.0},
+        )
+    )
+
+    assert report.quantity == 0.0
+    assert report.status == "rejected"
+    assert report.broker_order_id is None
+    assert report.raw_payload["refCode"] == 1219
 
 
 def test_execution_port_extracts_broker_order_id_from_raw_payload():
@@ -228,7 +265,8 @@ def test_execution_port_extracts_broker_order_id_from_raw_payload():
         def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
             del explicit_live_ack
             return {
-                "order_id": "OID-123",
+                "statusCode": 200,
+                "result": {"order_id": "OID-123"},
                 "symbol": request.symbol,
                 "dry_run": dry_run,
                 "notional": request.notional_usd is not None,

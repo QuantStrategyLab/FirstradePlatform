@@ -234,6 +234,8 @@ I18N = {
         "order_logs_title": "🧾 执行明细",
         "dry_run_order": "🧪 模拟{order_type}{side} {symbol}: {quantity}{price}",
         "submitted_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}（尚未确认成交；限价单可能未成交或取消）",
+        "submitted_limit_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}（尚未确认成交；限价单可能未成交或取消）",
+        "submitted_market_order": "{icon} 已提交{order_type}{side} {symbol}: {quantity}{price}{order_id}（券商已受理，尚未确认成交）",
         "order_type_limit": "限价",
         "order_type_market": "市价",
         "side_buy": "买入",
@@ -310,6 +312,8 @@ I18N = {
         "skip_reason_negative_cash": "账户现金为负，跳过买入以避免额外融资",
         "skip_reason_buy_quantity_zero": "整数股不足 1 股，无需下单",
         "skip_reason_insufficient_cash_for_whole_share": "现金不足以买入一整股",
+        "skip_reason_broker_rejected": "券商拒绝订单",
+        "skip_reason_fractional_trading_disclosure_required": "请先在 Firstrade 接受零碎股交易披露（券商拒单 1219）",
         "skip_reason_unknown": "未知原因",
         "deferred_orders_line": "ℹ️ [本轮跳过] {details}",
         "skip_symbols_reason": "{symbols}（{reason}）",
@@ -403,6 +407,8 @@ I18N = {
         "order_logs_title": "🧾 Execution details",
         "dry_run_order": "🧪 Dry-run {order_type} {side} {symbol}: {quantity}{price}",
         "submitted_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id} (fill not confirmed; a limit order may remain unfilled or be canceled)",
+        "submitted_limit_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id} (fill not confirmed; a limit order may remain unfilled or be canceled)",
+        "submitted_market_order": "{icon} Submitted {order_type} {side} {symbol}: {quantity}{price}{order_id} (accepted by broker; fill not confirmed)",
         "order_type_limit": "limit",
         "order_type_market": "market",
         "side_buy": "buy",
@@ -479,6 +485,8 @@ I18N = {
         "skip_reason_negative_cash": "account cash is negative; buy skipped to avoid additional margin",
         "skip_reason_buy_quantity_zero": "whole-share quantity rounds to 0; no order needed",
         "skip_reason_insufficient_cash_for_whole_share": "insufficient cash for one whole share",
+        "skip_reason_broker_rejected": "broker rejected the order",
+        "skip_reason_fractional_trading_disclosure_required": "accept Firstrade's Fractional Shares Trading Disclosure first (broker rejection 1219)",
         "skip_reason_unknown": "unknown reason",
         "deferred_orders_line": "ℹ️ [Skipped this cycle] {details}",
         "skip_symbols_reason": "{symbols} ({reason})",
@@ -949,7 +957,12 @@ def _format_order_lines(
         price_suffix = translator("order_price_suffix", price=price) if price else ""
         side_key = "side_buy" if side == "buy" else "side_sell"
         order_type_key = "order_type_limit" if order_type == "limit" else "order_type_market"
-        quantity = _format_shares(order.get("quantity"), translator=translator)
+        notional_usd = _safe_float(order.get("notional_usd"))
+        quantity = (
+            _format_money(notional_usd)
+            if notional_usd is not None and notional_usd > 0.0
+            else _format_shares(order.get("quantity"), translator=translator)
+        )
         if dry_run_only:
             lines.append(
                 translator(
@@ -966,7 +979,7 @@ def _format_order_lines(
         order_id_suffix = translator("order_id_suffix", order_id=order_id) if order_id else ""
         lines.append(
             translator(
-                "submitted_order",
+                "submitted_market_order" if order_type == "market" else "submitted_limit_order",
                 icon="📈" if side == "buy" else "📉",
                 order_type=translator(order_type_key),
                 side=translator(side_key),

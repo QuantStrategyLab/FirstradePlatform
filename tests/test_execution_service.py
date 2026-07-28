@@ -579,6 +579,51 @@ def test_execute_value_target_plan_uses_notional_buy_when_enabled():
     assert order.symbol == "QQQM"
     assert order.order_type == "market"
     assert order.metadata["notional_usd"] == 50.0
+    assert result.execution_notes == ()
+
+
+def test_execute_value_target_plan_routes_rejected_notional_buy_to_skipped_orders():
+    class RejectedExecutionPort(FakeExecutionPort):
+        def submit_order(self, order_intent) -> ExecutionReport:
+            self.orders.append(order_intent)
+            return ExecutionReport(
+                symbol=order_intent.symbol,
+                side=order_intent.side,
+                quantity=order_intent.quantity,
+                status="rejected",
+                raw_payload={
+                    "statusCode": 400,
+                    "error": "Bad Request",
+                    "message": (
+                        "Fractional Shares Trading Disclosure must be accepted before placing order."
+                    ),
+                    "refCode": 1219,
+                },
+            )
+
+    execution_port = RejectedExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"IBIT": 150.0}},
+            "portfolio": {
+                "market_values": {"IBIT": 70.0},
+                "quantities": {"IBIT": 2.0},
+                "liquid_cash": 80.0,
+                "total_equity": 150.0,
+            },
+            "execution": {"current_min_trade": 1.0, "investable_cash": 80.0},
+        },
+        market_data_port=FakeMarketDataPort({"IBIT": 35.0}),
+        execution_port=execution_port,
+        dry_run_only=False,
+        notional_buy_execution=True,
+    )
+
+    assert result.action_done is False
+    assert result.submitted_orders == ()
+    assert result.skipped_orders[0]["reason"] == "fractional_trading_disclosure_required"
+    assert result.skipped_orders[0]["notional_usd"] == 80.0
+    assert result.execution_notes == ()
 
 
 def test_execute_value_target_plan_notional_buy_skips_below_minimum():
