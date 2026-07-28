@@ -38,6 +38,7 @@ from application.strategy_run_persistence import (
 from decision_mapper import map_strategy_decision_to_plan
 from notifications.telegram import build_sender, build_translator, render_cycle_summary
 from quant_platform_kit.common.execution_outcomes import (
+    DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
     filter_execution_blocking_skips,
     is_terminal_funding_block,
     resolve_strategy_run_stage,
@@ -69,6 +70,13 @@ from strategy_runtime import load_strategy_runtime
 LIMIT_SELL_DISCOUNT = 0.995
 LIMIT_BUY_PREMIUM = 1.005
 DEFAULT_LIMIT_BUY_PREMIUM_BY_SYMBOL = {"SOXL": 1.015, "TQQQ": 1.010}
+BROKER_EXECUTION_BLOCKING_SKIP_REASONS = frozenset(
+    {
+        *DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
+        "broker_rejected",
+        "fractional_trading_disclosure_required",
+    }
+)
 
 
 def _load_limit_buy_premium_by_symbol(*env_names: str) -> dict[str, float]:
@@ -623,7 +631,10 @@ def run_strategy_cycle(
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)
     execution_notes = list(execution_result.execution_notes)
-    blocking_skips = filter_execution_blocking_skips(skipped_orders)
+    blocking_skips = filter_execution_blocking_skips(
+        skipped_orders,
+        blocking_reasons=BROKER_EXECUTION_BLOCKING_SKIP_REASONS,
+    )
     execution_blocked = bool(blocking_skips)
     funding_blocked = is_terminal_funding_block(blocking_skips)
     terminal_funding_block = funding_blocked and not execution_result.action_done

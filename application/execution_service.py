@@ -139,6 +139,12 @@ class ExecutionCycleResult:
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
 MIN_NOTIONAL_BUY_USD = 1.0
+_ACCEPTED_ORDER_STATUSES = frozenset(
+    {"accepted", "filled", "partiallyfilled", "previewed", "submitted"}
+)
+_BROKER_REJECTION_SKIP_REASONS = frozenset(
+    {"broker_rejected", "fractional_trading_disclosure_required"}
+)
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = frozenset({"TQQQ", "SOXL"})
 _SMALL_ACCOUNT_RETENTION_MIN_TARGET_SHARE_RATIO_DEFAULT = 0.85
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
@@ -561,6 +567,52 @@ def _submit_notional_buy_order(
     }
 
 
+def _order_submission_accepted(order: dict[str, Any]) -> bool:
+    status = "".join(
+        ch for ch in str(order.get("status") or "").strip().lower() if ch.isalnum()
+    )
+    return status in _ACCEPTED_ORDER_STATUSES
+
+
+def _broker_rejection_reason(order: dict[str, Any]) -> str:
+    raw_payload = dict(order.get("raw_payload") or {})
+    for key, value in raw_payload.items():
+        normalized = "".join(ch for ch in str(key).lower() if ch.isalnum())
+        if normalized == "refcode" and str(value or "").strip() == "1219":
+            return "fractional_trading_disclosure_required"
+    return "broker_rejected"
+
+
+def _record_order_result(
+    order: dict[str, Any],
+    *,
+    submitted: list[dict[str, Any]],
+    skipped: list[dict[str, Any]],
+) -> bool:
+    if _order_submission_accepted(order):
+        submitted.append(order)
+        return True
+    skipped.append({**order, "reason": _broker_rejection_reason(order)})
+    return False
+
+
+def _orders_for_allocation_drift(
+    submitted_orders: list[dict[str, Any]],
+    *,
+    prices: dict[str, float],
+) -> list[dict[str, Any]]:
+    projected_orders = []
+    for order in submitted_orders:
+        projected_order = dict(order)
+        notional_usd = float(projected_order.get("notional_usd") or 0.0)
+        symbol = str(projected_order.get("symbol") or "").strip().upper()
+        price = float(prices.get(symbol) or 0.0)
+        if notional_usd > 0.0 and price > 0.0:
+            projected_order["quantity"] = notional_usd / price
+        projected_orders.append(projected_order)
+    return projected_orders
+
+
 def execute_value_target_plan(
     *,
     plan: dict[str, Any],
@@ -680,19 +732,22 @@ def execute_value_target_plan(
                 )
                 continue
             sell_limit_price = price * float(limit_sell_discount)
-            submitted.append(
-                _submit_order(
-                    execution_port,
-                    symbol=symbol,
-                    side="sell",
-                    quantity=quantity,
-                    limit_price=sell_limit_price,
-                    max_notional_usd=max_order_notional_usd,
-                )
+            order_result = _submit_order(
+                execution_port,
+                symbol=symbol,
+                side="sell",
+                quantity=quantity,
+                limit_price=sell_limit_price,
+                max_notional_usd=max_order_notional_usd,
             )
-            submitted_sell_orders.append(submitted[-1])
             pending_sell_release_symbols.append(symbol)
-            sell_submitted = True
+            if _record_order_result(
+                order_result,
+                submitted=submitted,
+                skipped=skipped,
+            ):
+                submitted_sell_orders.append(order_result)
+                sell_submitted = True
             continue
 
     confirmed_sell_release_value = compute_confirmed_sell_release_value(
@@ -775,15 +830,18 @@ def execute_value_target_plan(
                     }
                 )
                 continue
-            submitted.append(
-                _submit_notional_buy_order(
-                    execution_port,
-                    symbol=symbol,
-                    notional_usd=buy_budget,
-                    max_notional_usd=max_order_notional_usd,
-                )
+            order_result = _submit_notional_buy_order(
+                execution_port,
+                symbol=symbol,
+                notional_usd=buy_budget,
+                max_notional_usd=max_order_notional_usd,
             )
-            investable_cash = max(0.0, investable_cash - buy_budget)
+            if _record_order_result(
+                order_result,
+                submitted=submitted,
+                skipped=skipped,
+            ):
+                investable_cash = max(0.0, investable_cash - buy_budget)
             continue
         limit_price = _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
         quantity = _planned_buy_order_quantity(
@@ -820,27 +878,41 @@ def execute_value_target_plan(
                     }
                 )
             continue
-        submitted.append(
-            _submit_order(
-                execution_port,
-                symbol=symbol,
-                side="buy",
-                quantity=quantity,
-                limit_price=limit_price,
-                max_notional_usd=max_order_notional_usd,
-            )
+        order_result = _submit_order(
+            execution_port,
+            symbol=symbol,
+            side="buy",
+            quantity=quantity,
+            limit_price=limit_price,
+            max_notional_usd=max_order_notional_usd,
         )
-        investable_cash = max(0.0, investable_cash - (quantity * limit_price))
+        if _record_order_result(
+            order_result,
+            submitted=submitted,
+            skipped=skipped,
+        ):
+            investable_cash = max(0.0, investable_cash - (quantity * limit_price))
 
     total_value = float(portfolio.get("total_equity") or portfolio.get("total_strategy_equity") or 0.0)
-    drift_notes = build_small_account_allocation_drift_notes(
-        target_values=small_account_reference_target_values,
-        current_values=market_values,
-        current_quantities=current_quantities,
-        prices=reference_prices,
-        submitted_orders=submitted,
-        total_value=total_value,
-        cash_value=float(portfolio.get("liquid_cash") or 0.0),
+    has_broker_rejection = any(
+        str(item.get("reason") or "") in _BROKER_REJECTION_SKIP_REASONS
+        for item in skipped
+    )
+    drift_notes = (
+        ()
+        if has_broker_rejection
+        else build_small_account_allocation_drift_notes(
+            target_values=small_account_reference_target_values,
+            current_values=market_values,
+            current_quantities=current_quantities,
+            prices=reference_prices,
+            submitted_orders=_orders_for_allocation_drift(
+                submitted,
+                prices=reference_prices,
+            ),
+            total_value=total_value,
+            cash_value=float(portfolio.get("liquid_cash") or 0.0),
+        )
     )
     execution_notes = tuple(execution_notes) + tuple(drift_notes)
 
