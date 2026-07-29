@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from application.execution_service import (
+    _apply_notional_cash_buffer,
     execute_value_target_plan,
     substitute_small_safe_haven_targets_with_cash,
 )
@@ -582,6 +583,33 @@ def test_execute_value_target_plan_uses_notional_buy_when_enabled():
     assert result.execution_notes == ()
 
 
+def test_notional_buy_keeps_cash_buffer_when_order_would_use_all_available_cash():
+    execution_port = FakeExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"IBIT": 150.0}},
+            "portfolio": {
+                "market_values": {"IBIT": 70.0},
+                "quantities": {"IBIT": 2.0},
+                "liquid_cash": 80.0,
+                "total_equity": 150.0,
+            },
+            "execution": {"current_min_trade": 1.0, "investable_cash": 80.0},
+        },
+        market_data_port=FakeMarketDataPort({"IBIT": 35.0}),
+        execution_port=execution_port,
+        dry_run_only=False,
+        notional_buy_execution=True,
+    )
+
+    assert result.action_done is True
+    assert execution_port.orders[0].metadata["notional_usd"] == 78.4
+
+
+def test_notional_cash_buffer_preserves_minimum_eligible_order():
+    assert _apply_notional_cash_buffer(buy_budget=1.02, investable_cash=1.02) == 1.0
+
+
 def test_execute_value_target_plan_routes_rejected_notional_buy_to_skipped_orders():
     class RejectedExecutionPort(FakeExecutionPort):
         def submit_order(self, order_intent) -> ExecutionReport:
@@ -622,7 +650,7 @@ def test_execute_value_target_plan_routes_rejected_notional_buy_to_skipped_order
     assert result.action_done is False
     assert result.submitted_orders == ()
     assert result.skipped_orders[0]["reason"] == "fractional_trading_disclosure_required"
-    assert result.skipped_orders[0]["notional_usd"] == 80.0
+    assert result.skipped_orders[0]["notional_usd"] == 78.4
     assert result.execution_notes == ()
 
 

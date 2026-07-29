@@ -145,6 +145,12 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     assert "add_optional_env " not in workflow
     assert "requires_snapshot_artifacts=" not in workflow
     assert "Resolve selected strategy runtime requirements" not in workflow
+    assert "Cloud Run env sync currently supports exactly one target" not in workflow
+    assert workflow.count("matching_targets = [") >= 5
+    assert workflow.count("if len(matching_targets) != 1:") >= 5
+    assert workflow.index("name: Validate env sync inputs") < workflow.index(
+        "name: Sync Cloud Run environment"
+    )
 
 
 def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
@@ -156,6 +162,10 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     assert "MONITOR_DISPATCH_TARGETS_JSON=${monitor_targets_json}" in workflow
     assert 'scheduler_location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"' in workflow
     assert 'plan = json.loads(os.environ["SYNC_PLAN_JSON"])' in workflow
+    assert (
+        'str(candidate.get("service_name") or "").strip() == os.environ["CLOUD_RUN_SERVICE"]'
+        in workflow
+    )
     assert 'scheduler = target.get("scheduler") or {}' in workflow
     assert 'print(str(scheduler.get("timezone") or "America/New_York").strip())' in workflow
     assert 'scheduler.get("main_time") or os.environ.get("CLOUD_SCHEDULER_MAIN_TIME"' in workflow
@@ -168,12 +178,43 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     assert 'print(" ".join([*time_fields, *current_fields[2:]]))' in workflow
     assert 'gcloud scheduler jobs update http "${job_name}"' in workflow
     assert 'gcloud scheduler jobs create http "${job_name}"' in workflow
+    assert 'runtime_target_enabled="${scheduler_config[4]}"' in workflow
+    assert 'desired_probe_schedule="$(CURRENT_SCHEDULE="${desired_schedule}" SCHEDULE_TIME="${probe_time}" python - <<' in workflow
+    assert 'desired_precheck_schedule="$(CURRENT_SCHEDULE="${desired_schedule}" SCHEDULE_TIME="${precheck_time}" python - <<' in workflow
+    assert 'probe_job_name="${CLOUD_RUN_SERVICE}-probe-scheduler"' in workflow
+    assert 'probe_uri="${service_url}/probe"' in workflow
+    assert 'precheck_job_name="${CLOUD_RUN_SERVICE}-precheck-scheduler"' in workflow
+    assert 'precheck_uri="${service_url}/dry-run"' in workflow
+    assert 'managed_scheduler_jobs=("${job_name}")' in workflow
+    assert 'if [ "${DIRECT_MONITOR_MIGRATION_COMPLETE:-}" = "true" ]; then' in workflow
+    assert 'managed_scheduler_jobs+=("${probe_job_name}" "${precheck_job_name}")' in workflow
+    assert "id: scheduler_sync" in workflow
     assert 'monitor_job_name="firstrade-monitor-dispatcher-scheduler"' in workflow
     assert 'monitor_uri="${service_url}/monitor-dispatch"' in workflow
-    assert 'invoke_bridge_jobs=(' in workflow
-    assert '"${CLOUD_RUN_SERVICE}-probe-scheduler|${service_url}/probe"' in workflow
-    assert '"${CLOUD_RUN_SERVICE}-precheck-scheduler|${service_url}/dry-run"' in workflow
-    assert 'Creating invoke-bridge Cloud Scheduler job ${bridge_job} at ${bridge_uri}.' in workflow
+    assert '--schedule="*/5 * * * *"' in workflow
+    assert "invoke_bridge_jobs=(" in workflow
+    assert '--schedule="0 0 1 1 *"' in workflow
+    assert 'echo "direct_monitors_reconciled=true" >> "${GITHUB_OUTPUT}"' in workflow
+    assert (
+        "DIRECT_MONITOR_SCHEDULERS_RECONCILED: "
+        "${{ steps.scheduler_sync.outputs.direct_monitors_reconciled }}"
+    ) in workflow
+    assert 'gcloud scheduler jobs resume "${managed_job_name}"' in workflow
+    assert 'gcloud scheduler jobs pause "${managed_job_name}"' in workflow
+    assert (
+        "DIRECT_MONITOR_MIGRATION_COMPLETE: "
+        "${{ vars.DIRECT_MONITOR_MIGRATION_COMPLETE }}"
+    ) in workflow
+    assert 'DIRECT_MONITOR_MIGRATION_COMPLETE: "true"' not in workflow
     assert '--schedule="${desired_schedule}"' in workflow
     assert '--time-zone="${market_timezone}"' in workflow
     assert "legacy_jobs=(" not in workflow
+    direct_gate = workflow.index(
+        'if [ "${DIRECT_MONITOR_MIGRATION_COMPLETE:-}" = "true" ]; then'
+    )
+    assert direct_gate < workflow.index(
+        'desired_probe_schedule="$(CURRENT_SCHEDULE="${desired_schedule}"'
+    )
+    assert direct_gate < workflow.index(
+        'desired_precheck_schedule="$(CURRENT_SCHEDULE="${desired_schedule}"'
+    )

@@ -17,6 +17,11 @@ def is_market_open_now(*, calendar_name="NYSE", timezone_name="America/New_York"
         schedule = calendar.schedule(start_date=now_market.date(), end_date=now_market.date())
         if schedule.empty:
             return False, None
-        return calendar.open_at_time(schedule, now_market), None
+        try:
+            return calendar.open_at_time(schedule, now_market), None
+        except ValueError as exc:
+            if "not covered by the schedule" not in str(exc):
+                raise
+            return False, None
     except Exception as exc:
         return False, exc

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import floor
 from typing import Any
 
 from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
@@ -139,6 +140,7 @@ class ExecutionCycleResult:
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
 MIN_NOTIONAL_BUY_USD = 1.0
+NOTIONAL_BUY_CASH_UTILIZATION_RATIO = 0.98
 _ACCEPTED_ORDER_STATUSES = frozenset(
     {"accepted", "filled", "partiallyfilled", "previewed", "submitted"}
 )
@@ -567,6 +569,19 @@ def _submit_notional_buy_order(
     }
 
 
+def _apply_notional_cash_buffer(*, buy_budget: float, investable_cash: float) -> float:
+    budget = max(0.0, float(buy_budget or 0.0))
+    available = max(0.0, float(investable_cash or 0.0))
+    if budget + 0.005 < available:
+        return budget
+    buffered_available = floor(
+        available * NOTIONAL_BUY_CASH_UTILIZATION_RATIO * 100
+    ) / 100
+    if budget >= MIN_NOTIONAL_BUY_USD and available >= MIN_NOTIONAL_BUY_USD:
+        buffered_available = max(buffered_available, MIN_NOTIONAL_BUY_USD)
+    return min(budget, buffered_available)
+
+
 def _order_submission_accepted(order: dict[str, Any]) -> bool:
     status = "".join(
         ch for ch in str(order.get("status") or "").strip().lower() if ch.isalnum()
@@ -770,6 +785,10 @@ def execute_value_target_plan(
             if order_notional_cap is not None:
                 buy_budget = min(buy_budget, order_notional_cap)
             if notional_buy_execution:
+                buy_budget = _apply_notional_cash_buffer(
+                    buy_budget=buy_budget,
+                    investable_cash=investable_cash,
+                )
                 if buy_budget >= MIN_NOTIONAL_BUY_USD:
                     estimated_buy_cost += buy_budget
                 elif float(delta_value) >= MIN_NOTIONAL_BUY_USD:
@@ -820,6 +839,10 @@ def execute_value_target_plan(
         if order_notional_cap is not None:
             buy_budget = min(buy_budget, order_notional_cap)
         if notional_buy_execution:
+            buy_budget = _apply_notional_cash_buffer(
+                buy_budget=buy_budget,
+                investable_cash=investable_cash,
+            )
             if buy_budget < MIN_NOTIONAL_BUY_USD:
                 skipped.append(
                     {

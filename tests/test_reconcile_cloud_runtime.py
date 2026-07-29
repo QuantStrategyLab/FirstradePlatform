@@ -37,6 +37,19 @@ class ReconcileCloudRuntimeTest(unittest.TestCase):
         self.assertEqual(ctx.scheduler_location, "us-central1")
         self.assertEqual(plan["targets"][0]["region"], "asia-east1")
 
+    def test_resolve_context_rejects_service_missing_from_sync_plan(self):
+        with self.assertRaisesRegex(ValueError, "does not match any sync-plan target"):
+            reconciler._resolve_context(
+                {
+                    "GCP_PROJECT_ID": "firstradequant",
+                    "CLOUD_RUN_SERVICE": "firstrade-missing-service",
+                    "CLOUD_RUN_REGION": "us-central1",
+                    "SYNC_PLAN_JSON": json.dumps(
+                        {"targets": [{"service_name": "firstrade-platform-service"}]}
+                    ),
+                }
+            )
+
     def test_reconcile_traffic_updates_latest_ready_revision_and_checks_commit_sha(self):
         env = {
             "GCP_PROJECT_ID": "firstradequant",
@@ -113,12 +126,14 @@ class ReconcileCloudRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "commit-sha"):
             reconciler.reconcile_traffic(env, run_gcloud=fake_run_gcloud)
 
-    def test_cleanup_legacy_scheduler_jobs_only_targets_explicit_session_check_jobs(self):
+    def test_cleanup_legacy_scheduler_jobs_preserves_canonical_direct_jobs(self):
         env = {
             "GCP_PROJECT_ID": "firstradequant",
             "CLOUD_RUN_SERVICE": "firstrade-platform-service",
             "CLOUD_RUN_REGION": "us-central1",
             "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "DIRECT_MONITOR_MIGRATION_COMPLETE": "true",
+            "DIRECT_MONITOR_SCHEDULERS_RECONCILED": "true",
             "SYNC_PLAN_JSON": json.dumps(
                 {"targets": [{"service_name": "firstrade-platform-service"}]}
             ),
@@ -127,19 +142,23 @@ class ReconcileCloudRuntimeTest(unittest.TestCase):
         existing_jobs = {
             "firstrade-platform-service-session-check-scheduler",
             "firstrade-platform-session-check-scheduler",
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-platform-service-precheck-scheduler",
+            "firstrade-platform-probe-scheduler",
+            "firstrade-platform-precheck-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
         }
 
         def fake_run_gcloud(command: list[str]):
             calls.append(command)
-            if command[:4] == ["scheduler", "jobs", "describe", "firstrade-platform-service-session-check-scheduler"]:
-                return _completed(command, stdout="{}") if command[3] in existing_jobs else _completed(command, returncode=1)
-            if command[:4] == ["scheduler", "jobs", "describe", "firstrade-platform-session-check-scheduler"]:
-                return _completed(command, stdout="{}")
-            if command[:4] == ["scheduler", "jobs", "delete", "firstrade-platform-service-session-check-scheduler"]:
-                existing_jobs.discard("firstrade-platform-service-session-check-scheduler")
-                return _completed(command, stdout="")
-            if command[:4] == ["scheduler", "jobs", "delete", "firstrade-platform-session-check-scheduler"]:
-                existing_jobs.discard("firstrade-platform-session-check-scheduler")
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return (
+                    _completed(command, stdout="{}")
+                    if command[3] in existing_jobs
+                    else _completed(command, returncode=1)
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                existing_jobs.discard(command[3])
                 return _completed(command, stdout="")
             raise AssertionError(f"Unexpected gcloud command: {command}")
 
@@ -161,7 +180,192 @@ class ReconcileCloudRuntimeTest(unittest.TestCase):
             ["scheduler", "jobs", "delete", "firstrade-platform-session-check-scheduler", "--project", "firstradequant", "--location", "us-central1", "--quiet"],
             calls,
         )
-        self.assertFalse(any("probe" in " ".join(command) or "precheck" in " ".join(command) for command in calls))
+        deleted_jobs = [
+            command[3]
+            for command in calls
+            if command[:3] == ["scheduler", "jobs", "delete"]
+        ]
+        self.assertEqual(
+            deleted_jobs,
+            [
+                "firstrade-platform-service-session-check-scheduler",
+                "firstrade-platform-session-check-scheduler",
+                "firstrade-platform-probe-scheduler",
+                "firstrade-platform-precheck-scheduler",
+                "firstrade-monitor-dispatcher-scheduler",
+            ],
+        )
+        self.assertNotIn("firstrade-platform-service-probe-scheduler", deleted_jobs)
+
+    def test_cleanup_keeps_dispatcher_until_direct_jobs_exist(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "DIRECT_MONITOR_MIGRATION_COMPLETE": "true",
+            "DIRECT_MONITOR_SCHEDULERS_RECONCILED": "true",
+            "SYNC_PLAN_JSON": json.dumps(
+                {"targets": [{"service_name": "firstrade-platform-service"}]}
+            ),
+        }
+        existing_jobs = {
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
+        }
+        deleted_jobs: list[str] = []
+
+        def fake_run_gcloud(command: list[str]):
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return _completed(
+                    command,
+                    returncode=0 if command[3] in existing_jobs else 1,
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                deleted_jobs.append(command[3])
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.cleanup_legacy_scheduler_jobs(env, run_gcloud=fake_run_gcloud)
+
+        self.assertNotIn("firstrade-monitor-dispatcher-scheduler", deleted_jobs)
+
+    def test_cleanup_keeps_dispatcher_without_current_sync_proof(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "DIRECT_MONITOR_MIGRATION_COMPLETE": "true",
+            "SYNC_PLAN_JSON": json.dumps(
+                {"targets": [{"service_name": "firstrade-platform-service"}]}
+            ),
+        }
+        existing_jobs = {
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-platform-service-precheck-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
+        }
+        deleted_jobs: list[str] = []
+
+        def fake_run_gcloud(command: list[str]):
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return _completed(
+                    command,
+                    returncode=0 if command[3] in existing_jobs else 1,
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                deleted_jobs.append(command[3])
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.cleanup_legacy_scheduler_jobs(env, run_gcloud=fake_run_gcloud)
+
+        self.assertNotIn("firstrade-monitor-dispatcher-scheduler", deleted_jobs)
+
+    def test_cleanup_keeps_dispatcher_without_migration_confirmation(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "SYNC_PLAN_JSON": json.dumps(
+                {"targets": [{"service_name": "firstrade-platform-service"}]}
+            ),
+        }
+        existing_jobs = {
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-platform-service-precheck-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
+        }
+        deleted_jobs: list[str] = []
+
+        def fake_run_gcloud(command: list[str]):
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return _completed(
+                    command,
+                    returncode=0 if command[3] in existing_jobs else 1,
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                deleted_jobs.append(command[3])
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.cleanup_legacy_scheduler_jobs(env, run_gcloud=fake_run_gcloud)
+
+        self.assertNotIn("firstrade-monitor-dispatcher-scheduler", deleted_jobs)
+
+    def test_cleanup_requires_exact_lowercase_migration_confirmation(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "DIRECT_MONITOR_MIGRATION_COMPLETE": "TRUE",
+            "DIRECT_MONITOR_SCHEDULERS_RECONCILED": "true",
+            "SYNC_PLAN_JSON": json.dumps(
+                {"targets": [{"service_name": "firstrade-platform-service"}]}
+            ),
+        }
+        existing_jobs = {
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-platform-service-precheck-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
+        }
+        deleted_jobs: list[str] = []
+
+        def fake_run_gcloud(command: list[str]):
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return _completed(
+                    command,
+                    returncode=0 if command[3] in existing_jobs else 1,
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                deleted_jobs.append(command[3])
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.cleanup_legacy_scheduler_jobs(env, run_gcloud=fake_run_gcloud)
+
+        self.assertNotIn("firstrade-monitor-dispatcher-scheduler", deleted_jobs)
+
+    def test_cleanup_keeps_dispatcher_for_multi_target_plan(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "CLOUD_SCHEDULER_LOCATION": "us-central1",
+            "DIRECT_MONITOR_MIGRATION_COMPLETE": "true",
+            "SYNC_PLAN_JSON": json.dumps(
+                {
+                    "targets": [
+                        {"service_name": "firstrade-platform-service"},
+                        {"service_name": "firstrade-secondary-service"},
+                    ]
+                }
+            ),
+        }
+        existing_jobs = {
+            "firstrade-platform-service-probe-scheduler",
+            "firstrade-platform-service-precheck-scheduler",
+            "firstrade-monitor-dispatcher-scheduler",
+        }
+        deleted_jobs: list[str] = []
+
+        def fake_run_gcloud(command: list[str]):
+            if command[:3] == ["scheduler", "jobs", "describe"]:
+                return _completed(
+                    command,
+                    returncode=0 if command[3] in existing_jobs else 1,
+                )
+            if command[:3] == ["scheduler", "jobs", "delete"]:
+                deleted_jobs.append(command[3])
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.cleanup_legacy_scheduler_jobs(env, run_gcloud=fake_run_gcloud)
+
+        self.assertNotIn("firstrade-monitor-dispatcher-scheduler", deleted_jobs)
 
 
 if __name__ == "__main__":

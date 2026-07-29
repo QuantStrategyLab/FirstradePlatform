@@ -578,12 +578,23 @@ def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypat
     assert result["strategy_plugin_alert_sms_sent_count"] == 0
 
 
-def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):
+def test_run_strategy_cycle_dry_run_preserves_live_strategy_run_state(monkeypatch):
     store = FakeStateStore()
+    key = "strategy-runs/____5678/tqqq_growth_income/2026_05/latest.json"
+    existing_state = {
+        "stage": "SUBMITTED",
+        "as_of": "2026-05-01T01:02:03+00:00",
+        "dry_run_only": False,
+    }
+    store.payloads[key] = dict(existing_state)
 
     monkeypatch.setattr(
         "application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
     )
 
     result = run_strategy_cycle(
@@ -594,15 +605,17 @@ def test_run_strategy_cycle_persists_strategy_run_state(monkeypatch):
         env_reader=lambda _name, default=None: default,
     )
 
-    stages = [payload["stage"] for _key, payload in store.writes if _key.endswith("latest.json")]
-    assert stages == ["ORDERS_PLANNED", "DRY_RUN_COMPLETED"]
+    assert store.payloads[key] == existing_state
+    dry_run_key = "strategy-runs/dry-run/____5678/tqqq_growth_income/2026_05/latest.json"
+    dry_run_state = store.payloads[dry_run_key]
+    assert dry_run_state["stage"] == "DRY_RUN_COMPLETED"
+    assert dry_run_state["dry_run_only"] is True
+    assert dry_run_state["submitted_orders"][0]["symbol"] == "AAA"
+    assert dry_run_state["plan"]["allocation"]["targets"]["AAA"] == 50.0
     assert result["strategy_run_persisted"] is True
-    assert result["strategy_run_period"]
+    assert result["strategy_run_period"] == "2026-05"
     assert result["strategy_run_stage"] == "DRY_RUN_COMPLETED"
-    latest_payload = store.writes[-2][1]
-    assert latest_payload["stage"] == "DRY_RUN_COMPLETED"
-    assert latest_payload["submitted_orders"][0]["symbol"] == "AAA"
-    assert latest_payload["plan"]["allocation"]["targets"]["AAA"] == 50.0
+    assert result["submitted_orders"][0]["symbol"] == "AAA"
 
 
 def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):

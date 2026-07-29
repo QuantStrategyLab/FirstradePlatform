@@ -110,6 +110,21 @@ def _positive_or_none(value: float | None) -> float | None:
     return resolved if resolved > 0.0 else None
 
 
+def _resolve_buying_power(
+    *,
+    cash_balance: float | None,
+    reported_buying_power: float | None,
+    cash_only_execution: bool,
+) -> float | None:
+    if not cash_only_execution:
+        return reported_buying_power if reported_buying_power is not None else cash_balance
+    if cash_balance is None:
+        return None
+    if reported_buying_power is None:
+        return cash_balance
+    return max(0.0, min(float(cash_balance), float(reported_buying_power)))
+
+
 def _resolve_total_equity(
     *,
     balances,
@@ -281,8 +296,10 @@ class FirstradeBrokerAdapters:
             )
         cash_balance = _first_numeric_by_keyword_groups(balances, _CASH_BALANCE_KEYWORD_GROUPS)
         reported_buying_power = _first_numeric_by_keyword_groups(balances, _BUYING_POWER_KEYWORD_GROUPS)
-        buying_power = cash_balance if self.cash_only_execution else (
-            reported_buying_power if reported_buying_power is not None else cash_balance
+        buying_power = _resolve_buying_power(
+            cash_balance=cash_balance,
+            reported_buying_power=reported_buying_power,
+            cash_only_execution=self.cash_only_execution,
         )
         position_market_value = sum(position.market_value for position in positions)
         total_equity, total_equity_source = _resolve_total_equity(
