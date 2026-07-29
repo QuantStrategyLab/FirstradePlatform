@@ -118,6 +118,27 @@ def test_portfolio_snapshot_falls_back_to_cash_when_total_value_missing():
     assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
 
 
+def test_cash_only_portfolio_uses_lower_reported_buying_power():
+    class UnsettledCashClient(FakeClient):
+        def get_balances(self, _account):
+            return {"cash_balance": "$80.00", "non_margin_buying_power": "$60.00"}
+
+        def get_positions(self, _account):
+            return {"items": []}
+
+    adapters = build_runtime_broker_adapters(
+        client=UnsettledCashClient(),
+        account="12345678",
+        strategy_symbols=("SPY",),
+        cash_only_execution=True,
+    )
+
+    portfolio = adapters.build_portfolio_port().get_portfolio_snapshot()
+
+    assert portfolio.cash_balance == 80.0
+    assert portfolio.buying_power == 60.0
+
+
 def test_price_series_appends_live_quote_when_history_lags_today():
     adapters = build_runtime_broker_adapters(
         client=FakeClient(

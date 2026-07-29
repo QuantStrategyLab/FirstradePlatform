@@ -85,9 +85,16 @@ def resolve_strategy_run_period(
     return f"{now.year:04d}-{now.month:02d}"
 
 
-def strategy_run_state_key(*, account: str, strategy_profile: str, run_period: str) -> str:
+def strategy_run_state_key(
+    *,
+    account: str,
+    strategy_profile: str,
+    run_period: str,
+    dry_run_only: bool = False,
+) -> str:
+    prefix = "strategy-runs/dry-run" if dry_run_only else "strategy-runs"
     return (
-        f"strategy-runs/{safe_key(account)}/{safe_key(strategy_profile)}/"
+        f"{prefix}/{safe_key(account)}/{safe_key(strategy_profile)}/"
         f"{safe_key(run_period)}/latest.json"
     )
 
@@ -99,10 +106,12 @@ def strategy_run_history_key(
     run_period: str,
     stage: str,
     now: datetime,
+    dry_run_only: bool = False,
 ) -> str:
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    prefix = "strategy-runs/dry-run" if dry_run_only else "strategy-runs"
     return (
-        f"strategy-runs/{safe_key(account)}/{safe_key(strategy_profile)}/"
+        f"{prefix}/{safe_key(account)}/{safe_key(strategy_profile)}/"
         f"{safe_key(run_period)}/history/{now:%Y/%m/%d}/{stamp}-{safe_key(stage)}.json"
     )
 
@@ -189,11 +198,13 @@ def persist_strategy_run_state(
     strategy_profile = str(state.get("strategy_profile") or "unknown")
     run_period = str(state.get("run_period") or f"{as_of.year:04d}-{as_of.month:02d}")
     stage = str(state.get("stage") or "UNKNOWN")
+    dry_run_only = bool(state.get("dry_run_only"))
     store.write_json(
         strategy_run_state_key(
             account=account,
             strategy_profile=strategy_profile,
             run_period=run_period,
+            dry_run_only=dry_run_only,
         ),
         dict(state),
     )
@@ -204,6 +215,7 @@ def persist_strategy_run_state(
             run_period=run_period,
             stage=stage,
             now=as_of,
+            dry_run_only=dry_run_only,
         ),
         dict(state),
     )

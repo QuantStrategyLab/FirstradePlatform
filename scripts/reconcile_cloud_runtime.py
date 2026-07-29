@@ -3,9 +3,7 @@
 
 This script keeps the runtime logic minimal and explicit:
 - reconcile Cloud Run traffic to the latest ready revision and verify commit-sha
-- delete only explicit legacy session-check Cloud Scheduler jobs
-
-It deliberately does not touch probe/precheck bridge jobs or unknown schedulers.
+- delete only explicit legacy Cloud Scheduler jobs
 """
 from __future__ import annotations
 
@@ -52,9 +50,28 @@ def _first_target(plan: Mapping[str, Any]) -> Mapping[str, Any]:
 def _resolve_context(env: Mapping[str, str] = os.environ) -> tuple[RuntimeContext, dict[str, Any]]:
     plan = _parse_sync_plan(str(env.get("SYNC_PLAN_JSON", "") or ""))
     target = _first_target(plan)
+    configured_service = str(env.get("CLOUD_RUN_SERVICE", "") or "").strip()
+    targets = plan.get("targets")
+    if configured_service and isinstance(targets, list) and targets:
+        matching_targets = [
+            candidate
+            for candidate in targets
+            if isinstance(candidate, Mapping)
+            and configured_service
+            in {
+                str(candidate.get("service_name") or "").strip(),
+                str(candidate.get("service") or "").strip(),
+                str(candidate.get("cloud_run_service") or "").strip(),
+            }
+        ]
+        if len(matching_targets) != 1:
+            raise ValueError(
+                f"CLOUD_RUN_SERVICE {configured_service} does not match any sync-plan target"
+            )
+        target = matching_targets[0]
 
     service_name = (
-        str(env.get("CLOUD_RUN_SERVICE", "") or "").strip()
+        configured_service
         or str(target.get("service_name") or "").strip()
         or str(target.get("service") or "").strip()
         or str(target.get("cloud_run_service") or "").strip()
@@ -256,11 +273,18 @@ def reconcile_traffic(
         time.sleep(5)
 
 
-def _legacy_session_check_jobs(service_name: str) -> list[str]:
+def _legacy_scheduler_jobs(service_name: str) -> list[str]:
     candidates = [f"{service_name}-session-check-scheduler"]
     alias = service_name.removesuffix("-service")
     if alias and alias != service_name:
-        candidates.append(f"{alias}-session-check-scheduler")
+        candidates.extend(
+            [
+                f"{alias}-session-check-scheduler",
+                f"{alias}-probe-scheduler",
+                f"{alias}-precheck-scheduler",
+            ]
+        )
+    candidates.append("firstrade-monitor-dispatcher-scheduler")
     seen: list[str] = []
     for candidate in candidates:
         if candidate not in seen:
@@ -273,9 +297,53 @@ def cleanup_legacy_scheduler_jobs(
     *,
     run_gcloud: RunGcloud = _run_gcloud,
 ) -> None:
-    ctx, _plan = _resolve_context(env)
+    ctx, plan = _resolve_context(env)
     deleted: list[str] = []
-    for job_name in _legacy_session_check_jobs(ctx.service_name):
+    legacy_jobs = _legacy_scheduler_jobs(ctx.service_name)
+    dispatcher_job = "firstrade-monitor-dispatcher-scheduler"
+    direct_jobs = (
+        f"{ctx.service_name}-probe-scheduler",
+        f"{ctx.service_name}-precheck-scheduler",
+    )
+    targets = plan.get("targets")
+    has_single_sync_target = not str(env.get("SYNC_PLAN_JSON", "") or "").strip() or (
+        isinstance(targets, list) and len(targets) == 1
+    )
+    migration_confirmed = (
+        str(env.get("DIRECT_MONITOR_MIGRATION_COMPLETE") or "").strip() == "true"
+    )
+    current_sync_confirmed = (
+        str(env.get("DIRECT_MONITOR_SCHEDULERS_RECONCILED") or "").strip().lower()
+        == "true"
+    )
+    direct_jobs_exist = (
+        migration_confirmed
+        and current_sync_confirmed
+        and has_single_sync_target
+        and all(
+            run_gcloud(
+                [
+                    "scheduler",
+                    "jobs",
+                    "describe",
+                    job_name,
+                    "--project",
+                    ctx.project_id,
+                    "--location",
+                    ctx.scheduler_location,
+                ]
+            ).returncode
+            == 0
+            for job_name in direct_jobs
+        )
+    )
+    if dispatcher_job in legacy_jobs and not direct_jobs_exist:
+        legacy_jobs.remove(dispatcher_job)
+        print(
+            f"Keeping legacy Cloud Scheduler job {dispatcher_job} until direct monitor jobs exist."
+        )
+
+    for job_name in legacy_jobs:
         result = run_gcloud(
             [
                 "scheduler",
@@ -317,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("traffic", help="reconcile Cloud Run traffic")
     subparsers.add_parser(
-        "scheduler-cleanup", help="delete explicit legacy session-check scheduler jobs"
+        "scheduler-cleanup", help="delete explicit legacy scheduler jobs"
     )
     return parser
 
