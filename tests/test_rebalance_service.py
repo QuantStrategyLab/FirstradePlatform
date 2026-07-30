@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from application.firstrade_client import FirstradeCredentials
-from application.rebalance_service import _runtime_metadata_with_execution_policy, run_strategy_cycle
+from application.rebalance_service import (
+    _publish_cycle_notification,
+    _runtime_metadata_with_execution_policy,
+    run_strategy_cycle,
+)
 from notifications.telegram import I18N, build_translator, render_cycle_summary
 from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
 from runtime_config_support import PlatformRuntimeSettings
@@ -35,6 +39,17 @@ def _runtime_settings_with_persistence(**overrides) -> PlatformRuntimeSettings:
     values = dict(base.__dict__)
     values.update(overrides)
     return PlatformRuntimeSettings(**values)
+
+
+def test_publish_cycle_notification_propagates_delivery_failure():
+    sent = _publish_cycle_notification(
+        {"ok": False, "error": "execution failed"},
+        settings=_runtime_settings(),
+        notification_sender=lambda _message: False,
+        log_message=lambda _message: None,
+    )
+
+    assert sent is False
 
 
 def test_runtime_metadata_uses_platform_execution_policy_over_strategy_metadata():

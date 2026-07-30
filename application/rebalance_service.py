@@ -242,11 +242,19 @@ def _publish_cycle_notification(
         except TypeError:
             log_message(text)
 
+    delivery_sent = True
+
+    def send_and_capture(text: str) -> bool | None:
+        nonlocal delivery_sent
+        outcome = sender(text)
+        delivery_sent = outcome is not False
+        return outcome
+
     NotificationPublisher(
         log_message=publish_log,
-        send_message=sender,
+        send_message=send_and_capture,
     ).publish(RenderedNotification(detailed_text=message, compact_text=message))
-    return True
+    return delivery_sent
 
 
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
@@ -733,6 +741,8 @@ def run_strategy_cycle(
                 settings=settings,
                 notification_sender=notification_sender,
             )
+            if not result["notification_sent"]:
+                result["notification_error"] = "delivery_not_acknowledged"
         except Exception as exc:
             result["notification_sent"] = False
             result["notification_error"] = f"{type(exc).__name__}: {exc}"
