@@ -2,8 +2,31 @@ from __future__ import annotations
 
 import subprocess
 import datetime as dt
+import json
 
 from scripts import execution_report_heartbeat as heartbeat
+
+
+def test_required_services_skip_disabled_runtime_targets(monkeypatch):
+    for name in (
+        "RUNTIME_HEARTBEAT_REQUIRED_SERVICES",
+        "CLOUD_RUN_SERVICES",
+        "CLOUD_RUN_SERVICE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(
+        "CLOUD_RUN_SERVICE_TARGETS_JSON",
+        json.dumps(
+            {
+                "targets": [
+                    {"service": "firstrade-enabled-service", "RUNTIME_TARGET_ENABLED": "true"},
+                    {"service": "firstrade-disabled-service", "RUNTIME_TARGET_ENABLED": "false"},
+                ]
+            }
+        ),
+    )
+
+    assert heartbeat._load_required_services() == ["firstrade-enabled-service"]
 
 
 def test_report_globs_include_sanitized_month_segments(monkeypatch):
@@ -136,3 +159,19 @@ def test_heartbeat_does_not_skip_when_lookback_includes_scheduler_day(monkeypatc
     )
 
     assert reason is None
+
+
+def test_report_with_failed_notification_delivery_is_rejected():
+    accepted, reason = heartbeat._is_accepted_report(
+        {
+            "status": "ok",
+            "summary": {
+                "notification_sent": False,
+                "notification_suppressed": False,
+                "notification_error": "delivery_not_acknowledged",
+            },
+        }
+    )
+
+    assert accepted is False
+    assert "notification delivery failed" in reason
