@@ -116,6 +116,37 @@ def strategy_run_history_key(
     )
 
 
+def strategy_run_claim_key(
+    *, account: str, strategy_profile: str, run_period: str,
+) -> str:
+    """Permanent live claim key; a failed/unknown submission must remain blocked."""
+    return (
+        f"strategy-runs/claims/{safe_key(account)}/{safe_key(strategy_profile)}/"
+        f"{safe_key(run_period)}.json"
+    )
+
+
+def claim_live_strategy_run(
+    *, store: GcsStateStore, account: str, strategy_profile: str,
+    run_period: str, now: datetime | None = None,
+) -> bool:
+    """Acquire the durable pre-order claim using object-store create-if-absent."""
+    payload = {
+        "stage": "PENDING_SUBMISSION",
+        "account": account,
+        "strategy_profile": strategy_profile,
+        "run_period": run_period,
+        "as_of": (now or utcnow()).isoformat(),
+        "no_order_submitted": True,
+    }
+    return store.create_json(
+        strategy_run_claim_key(
+            account=account, strategy_profile=strategy_profile, run_period=run_period,
+        ),
+        payload,
+    )
+
+
 def read_latest_strategy_run_state(
     *,
     store: GcsStateStore,

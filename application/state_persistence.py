@@ -70,6 +70,15 @@ class GcsStateStore:
             raise StatePersistenceError(f"GCS write failed for {key}: {exc}") from exc
         return True
 
+    def create_json(self, key: str, payload: dict[str, Any]) -> bool:
+        """Atomically create a JSON object; return False if it already exists."""
+        uri = self._object_uri(key)
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        try:
+            return bool(_object_store().create_text(uri, data, content_type="application/json"))
+        except Exception as exc:
+            raise StatePersistenceError(f"GCS atomic create failed for {key}: {exc}") from exc
+
 
 def build_gcs_state_store_from_env(
     env: Callable[[str, str | None], str | None] = os.getenv,
