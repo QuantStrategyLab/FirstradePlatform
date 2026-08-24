@@ -134,6 +134,8 @@ class ExecutionCycleResult:
     submitted_orders: tuple[dict[str, Any], ...]
     skipped_orders: tuple[dict[str, Any], ...]
     action_done: bool
+    broker_submission_done: bool = False
+    pending_reconciliation: bool = False
     execution_notes: tuple[dict[str, Any], ...] = ()
 
 
@@ -939,9 +941,20 @@ def execute_value_target_plan(
     )
     execution_notes = tuple(execution_notes) + tuple(drift_notes)
 
+    pending_statuses = {"accepted", "submitted", "partiallyfilled"}
+    completed_statuses = {"previewed", "filled"}
+    order_statuses = {
+        "".join(ch for ch in str(order.get("status") or "").strip().lower() if ch.isalnum())
+        for order in submitted
+    }
+    pending_reconciliation = bool(order_statuses & pending_statuses)
+    action_done = bool(submitted) and not pending_reconciliation and order_statuses <= completed_statuses
+
     return ExecutionCycleResult(
         submitted_orders=tuple(submitted),
         skipped_orders=tuple(skipped),
-        action_done=bool(submitted),
+        action_done=action_done,
+        broker_submission_done=pending_reconciliation,
+        pending_reconciliation=pending_reconciliation,
         execution_notes=execution_notes,
     )

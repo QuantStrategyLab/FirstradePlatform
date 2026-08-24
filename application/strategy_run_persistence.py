@@ -191,6 +191,9 @@ def build_strategy_run_state(
     skipped_orders: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     execution_notes: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     action_done: bool = False,
+    broker_submission_done: bool = False,
+    execution_status: str = "",
+    orders_pending_count: int = 0,
     error: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -212,6 +215,9 @@ def build_strategy_run_state(
         "skipped_orders": list(skipped_orders),
         "execution_notes": list(execution_notes),
         "action_done": action_done,
+        "broker_submission_done": broker_submission_done,
+        "execution_status": str(execution_status or ""),
+        "orders_pending_count": max(0, int(orders_pending_count or 0)),
     }
     if error:
         payload["error"] = error
