@@ -903,11 +903,15 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
     )
 
     latest_payload = store.writes[-2][1]
-    assert result["action_done"] is True
+    assert result["action_done"] is False
+    assert result["broker_submission_done"] is True
+    assert result["execution_status"] == "pending_reconciliation"
+    assert result["orders_pending_count"] == 1
     assert result["ok"] is False
     assert result["execution_blocked"] is True
-    assert result["strategy_run_stage"] == "PARTIAL_SUBMITTED"
-    assert latest_payload["stage"] == "PARTIAL_SUBMITTED"
+    assert result["strategy_run_stage"] == "PENDING_RECONCILIATION"
+    assert latest_payload["stage"] == "PENDING_RECONCILIATION"
+    assert latest_payload["broker_submission_done"] is True
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
