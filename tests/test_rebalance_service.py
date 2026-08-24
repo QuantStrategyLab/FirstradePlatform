@@ -157,6 +157,12 @@ class FakeStateStore:
         self.writes.append((key, dict(payload)))
         return True
 
+    def create_json(self, key, payload):
+        if key in self.payloads:
+            return False
+        self.payloads[key] = dict(payload)
+        return True
+
 
 def _latest_strategy_run_payloads(store: FakeStateStore) -> list[dict]:
     return [payload for key, payload in store.writes if key.endswith("latest.json")]

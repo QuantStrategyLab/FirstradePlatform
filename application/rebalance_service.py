@@ -30,6 +30,7 @@ from application.signal_snapshot import build_signal_snapshot
 from application.state_persistence import GcsStateStore, build_gcs_state_store_from_env
 from application.strategy_run_persistence import (
     build_strategy_run_state,
+    claim_live_strategy_run,
     is_duplicate_live_run,
     persist_strategy_run_state,
     read_latest_strategy_run_state,
@@ -512,13 +513,26 @@ def run_strategy_cycle(
     masked_account = mask_account_id(account)
     existing_run = None
     if persist_strategy_runs and not settings.dry_run_only:
+        claim_acquired = claim_live_strategy_run(
+            store=store,
+            account=masked_account,
+            strategy_profile=strategy_runtime.profile,
+            run_period=run_period,
+            now=now,
+        )
         existing_run = read_latest_strategy_run_state(
             store=store,
             account=masked_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
         )
-        if is_duplicate_live_run(existing_run):
+        if not claim_acquired and existing_run is None:
+            existing_run = {
+                "stage": "PENDING_SUBMISSION",
+                "as_of": now.isoformat(),
+                "claim_only": True,
+            }
+        if not claim_acquired or is_duplicate_live_run(existing_run):
             duplicate_stage = str(existing_run.get("stage") or "NO_ACTION")
             duplicate_skipped_orders = [
                 {
