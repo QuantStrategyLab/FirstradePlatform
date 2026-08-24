@@ -29,6 +29,7 @@ def _object_store():
 class GcsStateStore:
     bucket: str
     prefix: str = "firstrade-platform"
+    client_factory: Callable[..., Any] | None = None
 
     def __post_init__(self) -> None:
         if not str(self.bucket or "").strip():
@@ -74,8 +75,27 @@ class GcsStateStore:
         """Atomically create a JSON object; return False if it already exists."""
         uri = self._object_uri(key)
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        bucket_name, separator, object_name = uri[5:].partition("/")
+        if not separator or not bucket_name or not object_name:
+            raise StatePersistenceError(f"Invalid GCS state URI for {key}")
         try:
-            return bool(_object_store().create_text(uri, data, content_type="application/json"))
+            from google.api_core.exceptions import Conflict, PreconditionFailed
+            from google.cloud import storage
+
+            factory = self.client_factory or storage.Client
+            try:
+                client = factory()
+            except TypeError:
+                client = factory(project=None)
+            blob = client.bucket(bucket_name).blob(object_name)
+            blob.upload_from_string(
+                data,
+                content_type="application/json",
+                if_generation_match=0,
+            )
+            return True
+        except (Conflict, PreconditionFailed):
+            return False
         except Exception as exc:
             raise StatePersistenceError(f"GCS atomic create failed for {key}: {exc}") from exc
 
