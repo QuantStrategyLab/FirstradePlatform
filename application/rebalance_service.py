@@ -660,11 +660,15 @@ def run_strategy_cycle(
     execution_blocked = bool(blocking_skips)
     funding_blocked = is_terminal_funding_block(blocking_skips)
     terminal_funding_block = funding_blocked and not execution_result.action_done
-    strategy_run_stage = resolve_strategy_run_stage(
-        dry_run_only=settings.dry_run_only,
-        execution_blocked=execution_blocked,
-        terminal_funding_block=terminal_funding_block,
-        action_done=execution_result.action_done,
+    strategy_run_stage = (
+        "PENDING_RECONCILIATION"
+        if execution_result.pending_reconciliation
+        else resolve_strategy_run_stage(
+            dry_run_only=settings.dry_run_only,
+            execution_blocked=execution_blocked,
+            terminal_funding_block=terminal_funding_block,
+            action_done=execution_result.action_done,
+        )
     )
     signal_snapshot = build_signal_snapshot(
         platform="firstrade",
@@ -698,6 +702,13 @@ def run_strategy_cycle(
         "skipped_orders": skipped_orders,
         "execution_notes": execution_notes,
         "action_done": execution_result.action_done,
+        "broker_submission_done": execution_result.broker_submission_done,
+        "execution_status": (
+            "pending_reconciliation" if execution_result.pending_reconciliation else ""
+        ),
+        "orders_pending_count": (
+            len(submitted_orders) if execution_result.pending_reconciliation else 0
+        ),
     }
     if execution_blocked:
         result["execution_blocked"] = True
@@ -737,6 +748,9 @@ def run_strategy_cycle(
             skipped_orders=list(execution_result.skipped_orders),
             execution_notes=list(execution_result.execution_notes),
             action_done=execution_result.action_done,
+            broker_submission_done=execution_result.broker_submission_done,
+            execution_status=result["execution_status"],
+            orders_pending_count=result["orders_pending_count"],
             now=now,
         )
         try:
@@ -772,6 +786,9 @@ def run_strategy_cycle(
         {
             "platform": "firstrade",
             "action_done": result.get("action_done"),
+            "broker_submission_done": result.get("broker_submission_done"),
+            "execution_status": result.get("execution_status"),
+            "orders_pending_count": result.get("orders_pending_count"),
             "strategy_run_stage": result.get("strategy_run_stage"),
             "dry_run_only": settings.dry_run_only,
             "submitted_orders": result.get("submitted_orders"),

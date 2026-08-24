@@ -43,6 +43,19 @@ class FakeExecutionPort:
         )
 
 
+class SubmittedExecutionPort(FakeExecutionPort):
+    def submit_order(self, order_intent) -> ExecutionReport:
+        self.orders.append(order_intent)
+        return ExecutionReport(
+            symbol=order_intent.symbol,
+            side=order_intent.side,
+            quantity=order_intent.quantity,
+            status="submitted",
+            broker_order_id=f"OID-{len(self.orders)}",
+            raw_payload={},
+        )
+
+
 def test_execute_value_target_plan_sells_before_buys_and_caps_order_notional():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(
@@ -69,6 +82,29 @@ def test_execute_value_target_plan_sells_before_buys_and_caps_order_notional():
     assert execution_port.orders[0].limit_price == 9.95
     assert execution_port.orders[1].limit_price == 10.05
     assert all(order.metadata["max_notional_usd"] == 25.0 for order in execution_port.orders)
+
+
+def test_execute_value_target_plan_marks_live_submissions_pending_reconciliation():
+    execution_port = SubmittedExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"AAA": 20.0}},
+            "portfolio": {
+                "market_values": {"AAA": 0.0},
+                "sellable_quantities": {"AAA": 0.0},
+                "liquid_cash": 100.0,
+            },
+            "execution": {"current_min_trade": 5.0, "investable_cash": 100.0},
+        },
+        market_data_port=FakeMarketDataPort({"AAA": 10.0}),
+        execution_port=execution_port,
+        dry_run_only=False,
+    )
+
+    assert result.action_done is False
+    assert result.broker_submission_done is True
+    assert result.pending_reconciliation is True
+    assert len(result.submitted_orders) == 1
 
 
 def test_execute_value_target_plan_uses_sellable_quantity_when_market_value_is_stale_below_quote():
