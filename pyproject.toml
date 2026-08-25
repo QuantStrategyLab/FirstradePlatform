@@ -18,8 +18,8 @@ dependencies = [
     "pytest",
     "pytz",
     "requests",
-    "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@68276cb9507773e2a29ac9579bed3adb7e077daf",
-    "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@4c174934d8a3eaeb3152ea6b11559e015f78ee9a",
+    "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@54d4ba901ae4e72e09c143c051747b900de55022",
+    "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@cec2a6a7aac02bd06ff9c83703b14c61166b245a",
 ]
 license = "MIT"
 authors = [
@@ -82,5 +82,5 @@ show_missing = true
 
 [tool.uv]
 override-dependencies = [
-  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@68276cb9507773e2a29ac9579bed3adb7e077daf",
+  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@54d4ba901ae4e72e09c143c051747b900de55022",
 ]
