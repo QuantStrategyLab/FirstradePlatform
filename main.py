@@ -20,6 +20,10 @@ from application.firstrade_client import (
     is_live_trading_enabled,
     mask_account_id,
 )
+from application.paper_execution_admission import (
+    evaluate_paper_dry_run_admission,
+    paper_dry_run_admission_requested,
+)
 from application.rebalance_service import run_strategy_cycle
 from application.session_check_service import run_session_check
 from notifications.telegram import build_sender
@@ -384,6 +388,17 @@ def _run_strategy_cycle_with_report(
         raise
 
 
+def _evaluate_paper_dry_run_admission() -> dict[str, object] | None:
+    """Load only release identity needed for an opt-in pre-preview gate."""
+    if not paper_dry_run_admission_requested(os.environ):
+        return None
+    try:
+        runtime_target = _runtime_settings(dry_run_override=True).runtime_target
+    except (EnvironmentError, ValueError):
+        runtime_target = None
+    return evaluate_paper_dry_run_admission(runtime_target=runtime_target, env=os.environ)
+
+
 @app.get("/")
 def service_info():
     return jsonify(
@@ -542,13 +557,29 @@ def dry_run():
     if skip_for_market and skip_payload is not None:
         return jsonify(skip_payload), 200
     try:
-        return jsonify(
-            _run_strategy_cycle_with_report(
-                dry_run_override=True,
-                send_cycle_notification=False,
-                dispatch_plugin_alerts=False,
+        admission_audit = _evaluate_paper_dry_run_admission()
+        if admission_audit is not None and admission_audit["status"] != "admitted":
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "status": "blocked",
+                        "action_done": False,
+                        "submitted_orders": [],
+                        "skipped_orders": [{"reason": "paper_execution_admission_blocked"}],
+                        "paper_execution_admission": admission_audit,
+                    }
+                ),
+                409,
             )
+        result = _run_strategy_cycle_with_report(
+            dry_run_override=True,
+            send_cycle_notification=False,
+            dispatch_plugin_alerts=False,
         )
+        if admission_audit is not None:
+            result = {**result, "paper_execution_admission": admission_audit}
+        return jsonify(result)
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
         notification_attempted = _handle_strategy_run_exception(exc)
         return (

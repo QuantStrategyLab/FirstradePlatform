@@ -77,6 +77,34 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     assert response.get_json() == {"ok": True, "action_done": False}
 
 
+def test_dry_run_admission_blocks_before_strategy_cycle(monkeypatch):
+    monkeypatch.setenv("QSL_PAPER_ADMISSION_ENABLED", "true")
+    monkeypatch.setattr(
+        main,
+        "_evaluate_paper_dry_run_admission",
+        lambda: {
+            "status": "blocked",
+            "audit_color": "red",
+            "integrity_findings": ["paper_execution_command_missing"],
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("strategy cycle must not run")),
+    )
+    client = main.app.test_client()
+
+    response = client.post("/dry-run")
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["status"] == "blocked"
+    assert payload["action_done"] is False
+    assert payload["submitted_orders"] == []
+    assert payload["paper_execution_admission"]["audit_color"] == "red"
+
+
 def test_run_endpoint_skips_when_market_closed(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.setattr(
