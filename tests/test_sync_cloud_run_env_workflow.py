@@ -3,6 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def test_sync_cloud_run_env_workflow_requires_manual_dispatch():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "workflow_run:" not in workflow
+    assert "if: github.event_name == 'workflow_dispatch'" in workflow
+
+
 def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
