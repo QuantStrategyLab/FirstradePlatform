@@ -8,11 +8,14 @@ import traceback
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request
 
 from quant_platform_kit.common.health import register_health_endpoint
+from quant_platform_kit.common.execution_commands import build_execution_command_store_from_env
 from quant_platform_kit.common.platform_runner import dispatch_due_monitors, load_monitor_targets
+from quant_platform_kit.common.strategy_release import build_runtime_loaded_receipt
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -24,7 +27,12 @@ from application.paper_execution_admission import (
     evaluate_paper_dry_run_admission,
     paper_dry_run_admission_requested,
 )
+from application.paper_execution_command_consumer import (
+    consume_due_paper_execution_commands,
+    resolve_paper_execution_command_consumer_enabled,
+)
 from application.rebalance_service import run_strategy_cycle
+from application.runtime_broker_adapters import build_runtime_broker_adapters
 from application.session_check_service import run_session_check
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
@@ -40,6 +48,7 @@ from runtime_config_support import (
     load_platform_runtime_settings,
 )
 from strategy_registry import get_platform_profile_status_matrix
+from strategy_runtime import load_strategy_runtime
 
 MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
 MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
@@ -399,6 +408,141 @@ def _evaluate_paper_dry_run_admission() -> dict[str, object] | None:
     return evaluate_paper_dry_run_admission(runtime_target=runtime_target, env=os.environ)
 
 
+def _paper_command_consumer_session_date() -> str:
+    return datetime.now(ZoneInfo(MARKET_TIMEZONE)).date().isoformat()
+
+
+def _paper_command_consumer_runtime_is_isolated(settings: PlatformRuntimeSettings) -> bool:
+    """Require an explicitly disabled, cash-only paper runtime."""
+
+    runtime_target = settings.runtime_target
+    return bool(
+        runtime_target is not None
+        and settings.dry_run_only
+        and not settings.runtime_target_enabled
+        and settings.cash_only_execution
+        and str(getattr(runtime_target, "execution_mode", "") or "").strip().lower() == "paper"
+    )
+
+
+def run_paper_execution_command_consumer() -> dict[str, object]:
+    """Verify due paper commands through read-only Firstrade account evidence.
+
+    This function is intentionally outside ``run_strategy_cycle``. It creates
+    neither an execution port nor a stock-order request, and opens the
+    Firstrade session only after the shared consumer accepts the release and
+    exact platform/account/strategy delivery binding.
+    """
+
+    settings = _runtime_settings()
+    if not _paper_command_consumer_runtime_is_isolated(settings):
+        raise RuntimeError(
+            "paper command consumer requires RUNTIME_TARGET_ENABLED=false, "
+            "FIRSTRADE_DRY_RUN_ONLY=true, a paper runtime target, and cash-only execution"
+        )
+    if not resolve_paper_execution_command_consumer_enabled(
+        env_reader=os.getenv,
+        dry_run_only=settings.dry_run_only,
+    ):
+        raise RuntimeError("paper command consumer is not enabled")
+    requested_account = str(os.getenv("FIRSTRADE_ACCOUNT") or "").strip()
+    if not requested_account:
+        raise RuntimeError("paper command consumer requires an explicit FIRSTRADE_ACCOUNT")
+
+    runtime_target = settings.runtime_target
+    expected_release = getattr(runtime_target, "strategy_release", None)
+    expected_binding = {
+        "platform": "firstrade",
+        "account_scope": str(getattr(runtime_target, "account_scope", "") or "unknown"),
+        "strategy_profile": str(getattr(runtime_target, "strategy_profile", "") or "unknown"),
+    }
+    store = build_execution_command_store_from_env(
+        platform_env_prefix="FIRSTRADE",
+        env_reader=os.getenv,
+        project_id=settings.project_id or get_project_id(),
+    )
+    if not store.cloud_prefix_uri and not store.local_dir:
+        raise RuntimeError("Firstrade paper command consumer requires an execution command store")
+    strategy_runtime = load_strategy_runtime(
+        settings.strategy_profile,
+        runtime_settings=settings,
+        logger=lambda message: print(message, flush=True),
+    )
+    managed_symbols = tuple(strategy_runtime.managed_symbols)
+    if not managed_symbols:
+        raise RuntimeError("Firstrade paper command consumer requires configured managed symbols")
+
+    report = _build_runtime_report(settings, dry_run=True)
+    broker_adapters = None
+    market_data_port = None
+
+    def _broker_adapters():
+        nonlocal broker_adapters
+        if broker_adapters is None:
+            credentials = FirstradeCredentials.from_env()
+            client = FirstradeBrokerClient(
+                credentials,
+                live_trading_enabled=False,
+            ).connect()
+            account = client.select_account(requested_account)
+            broker_adapters = build_runtime_broker_adapters(
+                client=client,
+                account=account,
+                strategy_symbols=managed_symbols,
+                account_hash=mask_account_id(account),
+                live_orders=False,
+                live_order_ack=False,
+                cash_only_execution=True,
+            )
+        return broker_adapters
+
+    def _load_portfolio():
+        return _broker_adapters().build_reconciled_paper_portfolio_snapshot()
+
+    def _load_quote(symbol: str):
+        nonlocal market_data_port
+        if market_data_port is None:
+            market_data_port = _broker_adapters().build_market_data_port()
+        return market_data_port.get_quote(symbol)
+
+    try:
+        result = consume_due_paper_execution_commands(
+            store=store,
+            as_of_session=_paper_command_consumer_session_date(),
+            claimant=_service_name(),
+            portfolio_loader=_load_portfolio,
+            quote_loader=_load_quote,
+            managed_symbols=managed_symbols,
+            runtime_release_receipt=build_runtime_loaded_receipt(
+                strategy_release=expected_release,
+            ),
+            expected_strategy_release=expected_release,
+            expected_command_binding=expected_binding,
+        )
+        finalize_runtime_report(
+            report,
+            status="ok" if result.get("status") == "ok" else "skipped",
+            summary={"paper_execution_command_consumer": result},
+        )
+        return result
+    except Exception as exc:
+        append_runtime_report_error(
+            report,
+            stage="paper_execution_command_consumer",
+            message=_safe_exception_text(exc),
+            error_type=type(exc).__name__,
+        )
+        finalize_runtime_report(report, status="error")
+        raise
+    finally:
+        try:
+            report_path = _persist_runtime_report(report)
+            if report_path:
+                print(f"execution_report {report_path}", flush=True)
+        except Exception as persist_exc:
+            print(f"failed to persist execution report: {persist_exc}", flush=True)
+
+
 @app.get("/")
 def service_info():
     return jsonify(
@@ -580,6 +724,38 @@ def dry_run():
         if admission_audit is not None:
             result = {**result, "paper_execution_admission": admission_audit}
         return jsonify(result)
+    except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
+        notification_attempted = _handle_strategy_run_exception(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": _safe_exception_text(exc),
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
+    except Exception as exc:
+        notification_attempted = _handle_strategy_run_exception(exc)
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": _safe_exception_text(exc, include_type=True),
+                    "runtime_error_notification_attempted": notification_attempted,
+                }
+            ),
+            500,
+        )
+
+
+@app.post("/paper-command-consumer")
+def paper_execution_command_consumer():
+    """Manual-only endpoint for isolated paper command reconciliation."""
+
+    try:
+        return jsonify(run_paper_execution_command_consumer())
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
         notification_attempted = _handle_strategy_run_exception(exc)
         return (

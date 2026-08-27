@@ -30,6 +30,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/smoke": ["GET"],
         "/run": ["GET", "POST"],
         "/dry-run": ["GET", "POST"],
+        "/paper-command-consumer": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["GET", "POST"],
         "/static/<path:filename>": ["GET"],

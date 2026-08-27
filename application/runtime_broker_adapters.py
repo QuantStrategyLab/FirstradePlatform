@@ -327,6 +327,66 @@ class FirstradeBrokerAdapters:
             },
         )
 
+    def build_reconciled_paper_portfolio_snapshot(self) -> PortfolioSnapshot:
+        """Read complete, current account evidence for delayed paper commands.
+
+        The normal strategy snapshot intentionally filters to its managed
+        symbols.  A delayed-command consumer must instead see every position:
+        an unmanaged or malformed holding is a reason to reject the command,
+        not a reason to silently omit it.  This method is read-only and lives
+        beside the normal snapshot so no ordinary execution behavior changes.
+        """
+
+        balances = self.client.get_balances(self.account)
+        positions_payload = self.client.get_positions(self.account)
+        positions: list[Position] = []
+        for row in iter_position_rows(positions_payload):
+            raw_symbol = get_first(row, "symbol", "ticker", "security_symbol")
+            if not raw_symbol:
+                raise ValueError("Firstrade reconciliation received a position without a symbol.")
+            symbol = self.normalize_symbol(raw_symbol)
+            quantity = float_or_none(get_first(row, "quantity", "shares", "qty"))
+            market_value = float_or_none(
+                get_first(row, "market_value", "marketValue", "value", "current_value")
+            )
+            if quantity is None or market_value is None:
+                raise ValueError(
+                    f"Firstrade reconciliation requires quantity and current market value for {symbol}."
+                )
+            if quantity == 0.0:
+                continue
+            positions.append(
+                Position(
+                    symbol=symbol,
+                    quantity=quantity,
+                    market_value=market_value,
+                    average_cost=float_or_none(
+                        get_first(row, "average_cost", "avg_cost", "cost_basis", "averagePrice")
+                    ),
+                    currency="USD",
+                    account_id=mask_account_id(self.account),
+                )
+            )
+        cash_balance = _first_numeric_by_keyword_groups(balances, _CASH_BALANCE_KEYWORD_GROUPS)
+        if cash_balance is None:
+            raise ValueError("Firstrade reconciliation requires a current cash balance.")
+        total_equity = float(cash_balance) + sum(float(position.market_value) for position in positions)
+        return PortfolioSnapshot(
+            as_of=self.clock(),
+            total_equity=total_equity,
+            cash_balance=float(cash_balance),
+            buying_power=float(cash_balance),
+            positions=tuple(positions),
+            metadata={
+                "broker": "firstrade",
+                "account_hash": self.account_hash or mask_account_id(self.account),
+                "api_kind": "unofficial-reverse-engineered",
+                "cash_only_execution": True,
+                "market_currency_cash": float(cash_balance),
+                "reconciliation_source": "firstrade_current_balances_and_positions",
+            },
+        )
+
     def build_portfolio_port(self) -> PortfolioPort:
         return CallablePortfolioPort(self.build_portfolio_snapshot)
 

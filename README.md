@@ -54,7 +54,7 @@ uv run --no-sync python scripts/check_qpk_pin_consistency.py
 
 ## Useful docs
 
-- No separate `docs/` directory yet; start with this README and the workflow files.
+- [Isolated paper command consumer](docs/paper_execution_command_consumer.md)
 
 ## Community and security
 
