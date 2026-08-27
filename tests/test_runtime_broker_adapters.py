@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 
 
@@ -96,6 +98,46 @@ def test_managed_portfolio_snapshot_ignores_full_account_value_balance_key():
     assert portfolio.total_equity == 221.0
     assert [position.symbol for position in portfolio.positions] == ["SPY"]
     assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
+
+
+def test_reconciled_paper_snapshot_keeps_unmanaged_positions_for_fail_closed_review():
+    class MultiPositionClient(FakeClient):
+        def get_balances(self, _account):
+            return {"cash_balance": "20.00"}
+
+        def get_positions(self, _account):
+            return {
+                "items": [
+                    {"symbol": "SPY", "quantity": "2", "market_value": "21.00"},
+                    {"symbol": "AAPL", "quantity": "3", "market_value": "300.00"},
+                ]
+            }
+
+    adapters = build_runtime_broker_adapters(
+        client=MultiPositionClient(),
+        account="12345678",
+        strategy_symbols=("SPY",),
+    )
+
+    snapshot = adapters.build_reconciled_paper_portfolio_snapshot()
+
+    assert [position.symbol for position in snapshot.positions] == ["SPY", "AAPL"]
+    assert snapshot.total_equity == 341.0
+    assert snapshot.metadata["reconciliation_source"] == "firstrade_current_balances_and_positions"
+
+
+def test_reconciled_paper_snapshot_requires_current_market_value():
+    class IncompletePositionClient(FakeClient):
+        def get_positions(self, _account):
+            return {"items": [{"symbol": "SPY", "quantity": "2"}]}
+
+    adapters = build_runtime_broker_adapters(
+        client=IncompletePositionClient(),
+        account="12345678",
+    )
+
+    with pytest.raises(ValueError, match="current market value"):
+        adapters.build_reconciled_paper_portfolio_snapshot()
 
 
 def test_portfolio_snapshot_falls_back_to_cash_when_total_value_missing():
