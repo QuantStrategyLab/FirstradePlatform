@@ -37,7 +37,7 @@ jobs:
       id-token: write
     env:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
-      CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       CLOUD_SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION }}
     steps:
       - name: Validate inputs
