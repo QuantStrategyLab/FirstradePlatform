@@ -215,6 +215,28 @@ jobs:
           project_id: ${{ env.GCP_PROJECT_ID }}
           version: ">= 416.0.0"
 
+      - name: Set up Python for strategy requirement resolution
+        if: steps.deploy_config.outputs.enabled == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install strategy status dependencies
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip uv
+          uv sync --frozen --no-dev
+
+      - name: Verify deployed runtime target admission before traffic shift
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          uv run --no-sync python scripts/verify_deployed_runtime_target_admission.py \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${CLOUD_RUN_REGION}" \
+            --service="${CLOUD_RUN_SERVICE}"
+
 
       - name: Build, push, and deploy Cloud Run image
         if: steps.deploy_config.outputs.enabled == 'true'
@@ -257,18 +279,6 @@ jobs:
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python for strategy requirement resolution
-        if: steps.env_sync_config.outputs.enabled == 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install strategy status dependencies
-        if: steps.env_sync_config.outputs.enabled == 'true'
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip uv
-          uv sync --frozen --no-dev
       - name: Resolve Cloud Run sync targets
         id: strategy_requirements
         if: steps.env_sync_config.outputs.enabled == 'true'
