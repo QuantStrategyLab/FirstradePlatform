@@ -34,6 +34,7 @@ jobs:
     env:
       ENABLE_GITHUB_CLOUD_RUN_DEPLOY: ${{ vars.ENABLE_GITHUB_CLOUD_RUN_DEPLOY }}
       ENABLE_GITHUB_ENV_SYNC: ${{ vars.ENABLE_GITHUB_ENV_SYNC }}
+      CLOUD_RUN_CLEANUP_ENABLED: ${{ vars.CLOUD_RUN_CLEANUP_ENABLED }}
       ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION: ${{ vars.ENABLE_MAIN_PUSH_CLOUD_RUN_AUTOMATION }}
       QSL_ENABLE_CLOUD_RUN_AUTOMATION: ${{ vars.QSL_ENABLE_CLOUD_RUN_AUTOMATION }}
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
@@ -362,7 +363,7 @@ jobs:
           fi
 
       - name: Wait for Cloud Run deployment of current commit
-        if: steps.env_sync_config.outputs.enabled == 'true'
+        if: steps.deploy_config.outputs.enabled == 'true' && steps.env_sync_config.outputs.enabled == 'true'
         run: |
           set -euo pipefail
 
@@ -988,7 +989,7 @@ jobs:
           python scripts/reconcile_cloud_runtime.py scheduler-cleanup
 
       - name: Clean up old Cloud Run revisions and images
-        if: steps.deploy_config.outputs.enabled == 'true'
+        if: steps.deploy_config.outputs.enabled == 'true' && env.CLOUD_RUN_CLEANUP_ENABLED == 'true'
         run: |
           set -euo pipefail
 
