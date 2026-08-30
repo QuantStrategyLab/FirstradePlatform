@@ -24,7 +24,7 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     assert "Cloud Run sync target {service_name} is missing env" in workflow
     assert (
         "CLOUD_RUN_SERVICE_TARGETS_JSON: "
-        "${{ secrets.CLOUD_RUN_SERVICE_TARGETS_JSON }}"
+        "${{ vars.CLOUD_RUN_SERVICE_TARGETS_JSON || secrets.CLOUD_RUN_SERVICE_TARGETS_JSON }}"
     ) in workflow
 
     for name in (
