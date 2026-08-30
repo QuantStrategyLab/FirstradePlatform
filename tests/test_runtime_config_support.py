@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from runtime_config_support import (
@@ -168,6 +170,32 @@ def test_invalid_income_layer_start_usd_is_rejected(monkeypatch):
 def test_runtime_target_enabled_loads_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
     monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "false")
+
+    settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
+
+    assert settings.runtime_target_enabled is False
+
+
+def test_live_continuity_paused_state_disables_standard_execution(monkeypatch):
+    runtime_target = {
+        "platform_id": "firstrade",
+        "strategy_profile": "ibit_smart_dca",
+        "dry_run_only": False,
+        "execution_mode": "live",
+        "live_continuity": {
+            "state": "PAUSED",
+            "baseline_kind": "legacy_authorized",
+            "baseline_id": "ibit-firstrade-lkg-20260830",
+            "baseline_target_sha256": "a" * 64,
+            "captured_at": "2026-08-30",
+        },
+    }
+    from quant_platform_kit.common.live_continuity import runtime_target_fingerprint
+
+    runtime_target["live_continuity"]["baseline_target_sha256"] = runtime_target_fingerprint(runtime_target)
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", json.dumps(runtime_target))
+    monkeypatch.setenv("FIRSTRADE_DRY_RUN_ONLY", "false")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
 
     settings = load_platform_runtime_settings(project_id_resolver=lambda: "project-1")
 
