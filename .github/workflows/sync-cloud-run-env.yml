@@ -52,7 +52,9 @@ jobs:
       FIRSTRADE_MFA_EMAIL_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_EMAIL_SECRET_NAME }}
       FIRSTRADE_MFA_PHONE_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_PHONE_SECRET_NAME }}
       FIRSTRADE_MFA_CODE_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_CODE_SECRET_NAME }}
-      RUNTIME_TARGET_JSON: ${{ secrets.RUNTIME_TARGET_JSON }}
+      # This is validated deployment intent, not credential material. Prefer the
+      # control-plane variable while retaining a legacy-secret fallback during migration.
+      RUNTIME_TARGET_JSON: ${{ vars.RUNTIME_TARGET_JSON || secrets.RUNTIME_TARGET_JSON }}
       ACCOUNT_PREFIX: ${{ vars.ACCOUNT_PREFIX }}
       ACCOUNT_REGION: ${{ vars.ACCOUNT_REGION }}
       FIRSTRADE_ACCOUNT: ${{ vars.FIRSTRADE_ACCOUNT }}
