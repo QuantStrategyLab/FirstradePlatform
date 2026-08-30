@@ -38,6 +38,7 @@ jobs:
       id-token: write
     env:
       RUNTIME_HEARTBEAT_NAME: FirstradePlatform
+      RUNTIME_HEARTBEAT_REPORT_PLATFORM: firstrade
       RUNTIME_HEARTBEAT_LOOKBACK_HOURS: ${{ inputs.lookback_hours || vars.RUNTIME_HEARTBEAT_LOOKBACK_HOURS || '36' }}
       RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT: ${{ inputs.fail_workflow_on_alert || vars.RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT || 'true' }}
       RUNTIME_HEARTBEAT_ACCEPT_STAGES: ${{ vars.RUNTIME_HEARTBEAT_ACCEPT_STAGES }}
