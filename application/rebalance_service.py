@@ -31,8 +31,10 @@ from application.state_persistence import GcsStateStore, build_gcs_state_store_f
 from application.strategy_run_persistence import (
     build_strategy_run_state,
     claim_live_strategy_run,
+    has_effective_live_submission_claim,
     is_duplicate_live_run,
     persist_strategy_run_state,
+    read_live_strategy_run_claim,
     read_latest_strategy_run_state,
     resolve_strategy_run_period,
 )
@@ -41,7 +43,7 @@ from notifications.telegram import build_sender, build_translator, render_cycle_
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
     filter_execution_blocking_skips,
-    is_terminal_funding_block,
+    is_funding_block,
     resolve_strategy_run_stage,
 )
 from quant_platform_kit.common.runtime_inputs import (
@@ -259,6 +261,8 @@ def _publish_cycle_notification(
 
 
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
+    if result.get("notification_suppressed_by_policy"):
+        return False
     if result.get("submitted_orders"):
         return True
     if result.get("error") or result.get("ok") is False:
@@ -513,27 +517,22 @@ def run_strategy_cycle(
     masked_account = mask_account_id(account)
     existing_run = None
     if persist_strategy_runs and not settings.dry_run_only:
-        claim_acquired = claim_live_strategy_run(
-            store=store,
-            account=masked_account,
-            strategy_profile=strategy_runtime.profile,
-            run_period=run_period,
-            now=now,
-        )
         existing_run = read_latest_strategy_run_state(
             store=store,
             account=masked_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
         )
-        if not claim_acquired and existing_run is None:
-            existing_run = {
-                "stage": "PENDING_SUBMISSION",
-                "as_of": now.isoformat(),
-                "claim_only": True,
-            }
-        if not claim_acquired or is_duplicate_live_run(existing_run):
-            duplicate_stage = str(existing_run.get("stage") or "NO_ACTION")
+        existing_submission_claim = read_live_strategy_run_claim(
+            store=store,
+            account=masked_account,
+            strategy_profile=strategy_runtime.profile,
+            run_period=run_period,
+        )
+        claim_blocks_repeat = has_effective_live_submission_claim(existing_submission_claim)
+        if claim_blocks_repeat or is_duplicate_live_run(existing_run):
+            existing_state = dict(existing_run or {})
+            duplicate_stage = str(existing_state.get("stage") or "PENDING_SUBMISSION")
             duplicate_skipped_orders = [
                 {
                     "reason": "duplicate_live_strategy_run",
@@ -559,17 +558,18 @@ def run_strategy_cycle(
                 now=now,
             )
             duplicate_state["idempotency_skipped"] = True
-            duplicate_state["existing_strategy_run_stage"] = existing_run.get("stage")
-            duplicate_state["existing_strategy_run_as_of"] = existing_run.get("as_of")
-            try:
-                strategy_run_persisted = persist_strategy_run_state(
-                    store=store,
-                    state=duplicate_state,
-                    now=now,
-                )
-            except Exception as exc:
-                strategy_run_persisted = False
-                strategy_run_persistence_error = f"{type(exc).__name__}: {exc}"
+            duplicate_state["existing_strategy_run_stage"] = existing_state.get("stage")
+            duplicate_state["existing_strategy_run_as_of"] = existing_state.get("as_of")
+            if not claim_blocks_repeat:
+                try:
+                    strategy_run_persisted = persist_strategy_run_state(
+                        store=store,
+                        state=duplicate_state,
+                        now=now,
+                    )
+                except Exception as exc:
+                    strategy_run_persisted = False
+                    strategy_run_persistence_error = f"{type(exc).__name__}: {exc}"
             result = {
                 "ok": True,
                 "api_kind": "unofficial-reverse-engineered",
@@ -583,8 +583,9 @@ def run_strategy_cycle(
                 "strategy_run_stage": duplicate_stage,
                 "strategy_run_persisted": strategy_run_persisted,
                 "idempotency_skipped": True,
-                "existing_strategy_run_stage": existing_run.get("stage"),
-                "existing_strategy_run_as_of": existing_run.get("as_of"),
+                "submission_claim_blocks_repeat": claim_blocks_repeat,
+                "existing_strategy_run_stage": existing_state.get("stage"),
+                "existing_strategy_run_as_of": existing_state.get("as_of"),
                 "submitted_orders": [],
                 "skipped_orders": duplicate_skipped_orders,
                 "action_done": False,
@@ -636,6 +637,22 @@ def run_strategy_cycle(
         except Exception as exc:
             strategy_run_persisted = False
             strategy_run_persistence_error = f"{type(exc).__name__}: {exc}"
+
+    submission_claim_acquired = False
+
+    def acquire_submission_claim() -> bool:
+        nonlocal submission_claim_acquired
+        if submission_claim_acquired:
+            return True
+        submission_claim_acquired = claim_live_strategy_run(
+            store=store,
+            account=masked_account,
+            strategy_profile=strategy_runtime.profile,
+            run_period=run_period,
+            now=now,
+        )
+        return submission_claim_acquired
+
     execution_result = execute_value_target_plan(
         plan=plan,
         market_data_port=market_data_port,
@@ -649,24 +666,80 @@ def run_strategy_cycle(
         cash_only_execution=settings.cash_only_execution,
         notional_buy_execution=notional_buy_execution_enabled(settings.strategy_profile),
         fetch_order_status=lambda broker_order_id: client.get_order_status(account, broker_order_id),
+        before_live_submission=(
+            acquire_submission_claim
+            if persist_strategy_runs and not settings.dry_run_only
+            else None
+        ),
     )
+    if execution_result.idempotency_blocked:
+        existing_run = read_latest_strategy_run_state(
+            store=store,
+            account=masked_account,
+            strategy_profile=strategy_runtime.profile,
+            run_period=run_period,
+        ) or {
+            "stage": "PENDING_SUBMISSION",
+            "as_of": now.isoformat(),
+            "claim_only": True,
+        }
+        result = {
+            "ok": True,
+            "api_kind": "unofficial-reverse-engineered",
+            "account": account,
+            "strategy_profile": strategy_runtime.profile,
+            "strategy_display_name": strategy_runtime.display_name,
+            "dry_run_only": settings.dry_run_only,
+            "live_trading_enabled": settings.live_trading_enabled,
+            "session_reused": bool(getattr(client, "session_reused", False)),
+            "strategy_run_period": run_period,
+            "strategy_run_stage": str(existing_run.get("stage") or "PENDING_SUBMISSION"),
+            "strategy_run_persisted": strategy_run_persisted,
+            "idempotency_skipped": True,
+            "existing_strategy_run_stage": existing_run.get("stage"),
+            "existing_strategy_run_as_of": existing_run.get("as_of"),
+            "submitted_orders": [],
+            "skipped_orders": list(execution_result.skipped_orders),
+            "action_done": False,
+            **empty_strategy_plugin_alert_report_fields(),
+        }
+        if strategy_run_persistence_error:
+            result["strategy_run_persistence_error"] = strategy_run_persistence_error
+        return attach_strategy_plugin_result(
+            result,
+            signals=strategy_plugin_signals,
+            error=strategy_plugin_error,
+            translator=translator,
+        )
     submitted_orders = list(execution_result.submitted_orders)
     skipped_orders = list(execution_result.skipped_orders)
     execution_notes = list(execution_result.execution_notes)
+    decision_diagnostics = dict(getattr(evaluation.decision, "diagnostics", {}) or {})
+    strategy_funding_shortfall = (
+        not submitted_orders
+        and str(
+            decision_diagnostics.get("dca_skip_reason")
+            or decision_diagnostics.get("skip_reason")
+            or ""
+        ).strip().lower()
+        == "insufficient_cash"
+    )
+    if strategy_funding_shortfall:
+        skipped_orders.append({"reason": "insufficient_cash"})
     blocking_skips = filter_execution_blocking_skips(
         skipped_orders,
         blocking_reasons=BROKER_EXECUTION_BLOCKING_SKIP_REASONS,
     )
     execution_blocked = bool(blocking_skips)
-    funding_blocked = is_terminal_funding_block(blocking_skips)
-    terminal_funding_block = funding_blocked and not execution_result.action_done
+    funding_blocked = is_funding_block(blocking_skips)
+    funding_block = funding_blocked and not execution_result.action_done
     strategy_run_stage = (
         "PENDING_RECONCILIATION"
         if execution_result.pending_reconciliation
         else resolve_strategy_run_stage(
             dry_run_only=settings.dry_run_only,
             execution_blocked=execution_blocked,
-            terminal_funding_block=terminal_funding_block,
+            terminal_funding_block=funding_block,
             action_done=execution_result.action_done,
         )
     )
@@ -712,11 +785,14 @@ def run_strategy_cycle(
     }
     if execution_blocked:
         result["execution_blocked"] = True
-        result["execution_block_retryable"] = not terminal_funding_block
+        result["execution_block_retryable"] = not submission_claim_acquired
         result["execution_blocking_skips"] = blocking_skips
         result["error"] = "Strategy execution blocked; see execution_blocking_skips."
     if funding_blocked:
         result["funding_blocked"] = True
+        if str((existing_run or {}).get("stage") or "").upper() == "FUNDING_BLOCKED":
+            result["notification_suppressed_by_policy"] = True
+            result["notification_suppressed_reason"] = "repeat_funding_blocked"
     if strategy_run_persistence_error:
         result["strategy_run_persistence_error"] = strategy_run_persistence_error
     if strategy_plugin_alert_result is not None:
@@ -744,9 +820,9 @@ def run_strategy_cycle(
             portfolio_snapshot=plan.get("portfolio", {}),
             evaluation_metadata=getattr(evaluation, "metadata", None),
             plan=plan,
-            submitted_orders=list(execution_result.submitted_orders),
-            skipped_orders=list(execution_result.skipped_orders),
-            execution_notes=list(execution_result.execution_notes),
+            submitted_orders=submitted_orders,
+            skipped_orders=skipped_orders,
+            execution_notes=execution_notes,
             action_done=execution_result.action_done,
             broker_submission_done=execution_result.broker_submission_done,
             execution_status=result["execution_status"],
@@ -777,7 +853,7 @@ def run_strategy_cycle(
     elif send_cycle_notification:
         result["notification_sent"] = False
         result["notification_suppressed"] = True
-        result["notification_suppressed_reason"] = "no_trade_or_error"
+        result.setdefault("notification_suppressed_reason", "no_trade_or_error")
     else:
         result["notification_sent"] = False
         result["notification_suppressed"] = True

@@ -26,6 +26,13 @@ FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实
 - 凭据必须放在 GitHub Secrets、云密钥系统或券商专用密钥系统中，不能提交到 Git。
 - 任何 live 下单路径启用前，都应先从 dry-run 或 paper mode 开始。
 
+## 实盘重试边界
+
+运行时只会重试**从未向券商发出订单请求**的周期，例如暂时拿不到报价或可用现金不足。第一次
+真实券商请求前会写入持久化、仅创建一次的提交锁；因此已被券商受理、拒绝、待处理、超时或结果
+未知的请求都不会自动重发。资金不足只提醒一次，并会在受限的调度退避或策略窗口内的下一次运行时
+再次检查。
+
 ## 普通 profile 与 snapshot-backed profile
 
 普通 runtime profile 通常可以直接基于 market history 或 portfolio state 执行。Snapshot-backed profile 需要先从对应 snapshot pipeline 获取当前 artifact bundle，平台才应该执行。平台不应该自行判断策略资格，而应消费策略仓和 snapshot 仓发布的状态与产物。

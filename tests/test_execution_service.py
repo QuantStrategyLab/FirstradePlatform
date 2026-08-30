@@ -107,6 +107,37 @@ def test_execute_value_target_plan_marks_live_submissions_pending_reconciliation
     assert len(result.submitted_orders) == 1
 
 
+def test_execute_value_target_plan_stops_before_broker_call_when_submission_claim_is_taken():
+    execution_port = FakeExecutionPort()
+    claim_attempts = []
+
+    def reject_submission_claim() -> bool:
+        claim_attempts.append(True)
+        return False
+
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"AAA": 20.0}},
+            "portfolio": {
+                "market_values": {"AAA": 0.0},
+                "sellable_quantities": {"AAA": 0.0},
+                "liquid_cash": 100.0,
+            },
+            "execution": {"current_min_trade": 5.0, "investable_cash": 100.0},
+        },
+        market_data_port=FakeMarketDataPort({"AAA": 10.0}),
+        execution_port=execution_port,
+        dry_run_only=False,
+        before_live_submission=reject_submission_claim,
+    )
+
+    assert claim_attempts == [True]
+    assert execution_port.orders == []
+    assert result.idempotency_blocked is True
+    assert result.submitted_orders == ()
+    assert result.skipped_orders == ({"symbol": "AAA", "reason": "duplicate_live_strategy_run"},)
+
+
 def test_execute_value_target_plan_uses_sellable_quantity_when_market_value_is_stale_below_quote():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(

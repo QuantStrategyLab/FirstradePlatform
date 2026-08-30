@@ -1,5 +1,7 @@
 from application.strategy_run_persistence import (
     claim_live_strategy_run,
+    has_effective_live_submission_claim,
+    read_live_strategy_run_claim,
     strategy_run_claim_key,
 )
 from application.state_persistence import GcsStateStore
@@ -14,6 +16,9 @@ class AtomicFakeStore:
             return False
         self.payloads[key] = dict(payload)
         return True
+
+    def read_json(self, key):
+        return self.payloads.get(key)
 
 
 def test_live_claim_is_create_only_and_permanent():
@@ -32,6 +37,12 @@ def test_live_claim_is_create_only_and_permanent():
     )
     assert store.payloads[key]["stage"] == "PENDING_SUBMISSION"
     assert store.payloads[key]["no_order_submitted"] is True
+    assert has_effective_live_submission_claim(store.payloads[key]) is True
+    assert read_live_strategy_run_claim(**kwargs) == store.payloads[key]
+
+
+def test_legacy_early_claim_is_not_an_effective_submission_boundary():
+    assert has_effective_live_submission_claim({"stage": "PENDING_SUBMISSION"}) is False
 
 
 def test_gcs_state_store_create_json_uses_generation_zero_precondition():

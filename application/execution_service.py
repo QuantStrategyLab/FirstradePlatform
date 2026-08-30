@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import floor
+from collections.abc import Callable
 from typing import Any
 
 from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
@@ -137,6 +138,7 @@ class ExecutionCycleResult:
     broker_submission_done: bool = False
     pending_reconciliation: bool = False
     execution_notes: tuple[dict[str, Any], ...] = ()
+    idempotency_blocked: bool = False
 
 
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
@@ -644,6 +646,7 @@ def execute_value_target_plan(
     cash_only_execution: bool = True,
     notional_buy_execution: bool = False,
     fetch_order_status=None,
+    before_live_submission: Callable[[], bool] | None = None,
 ) -> ExecutionCycleResult:
     del dry_run_only  # ExecutionPort owns preview vs live submission.
     plan = substitute_small_safe_haven_targets_with_cash(
@@ -702,6 +705,24 @@ def execute_value_target_plan(
     submitted_sell_orders: list[dict[str, Any]] = []
     sell_submitted = False
 
+    def _submission_claim_unavailable(symbol: str) -> ExecutionCycleResult:
+        skipped.append(
+            {
+                "symbol": symbol,
+                "reason": "duplicate_live_strategy_run",
+            }
+        )
+        return ExecutionCycleResult(
+            submitted_orders=tuple(submitted),
+            skipped_orders=tuple(skipped),
+            action_done=False,
+            execution_notes=tuple(execution_notes),
+            idempotency_blocked=True,
+        )
+
+    def _may_submit_live_order() -> bool:
+        return before_live_submission is None or bool(before_live_submission())
+
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):
         target_value = float(targets.get(symbol, 0.0))
@@ -749,6 +770,8 @@ def execute_value_target_plan(
                 )
                 continue
             sell_limit_price = price * float(limit_sell_discount)
+            if not _may_submit_live_order():
+                return _submission_claim_unavailable(symbol)
             order_result = _submit_order(
                 execution_port,
                 symbol=symbol,
@@ -855,6 +878,8 @@ def execute_value_target_plan(
                     }
                 )
                 continue
+            if not _may_submit_live_order():
+                return _submission_claim_unavailable(symbol)
             order_result = _submit_notional_buy_order(
                 execution_port,
                 symbol=symbol,
@@ -903,6 +928,8 @@ def execute_value_target_plan(
                     }
                 )
             continue
+        if not _may_submit_live_order():
+            return _submission_claim_unavailable(symbol)
         order_result = _submit_order(
             execution_port,
             symbol=symbol,
