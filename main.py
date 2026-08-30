@@ -32,6 +32,10 @@ from application.paper_execution_command_consumer import (
     resolve_paper_execution_command_consumer_enabled,
 )
 from application.rebalance_service import run_strategy_cycle
+from application.execution_receipt_adapter import (
+    attach_strategy_result_execution_receipt,
+    attach_unknown_failure_execution_receipt,
+)
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 from application.session_check_service import run_session_check
 from notifications.telegram import build_sender
@@ -367,6 +371,7 @@ def _run_strategy_cycle_with_report(
             send_cycle_notification=send_cycle_notification,
             dispatch_plugin_alerts=dispatch_plugin_alerts,
         )
+        attach_strategy_result_execution_receipt(report, result, dry_run=dry_run)
         finalize_runtime_report(
             report,
             status="ok" if result.get("ok", True) else "error",
@@ -387,6 +392,7 @@ def _run_strategy_cycle_with_report(
             message=str(exc),
             error_type=type(exc).__name__,
         )
+        attach_unknown_failure_execution_receipt(report)
         finalize_runtime_report(report, status="error")
         try:
             report_path = _persist_runtime_report(report)
