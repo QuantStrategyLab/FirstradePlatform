@@ -120,6 +120,7 @@ jobs:
         id: execution_heartbeat
         env:
           RUNTIME_HEARTBEAT_NAME: FirstradePlatform lifecycle
+          RUNTIME_HEARTBEAT_REPORT_PLATFORM: firstrade
           RUNTIME_HEARTBEAT_REQUIRED_SERVICES: ${{ secrets.CLOUD_RUN_SERVICE }}
           RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT: "true"
         run: |
