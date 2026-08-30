@@ -780,7 +780,7 @@ def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_sta
     assert latest_payload["stage"] == "EXECUTION_BLOCKED"
 
 
-def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch):
+def test_run_strategy_cycle_retries_live_funding_block_after_cash_arrives(monkeypatch):
     store = FakeStateStore()
     settings = _runtime_settings_with_persistence(
         dry_run_only=False,
@@ -790,9 +790,17 @@ def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch)
         max_order_notional_usd=None,
     )
 
+    available_cash = {"value": "50.00"}
+    observed_clients = []
+    messages = []
+
     class FundingBlockedClient(FakeFirstradeClient):
         def get_balances(self, _account):
-            return {"total_value": "150.00", "cash": "50.00", "buying_power": "50.00"}
+            return {
+                "total_value": "150.00",
+                "cash": available_cash["value"],
+                "buying_power": available_cash["value"],
+            }
 
         def get_quote(self, _account, symbol):
             return {"symbol": symbol, "last": "100.00", "bid": "99.90", "ask": "100.10"}
@@ -815,11 +823,17 @@ def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch)
         lambda *_args, **_kwargs: FundingBlockedRuntime(),
     )
 
+    def funding_blocked_client_factory(*args, **kwargs):
+        client = FundingBlockedClient(*args, **kwargs)
+        observed_clients.append(client)
+        return client
+
     result = run_strategy_cycle(
         runtime_settings=settings,
         credentials=FirstradeCredentials(username="user", password="pass"),
-        client_factory=FundingBlockedClient,
+        client_factory=funding_blocked_client_factory,
         state_store=store,
+        notification_sender=messages.append,
         env_reader=lambda _name, default=None: default,
     )
 
@@ -827,32 +841,69 @@ def test_run_strategy_cycle_persists_live_funding_block_as_terminal(monkeypatch)
     assert result["action_done"] is False
     assert result["ok"] is False
     assert result["execution_blocked"] is True
-    assert result["execution_block_retryable"] is False
+    assert result["execution_block_retryable"] is True
     assert result["funding_blocked"] is True
     assert result["strategy_run_stage"] == "FUNDING_BLOCKED"
     assert result["skipped_orders"][0]["reason"] == "insufficient_cash_for_whole_share"
     assert latest_payload["stage"] == "FUNDING_BLOCKED"
+    assert not [key for key in store.payloads if key.startswith("strategy-runs/claims/")]
+    assert observed_clients[0].orders == []
+    assert result["notification_sent"] is True
+    assert len(messages) == 1
 
     write_count = len(store.writes)
-    second_result = run_strategy_cycle(
+    repeated_funding_result = run_strategy_cycle(
         runtime_settings=settings,
         credentials=FirstradeCredentials(username="user", password="pass"),
-        client_factory=FundingBlockedClient,
+        client_factory=funding_blocked_client_factory,
         state_store=store,
+        notification_sender=messages.append,
         env_reader=lambda _name, default=None: default,
     )
 
-    assert second_result["idempotency_skipped"] is True
-    assert second_result["existing_strategy_run_stage"] == "FUNDING_BLOCKED"
-    assert second_result["strategy_run_stage"] == "FUNDING_BLOCKED"
+    assert repeated_funding_result["funding_blocked"] is True
+    assert repeated_funding_result["notification_suppressed_reason"] == "repeat_funding_blocked"
+    assert repeated_funding_result["notification_sent"] is False
+    assert len(messages) == 1
+
+    available_cash["value"] = "150.00"
+    second_result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=funding_blocked_client_factory,
+        state_store=store,
+        notification_sender=messages.append,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert second_result.get("idempotency_skipped") is not True
+    assert second_result["broker_submission_done"] is True
+    assert second_result["strategy_run_stage"] == "PENDING_RECONCILIATION"
     assert second_result["strategy_run_persisted"] is True
-    assert len(store.writes) == write_count + 2
+    assert len(store.writes) == write_count + 8
+    assert second_result["submitted_orders"][0]["symbol"] == "AAA"
+    assert observed_clients[2].orders[0][1] is False
+    claim_keys = [key for key in store.payloads if key.startswith("strategy-runs/claims/")]
+    assert len(claim_keys) == 1
     latest_payloads = _latest_strategy_run_payloads(store)
-    duplicate_payload = latest_payloads[-1]
-    assert duplicate_payload["stage"] == "FUNDING_BLOCKED"
-    assert duplicate_payload["idempotency_skipped"] is True
-    assert duplicate_payload["existing_strategy_run_stage"] == "FUNDING_BLOCKED"
-    assert duplicate_payload["skipped_orders"][0]["reason"] == "duplicate_live_strategy_run"
+    assert latest_payloads[-1]["stage"] == "PENDING_RECONCILIATION"
+    assert len(messages) == 2
+
+    write_count_after_submission = len(store.writes)
+    after_submission_result = run_strategy_cycle(
+        runtime_settings=settings,
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=funding_blocked_client_factory,
+        state_store=store,
+        notification_sender=messages.append,
+        env_reader=lambda _name, default=None: default,
+    )
+
+    assert after_submission_result["idempotency_skipped"] is True
+    assert after_submission_result["submission_claim_blocks_repeat"] is True
+    assert after_submission_result["strategy_run_stage"] == "PENDING_RECONCILIATION"
+    assert observed_clients[3].orders == []
+    assert len(store.writes) == write_count_after_submission
 
 
 def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(monkeypatch):
@@ -1146,7 +1197,7 @@ def test_render_cycle_summary_shows_funding_blocked_banner():
             "strategy_display_name": "Russell Top50 Leader Rotation",
             "dry_run_only": False,
             "execution_blocked": True,
-            "execution_block_retryable": False,
+            "execution_block_retryable": True,
             "funding_blocked": True,
             "execution_blocking_skips": [
                 {"symbol": "NVDA", "reason": "insufficient_cash_for_whole_share"}
@@ -1168,7 +1219,7 @@ def test_render_cycle_summary_shows_funding_blocked_banner():
         lang="zh",
     )
 
-    assert "⚠️ 资金不足，本周期不再自动重试: NVDA（现金不足以买入一整股）" in message
+    assert "⚠️ 资金不足，已提醒；资金到账后将在窗口内自动重试: NVDA（现金不足以买入一整股）" in message
 
 
 def test_render_cycle_summary_shows_retryable_execution_blocked_banner():

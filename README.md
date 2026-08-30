@@ -26,6 +26,15 @@ It is an execution layer, not a strategy research repository. Strategy logic com
 - Must keep credentials in GitHub Secrets, cloud secret stores, or the broker-specific secret system, never in Git.
 - Should start with dry-run or paper mode before any live order path is enabled.
 
+## Live retry boundary
+
+The runtime retries only a cycle that made **no** broker-order request: for
+example, a temporary quote failure or insufficient settled cash. It writes a
+durable create-only claim immediately before the first live broker request, so
+an accepted, rejected, pending, timed-out, or otherwise unknown broker request
+is never sent again automatically. Funding blocks notify once and can retry on
+the bounded scheduler backoff or the next run inside the strategy window.
+
 ## Direct vs snapshot-backed profiles
 
 Direct runtime profiles can usually run from market history or portfolio state. Snapshot-backed profiles need a current artifact bundle from the matching snapshot pipeline before this platform should execute them. The platform should not invent strategy eligibility; it should consume the status and artifacts published by the strategy and snapshot repositories.

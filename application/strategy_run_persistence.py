@@ -21,6 +21,7 @@ LIVE_TERMINAL_STAGES = frozenset(
         STAGE_NO_ACTION,
     }
 )
+LIVE_SUBMISSION_CLAIM_BOUNDARY = "pre_broker_request_v2"
 
 
 def utcnow() -> datetime:
@@ -133,6 +134,7 @@ def claim_live_strategy_run(
     """Acquire the durable pre-order claim using object-store create-if-absent."""
     payload = {
         "stage": "PENDING_SUBMISSION",
+        "submission_claim_boundary": LIVE_SUBMISSION_CLAIM_BOUNDARY,
         "account": account,
         "strategy_profile": strategy_profile,
         "run_period": run_period,
@@ -144,6 +146,36 @@ def claim_live_strategy_run(
             account=account, strategy_profile=strategy_profile, run_period=run_period,
         ),
         payload,
+    )
+
+
+def read_live_strategy_run_claim(
+    *,
+    store: GcsStateStore,
+    account: str,
+    strategy_profile: str,
+    run_period: str,
+) -> dict[str, Any] | None:
+    return store.read_json(
+        strategy_run_claim_key(
+            account=account,
+            strategy_profile=strategy_profile,
+            run_period=run_period,
+        )
+    )
+
+
+def has_effective_live_submission_claim(claim: Mapping[str, Any] | None) -> bool:
+    """Return whether a claim was created at the current pre-order boundary.
+
+    Claims written before this boundary existed were acquired too early and do
+    not prove a broker request. Keeping them non-blocking avoids carrying a
+    historical no-order lock into the retryable lifecycle.
+    """
+
+    return (
+        str((claim or {}).get("submission_claim_boundary") or "").strip()
+        == LIVE_SUBMISSION_CLAIM_BOUNDARY
     )
 
 

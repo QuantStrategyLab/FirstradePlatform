@@ -138,7 +138,7 @@ def test_run_endpoint_skips_when_market_closed(monkeypatch):
     assert payload["submitted_orders"] == []
 
 
-def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
+def test_run_endpoint_returns_500_for_retryable_funding_block(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
     monkeypatch.setattr(
@@ -147,7 +147,7 @@ def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
         lambda **_kwargs: {
             "ok": False,
             "execution_blocked": True,
-            "execution_block_retryable": False,
+            "execution_block_retryable": True,
             "funding_blocked": True,
             "error": "Strategy execution blocked; see execution_blocking_skips.",
         },
@@ -156,10 +156,10 @@ def test_run_endpoint_returns_200_for_terminal_funding_block(monkeypatch):
 
     response = client.post("/run")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     payload = response.get_json()
     assert payload["funding_blocked"] is True
-    assert payload["execution_block_retryable"] is False
+    assert payload["execution_block_retryable"] is True
 
 
 def test_run_endpoint_returns_500_for_retryable_execution_block(monkeypatch):

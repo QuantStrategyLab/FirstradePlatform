@@ -295,7 +295,7 @@ def _strategy_result_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _strategy_result_http_status(result: dict[str, Any]) -> int:
-    if result.get("execution_blocked") and result.get("execution_block_retryable") and not result.get("funding_blocked"):
+    if result.get("execution_blocked") and result.get("execution_block_retryable"):
         return 500
     return 200
 

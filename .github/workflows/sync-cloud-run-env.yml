@@ -754,6 +754,10 @@ jobs:
               --uri="${scheduler_uri}" \
               --schedule="${desired_schedule}" \
               --time-zone="${market_timezone}" \
+              --max-retry-attempts=3 \
+              --min-backoff=300s \
+              --max-backoff=1800s \
+              --max-doublings=2 \
               --quiet
           else
             echo "Creating Cloud Scheduler job ${job_name} schedule ${desired_schedule}, timezone ${market_timezone}, and URI ${scheduler_uri}."
@@ -767,6 +771,10 @@ jobs:
               --schedule="${desired_schedule}" \
               --time-zone="${market_timezone}" \
               --attempt-deadline=600s \
+              --max-retry-attempts=3 \
+              --min-backoff=300s \
+              --max-backoff=1800s \
+              --max-doublings=2 \
               --quiet
           fi
 
