@@ -27,6 +27,7 @@ from quant_platform_kit.common.runtime_target import (
     build_runtime_target,
     resolve_runtime_target_from_env,
 )
+from quant_platform_kit.common.live_continuity import runtime_target_permits_standard_execution
 from strategy_registry import (
     FIRSTRADE_PLATFORM,
     resolve_strategy_definition,
@@ -189,7 +190,10 @@ def load_platform_runtime_settings(
         tg_token=_get_credential("firstrade-telegram-token", "TELEGRAM_TOKEN"),
         tg_chat_id=os.getenv("QSL_GLOBAL_TELEGRAM_CHAT_ID") or os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
-        runtime_target_enabled=_runtime_target_enabled_env(),
+        runtime_target_enabled=(
+            _runtime_target_enabled_env()
+            and runtime_target_permits_standard_execution(runtime_target)
+        ),
         cash_only_execution=resolve_cash_only_execution_env(
             os.environ,
             platform_env_prefix="FIRSTRADE",
