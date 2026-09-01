@@ -28,11 +28,11 @@ def test_cloud_run_route_contracts_are_registered():
         "/healthz": ["GET"],
         "/profiles": ["GET"],
         "/smoke": ["GET"],
-        "/run": ["GET", "POST"],
+        "/run": ["POST"],
         "/dry-run": ["GET", "POST"],
         "/paper-command-consumer": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
-        "/probe": ["GET", "POST"],
+        "/probe": ["POST"],
         "/static/<path:filename>": ["GET"],
     }
 
@@ -56,14 +56,57 @@ def test_health_route_returns_service_contract(monkeypatch):
     assert "as_of" in payload
 
 
-def test_run_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
-    monkeypatch.delenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", raising=False)
+@pytest.mark.parametrize("strategy_gate", [None, "false", "true"])
+@pytest.mark.parametrize("path", ["/run", "/probe"])
+def test_execution_routes_reject_get_without_runtime_calls(monkeypatch, strategy_gate, path):
+    if strategy_gate is None:
+        monkeypatch.delenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", raising=False)
+    else:
+        monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", strategy_gate)
+    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
+
+    def fail_runtime_call(*_args, **_kwargs):
+        pytest.fail("GET must not reach strategy, session, or broker runtime code")
+
+    monkeypatch.setattr(main, "_runtime_target_enabled_env", fail_runtime_call)
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", fail_runtime_call)
+    monkeypatch.setattr(main, "run_session_check", fail_runtime_call)
+    monkeypatch.setattr(main, "FirstradeBrokerClient", fail_runtime_call)
     client = main.app.test_client()
 
-    response = client.get("/run")
+    response = client.get(path)
+
+    assert response.status_code == 405
+    assert "POST" in response.headers["Allow"]
+
+
+@pytest.mark.parametrize(
+    ("path", "gate"),
+    [
+        ("/run", "FIRSTRADE_RUN_STRATEGY_ON_HTTP"),
+        ("/probe", "FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"),
+    ],
+)
+def test_execution_posts_still_require_explicit_http_gate(monkeypatch, path, gate):
+    monkeypatch.delenv(gate, raising=False)
+
+    def fail_runtime_call(*_args, **_kwargs):
+        pytest.fail("disabled POST must not reach strategy, session, or broker runtime code")
+
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", fail_runtime_call)
+    monkeypatch.setattr(main, "run_session_check", fail_runtime_call)
+    monkeypatch.setattr(main, "FirstradeBrokerClient", fail_runtime_call)
+
+    response = main.app.test_client().post(path)
 
     assert response.status_code == 403
     assert response.get_json()["ok"] is False
+
+
+def test_health_endpoint_remains_available_via_get():
+    response = main.app.test_client().get("/health")
+
+    assert response.status_code == 200
 
 
 def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
@@ -183,16 +226,6 @@ def test_run_endpoint_returns_500_for_retryable_execution_block(monkeypatch):
     payload = response.get_json()
     assert payload["execution_blocked"] is True
     assert payload["execution_block_retryable"] is True
-
-
-def test_probe_endpoint_is_disabled_without_explicit_http_gate(monkeypatch):
-    monkeypatch.delenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", raising=False)
-    client = main.app.test_client()
-
-    response = client.get("/probe")
-
-    assert response.status_code == 403
-    assert response.get_json()["ok"] is False
 
 
 def test_probe_endpoint_calls_service_when_gate_enabled(monkeypatch):
