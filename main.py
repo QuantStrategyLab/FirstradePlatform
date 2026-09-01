@@ -651,7 +651,6 @@ def session_check():
 
 
 @app.post("/run")
-@app.get("/run")
 def run_strategy():
     if not _flag("FIRSTRADE_RUN_STRATEGY_ON_HTTP"):
         return (
@@ -789,7 +788,6 @@ def paper_execution_command_consumer():
 
 
 @app.post("/probe")
-@app.get("/probe")
 def probe():
     return session_check()
 

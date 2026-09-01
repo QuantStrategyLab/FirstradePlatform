@@ -230,3 +230,38 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     assert direct_gate < workflow.index(
         'desired_precheck_schedule="$(CURRENT_SCHEDULE="${desired_schedule}"'
     )
+
+
+def test_sync_cloud_run_env_workflow_hardens_deploy_runtime_boundary():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    deploy_block = workflow[
+        workflow.index('gcloud run deploy "${CLOUD_RUN_SERVICE}"') : workflow.index(
+            "      - name: Check whether env sync is enabled"
+        )
+    ]
+
+    assert "--no-allow-unauthenticated" in deploy_block
+    assert "--allow-unauthenticated" not in deploy_block
+    assert "--ingress=internal" in deploy_block
+    assert "--max-instances=1" in deploy_block
+    assert "--concurrency=1" in deploy_block
+    assert "--concurrency=80" not in deploy_block
+
+
+def test_main_scheduler_update_and_create_are_authenticated_post_requests():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    scheduler_block = workflow[
+        workflow.index('scheduler_uri="${service_url}/run"') : workflow.index(
+            'managed_scheduler_jobs=("${job_name}")'
+        )
+    ]
+
+    assert scheduler_block.count('gcloud scheduler jobs update http "${job_name}"') == 1
+    assert scheduler_block.count('gcloud scheduler jobs create http "${job_name}"') == 1
+    assert scheduler_block.count("--http-method=POST") == 2
+    assert scheduler_block.count(
+        '--oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}"'
+    ) == 2
+    assert scheduler_block.count('--oidc-token-audience="${service_url}"') == 2

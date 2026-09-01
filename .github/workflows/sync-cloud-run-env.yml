@@ -260,9 +260,10 @@ jobs:
             --platform=managed \
             --image="${image}" \
             --service-account="${GCP_RUNTIME_SERVICE_ACCOUNT}" \
+            --no-allow-unauthenticated \
             --ingress=internal \
             --max-instances=1 \
-            --concurrency=80 \
+            --concurrency=1 \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300s \
@@ -756,6 +757,9 @@ jobs:
               --project="${GCP_PROJECT_ID}" \
               --location="${scheduler_location}" \
               --uri="${scheduler_uri}" \
+              --http-method=POST \
+              --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+              --oidc-token-audience="${service_url}" \
               --schedule="${desired_schedule}" \
               --time-zone="${market_timezone}" \
               --max-retry-attempts=3 \
