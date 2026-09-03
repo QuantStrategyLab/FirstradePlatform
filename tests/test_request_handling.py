@@ -31,6 +31,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/run": ["POST"],
         "/dry-run": ["GET", "POST"],
         "/paper-command-consumer": ["POST"],
+        "/reconcile": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["POST"],
         "/static/<path:filename>": ["GET"],
@@ -109,8 +110,77 @@ def test_health_endpoint_remains_available_via_get():
     assert response.status_code == 200
 
 
+def test_reconcile_disabled_before_runtime_or_client_context(monkeypatch):
+    monkeypatch.delenv("FIRSTRADE_BROKER_RECONCILIATION_ENABLED", raising=False)
+
+    def fail(*_args, **_kwargs):
+        pytest.fail("disabled reconciliation must not build runtime or broker context")
+
+    monkeypatch.setattr(main, "_runtime_settings", fail)
+    monkeypatch.setattr(main, "READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER", fail)
+
+    response = main.app.test_client().post("/reconcile")
+
+    assert response.status_code == 503
+    assert response.get_json() == {"status": "blocked", "reason": "broker_reconciliation_disabled"}
+
+
+def test_reconcile_enabled_returns_redacted_blocked_receipt(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("FIRSTRADE_BROKER_RECONCILIATION_ENABLED", "true")
+    monkeypatch.setattr(
+        main,
+        "_runtime_settings",
+        lambda: SimpleNamespace(
+            runtime_target=SimpleNamespace(
+                platform_id="firstrade",
+                strategy_profile="sample_profile",
+                account_scope="US",
+                live_continuity=SimpleNamespace(
+                    state="RECONCILE_ONLY",
+                    baseline_id="firstrade-baseline-001",
+                    baseline_target_sha256="2" * 64,
+                ),
+            ),
+            project_id=None,
+        ),
+    )
+
+    class FakeClient:
+        def account_numbers(self):
+            return ["account-sensitive-001"]
+
+        def select_account(self, requested_account=None):
+            return requested_account
+
+        def get_balances(self, _account):
+            return {"cash_balance": "100.25"}
+
+        def get_positions(self, _account):
+            return {"items": []}
+
+        def get_orders(self, _account, *, per_page=0):
+            assert per_page == 0
+            return []
+
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT", "account-sensitive-001")
+    monkeypatch.setattr(main, "READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER", FakeClient)
+    monkeypatch.setattr(main, "_read_only_execution_ledger_digest", lambda **_kwargs: ("7" * 64, 0))
+
+    response = main.app.test_client().post("/reconcile")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["permits_active_lkg"] is False
+    assert payload["expected_digests_configured"] is False
+    assert "account-sensitive-001" not in response.get_data(as_text=True)
+    assert "100.25" not in response.get_data(as_text=True)
+
+
 def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
     monkeypatch.setattr(main, "_run_strategy_cycle_with_report", lambda **_kwargs: {"ok": True, "action_done": False})
     client = main.app.test_client()
@@ -151,6 +221,7 @@ def test_dry_run_admission_blocks_before_strategy_cycle(monkeypatch):
 
 def test_run_endpoint_skips_when_market_closed(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setattr(
         main,
         "_should_skip_for_market_hours",
@@ -183,6 +254,7 @@ def test_run_endpoint_skips_when_market_closed(monkeypatch):
 
 def test_run_endpoint_returns_500_for_retryable_funding_block(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
     monkeypatch.setattr(
         main,
@@ -207,6 +279,7 @@ def test_run_endpoint_returns_500_for_retryable_funding_block(monkeypatch):
 
 def test_run_endpoint_returns_500_for_retryable_execution_block(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setattr(
         main,
         "_run_strategy_cycle_with_report",
@@ -293,6 +366,7 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
         return send
 
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
     monkeypatch.setenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", "plugin-token")
@@ -323,6 +397,7 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
 
 def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
     monkeypatch.setenv("NOTIFY_LANG", "zh")
@@ -354,6 +429,7 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
 
 def test_run_endpoint_redacts_sensitive_error_text(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
     sent_messages = []
@@ -389,6 +465,7 @@ def test_run_endpoint_redacts_sensitive_error_text(monkeypatch):
 
 def test_run_endpoint_error_does_not_require_telegram_config(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
     monkeypatch.delenv("GLOBAL_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", raising=False)

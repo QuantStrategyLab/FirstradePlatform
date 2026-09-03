@@ -59,7 +59,7 @@ def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
 
     assert settings.reserved_cash_floor_usd == 0.0
     assert settings.reserved_cash_ratio == 0.0
-    assert settings.runtime_target_enabled is True
+    assert settings.runtime_target_enabled is False
     assert settings.strategy_plugin_alert_channels == ()
     assert settings.strategy_plugin_alert_email_recipients == ()
     assert settings.strategy_plugin_alert_email_sender_email is None

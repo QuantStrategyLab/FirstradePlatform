@@ -37,6 +37,14 @@ from application.execution_receipt_adapter import (
     attach_unknown_failure_execution_receipt,
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
+from application.broker_reconciliation import (
+    FirstradeReconciliationUnavailable,
+    build_reconciliation_candidate,
+    collect_read_only_reconciliation_observations,
+    reconciliation_enabled,
+    validate_reconciliation_candidate,
+    validate_reconciliation_preconditions,
+)
 from application.session_check_service import run_session_check
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
@@ -59,6 +67,11 @@ MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
 
 app = Flask(__name__)
 register_health_endpoint(app)  # GET /health /healthz
+
+# There is intentionally no production builder here: the existing client login
+# path can create session artifacts. An explicitly injected ephemeral client is
+# required before this private read-only endpoint can contact the provider.
+READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = None
 
 _REDACTED = "<redacted>"
 _TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
@@ -416,6 +429,60 @@ def _evaluate_paper_dry_run_admission() -> dict[str, object] | None:
 
 def _paper_command_consumer_session_date() -> str:
     return datetime.now(ZoneInfo(MARKET_TIMEZONE)).date().isoformat()
+
+
+def _read_only_execution_ledger_digest(*, runtime_target: object, project_id: str | None) -> tuple[str, int]:
+    """Read the durable execution ledger without changing it."""
+
+    from quant_platform_kit.common.execution_state import build_execution_marker_store_from_env
+
+    store = build_execution_marker_store_from_env(
+        platform_env_prefix="FIRSTRADE",
+        env_reader=os.getenv,
+        project_id=project_id,
+    )
+    return store.calculate_recent_ledger_digest(
+        platform=str(getattr(runtime_target, "platform_id", "") or ""),
+        strategy_profile=str(getattr(runtime_target, "strategy_profile", "") or ""),
+        account_scope=str(getattr(runtime_target, "account_scope", "") or ""),
+        execution_mode="live",
+    )
+
+
+def _handle_reconciliation():
+    """Return a private, redacted, no-order reconciliation candidate only."""
+
+    if not reconciliation_enabled(os.getenv):
+        return jsonify({"status": "blocked", "reason": "broker_reconciliation_disabled"}), 503
+    try:
+        settings = _runtime_settings()
+        runtime_target = settings.runtime_target
+        validate_reconciliation_preconditions(
+            runtime_target=runtime_target,
+            client_builder=READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER,
+            env_reader=os.getenv,
+        )
+        requested_account = str(os.getenv("FIRSTRADE_ACCOUNT") or "").strip()
+        client = READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER()
+        observations = collect_read_only_reconciliation_observations(
+            client,
+            requested_account=requested_account,
+        )
+        candidate = build_reconciliation_candidate(
+            observations=observations,
+            runtime_target=runtime_target,
+            project_id=settings.project_id or get_project_id(),
+            ledger_digest_reader=lambda: _read_only_execution_ledger_digest(
+                runtime_target=runtime_target,
+                project_id=settings.project_id or get_project_id(),
+            ),
+            env_reader=os.getenv,
+        )
+        return jsonify(validate_reconciliation_candidate(candidate)), 200
+    except FirstradeReconciliationUnavailable:
+        return jsonify({"status": "blocked", "reason": "broker_reconciliation_unavailable"}), 503
+    except Exception:
+        return jsonify({"status": "blocked", "reason": "broker_reconciliation_unavailable"}), 503
 
 
 def _paper_command_consumer_runtime_is_isolated(settings: PlatformRuntimeSettings) -> bool:
@@ -785,6 +852,11 @@ def paper_execution_command_consumer():
             ),
             500,
         )
+
+
+@app.post("/reconcile")
+def reconcile():
+    return _handle_reconciliation()
 
 
 @app.post("/probe")
