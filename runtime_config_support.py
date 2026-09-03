@@ -71,7 +71,7 @@ class PlatformRuntimeSettings:
     live_order_ack: bool
     max_order_notional_usd: float | None
     strategy_metadata: Any = None
-    runtime_target_enabled: bool = True
+    runtime_target_enabled: bool = False
     cash_only_execution: bool = True
     reserved_cash_floor_usd: float = DEFAULT_RESERVED_CASH_FLOOR_USD
     reserved_cash_ratio: float = DEFAULT_RESERVED_CASH_RATIO
@@ -389,7 +389,7 @@ def _qqqi_income_ratio_env() -> float | None:
 
 def _runtime_target_enabled_env() -> bool:
     value = _optional_bool_env("RUNTIME_TARGET_ENABLED")
-    return True if value is None else value
+    return False if value is None else value
 
 
 def _optional_bool_env(name: str) -> bool | None:
