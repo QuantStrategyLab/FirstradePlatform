@@ -265,3 +265,30 @@ def test_main_scheduler_update_and_create_are_authenticated_post_requests():
         '--oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}"'
     ) == 2
     assert scheduler_block.count('--oidc-token-audience="${service_url}"') == 2
+
+
+def test_sync_cloud_run_env_workflow_is_fail_closed_and_no_traffic_by_default():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "expected_sha:" in workflow
+    assert "approved_ref:" in workflow
+    assert "allow_configuration_sync:" in workflow
+    assert "allow_traffic_promotion:" in workflow
+    assert "allow_cleanup:" in workflow
+    assert 'ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-true' not in workflow
+    assert 'ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-}' in workflow
+    assert 'git ls-remote --exit-code origin "${APPROVED_REF}"' in workflow
+    assert 'ref: ${{ inputs.expected_sha }}' in workflow
+
+    deploy_block = workflow[
+        workflow.index('gcloud run deploy "${CLOUD_RUN_SERVICE}"') : workflow.index(
+            "      - name: Check whether env sync is enabled"
+        )
+    ]
+    assert "--no-traffic" in deploy_block
+    assert "Capture read-only deployment baseline" in workflow
+    assert "Verify no-traffic deployment readback" in workflow
+    assert 'inputs.allow_configuration_sync }}" != "true"' in workflow
+    assert 'inputs.allow_traffic_promotion == true' in workflow
+    assert 'inputs.allow_cleanup == true' in workflow

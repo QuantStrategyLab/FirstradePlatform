@@ -2,6 +2,30 @@ name: Deploy Cloud Run
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Full commit SHA to deploy; must match the dispatched and approved branch head"
+        required: true
+        type: string
+      approved_ref:
+        description: "Fully qualified approved branch ref, for example refs/heads/main"
+        required: true
+        type: string
+      allow_configuration_sync:
+        description: "Also permit explicit env, secret, Scheduler, and IAM synchronization"
+        required: false
+        default: false
+        type: boolean
+      allow_traffic_promotion:
+        description: "Also permit explicit Cloud Run traffic promotion after configuration sync"
+        required: false
+        default: false
+        type: boolean
+      allow_cleanup:
+        description: "Also permit explicit revision and image cleanup"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -172,7 +196,7 @@ jobs:
             exit 0
           fi
 
-          if [ "${ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-true}" != "true" ]; then
+          if [ "${ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-}" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Skipping Cloud Run deploy because ENABLE_GITHUB_CLOUD_RUN_DEPLOY is not true." >&2
             exit 0
@@ -184,23 +208,46 @@ jobs:
         if: steps.deploy_config.outputs.enabled == 'true'
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.expected_sha }}
 
       - name: Validate deploy inputs
         if: steps.deploy_config.outputs.enabled == 'true'
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+          DISPATCH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
           missing_vars=()
-          for var_name in CLOUD_RUN_REGION CLOUD_RUN_SERVICE; do
+          for var_name in CLOUD_RUN_REGION CLOUD_RUN_SERVICE EXPECTED_SHA APPROVED_REF; do
             if [ -z "${!var_name:-}" ]; then
               missing_vars+=("${var_name}")
             fi
           done
-
           if [ "${#missing_vars[@]}" -gt 0 ]; then
-            echo "Cloud Run deploy is enabled, but these values are missing:" >&2
+            echo "Cloud Run deploy is enabled, but required values are missing:" >&2
             printf '  - %s\n' "${missing_vars[@]}" >&2
+            exit 1
+          fi
+          if ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          fi
+          case "${APPROVED_REF}" in
+            refs/heads/*) ;;
+            *)
+              echo "approved_ref must be a fully qualified branch ref." >&2
+              exit 1
+              ;;
+          esac
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          approved_sha="$(git ls-remote --exit-code origin "${APPROVED_REF}" | awk 'NR == 1 { print $1 }')"
+          if [ "${DISPATCH_SHA}" != "${EXPECTED_SHA}" ] \
+            || [ "${checked_out_sha}" != "${EXPECTED_SHA}" ] \
+            || [ "${approved_sha}" != "${EXPECTED_SHA}" ]; then
+            echo "The dispatched commit, checked-out commit, and approved ref must all match expected_sha." >&2
             exit 1
           fi
 
@@ -218,6 +265,24 @@ jobs:
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
           version: ">= 416.0.0"
+
+      - name: Capture read-only deployment baseline
+        id: deployment_baseline
+        if: steps.deploy_config.outputs.enabled == 'true'
+        env:
+          BASELINE_PATH: ${{ runner.temp }}/cloud-run-deployment-baseline.sha256
+        run: |
+          set -euo pipefail
+          summarize() {
+            "$@" | sha256sum | cut -d ' ' -f1
+          }
+          {
+            echo "traffic=$(summarize gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(status.traffic)')"
+            echo "config=$(summarize gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(spec.template.spec.serviceAccountName,spec.template.spec.containerConcurrency,spec.template.spec.timeoutSeconds,spec.template.spec.containers.resources,spec.template.spec.containers.env.name,spec.template.spec.containers.env.valueFrom.secretKeyRef.name)')"
+            echo "scheduler=$(summarize gcloud scheduler jobs list --project="${GCP_PROJECT_ID}" --location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}" --sort-by=name --format='json(name,state,schedule,timeZone,httpTarget.uri,httpTarget.httpMethod,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)')"
+            echo "iam=$(summarize gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(bindings.role,bindings.members)')"
+          } > "${BASELINE_PATH}"
+          echo "path=${BASELINE_PATH}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Python for strategy requirement resolution
         if: steps.deploy_config.outputs.enabled == 'true'
@@ -243,6 +308,7 @@ jobs:
 
 
       - name: Build, push, and deploy Cloud Run image
+        id: deploy_image
         if: steps.deploy_config.outputs.enabled == 'true'
         run: |
           set -euo pipefail
@@ -253,6 +319,14 @@ jobs:
           gcloud auth configure-docker "${GCP_ARTIFACT_REGISTRY_HOSTNAME}" --quiet
           docker build --pull -t "${image}" .
           docker push "${image}"
+          image_digest="$(gcloud artifacts docker images describe "${image}" \
+            --project="${GCP_PROJECT_ID}" \
+            --format='value(image_summary.digest)')"
+          if [ -z "${image_digest}" ]; then
+            echo "Unable to resolve the pushed image digest." >&2
+            exit 1
+          fi
+          echo "image_digest=${image_digest}" >> "${GITHUB_OUTPUT}"
 
           gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project="${GCP_PROJECT_ID}" \
@@ -268,7 +342,36 @@ jobs:
             --cpu=1 \
             --timeout=300s \
             --labels="managed-by=github-actions,commit-sha=${GITHUB_SHA},github-run-id=${GITHUB_RUN_ID}" \
+            --no-traffic \
             --quiet
+
+      - name: Verify no-traffic deployment readback
+        if: steps.deploy_config.outputs.enabled == 'true'
+        env:
+          BASELINE_PATH: ${{ steps.deployment_baseline.outputs.path }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_IMAGE_DIGEST: ${{ steps.deploy_image.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          summarize() { "$@" | sha256sum | cut -d ' ' -f1; }
+          traffic="$(awk -F= '$1 == "traffic" { print $2 }' "${BASELINE_PATH}")"
+          config="$(awk -F= '$1 == "config" { print $2 }' "${BASELINE_PATH}")"
+          scheduler="$(awk -F= '$1 == "scheduler" { print $2 }' "${BASELINE_PATH}")"
+          iam="$(awk -F= '$1 == "iam" { print $2 }' "${BASELINE_PATH}")"
+          revision_name="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(status.latestCreatedRevisionName)')"
+          ready_revision="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(status.latestReadyRevisionName)')"
+          revision_sha="$(gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(metadata.labels.commit-sha)')"
+          revision_image="$(gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(spec.containers.image)')"
+          [ "${revision_name}" = "${ready_revision}" ] && [ "${revision_sha}" = "${EXPECTED_SHA}" ] && [[ "${revision_image}" == *"${EXPECTED_IMAGE_DIGEST}"* ]]
+          [ "${traffic}" = "$(summarize gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(status.traffic)')" ]
+          [ "${config}" = "$(summarize gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(spec.template.spec.serviceAccountName,spec.template.spec.containerConcurrency,spec.template.spec.timeoutSeconds,spec.template.spec.containers.resources,spec.template.spec.containers.env.name,spec.template.spec.containers.env.valueFrom.secretKeyRef.name)')" ]
+          [ "${scheduler}" = "$(summarize gcloud scheduler jobs list --project="${GCP_PROJECT_ID}" --location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}" --sort-by=name --format='json(name,state,schedule,timeZone,httpTarget.uri,httpTarget.httpMethod,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)')" ]
+          [ "${iam}" = "$(summarize gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(bindings.role,bindings.members)')" ]
+          {
+            echo "## No-traffic deployment readback"
+            echo "- Revision commit SHA and image digest verified."
+            echo "- Traffic, configuration, Scheduler, and IAM summaries unchanged."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Check whether env sync is enabled
         id: env_sync_config
@@ -276,6 +379,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ "${{ inputs.allow_configuration_sync }}" != "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Cloud Run configuration sync because allow_configuration_sync is not true." >&2
+            exit 0
+          fi
           if [ "${ENABLE_GITHUB_ENV_SYNC:-}" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "Skipping Cloud Run env sync because ENABLE_GITHUB_ENV_SYNC is not true." >&2
@@ -619,7 +727,7 @@ jobs:
           gcloud "${gcloud_args[@]}"
 
       - name: Reconcile Cloud Run traffic
-        if: steps.env_sync_config.outputs.enabled == 'true'
+        if: steps.env_sync_config.outputs.enabled == 'true' && inputs.allow_traffic_promotion == true
         env:
           SYNC_PLAN_JSON: ${{ steps.strategy_requirements.outputs.sync_plan_json }}
         run: |
@@ -1015,7 +1123,7 @@ jobs:
           python scripts/reconcile_cloud_runtime.py scheduler-cleanup
 
       - name: Clean up old Cloud Run revisions and images
-        if: steps.deploy_config.outputs.enabled == 'true' && env.CLOUD_RUN_CLEANUP_ENABLED == 'true'
+        if: steps.deploy_config.outputs.enabled == 'true' && inputs.allow_cleanup == true && env.CLOUD_RUN_CLEANUP_ENABLED == 'true'
         run: |
           set -euo pipefail
 
