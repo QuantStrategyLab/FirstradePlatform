@@ -11,7 +11,10 @@ from application.rebalance_service import (
     run_strategy_cycle,
 )
 from notifications.telegram import I18N, build_translator, render_cycle_summary
-from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import (
+    PositionTarget,
+    StrategyDecision,
+)
 from runtime_config_support import PlatformRuntimeSettings
 
 
