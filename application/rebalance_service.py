@@ -642,6 +642,10 @@ def run_strategy_cycle(
 
     def acquire_submission_claim() -> bool:
         nonlocal submission_claim_acquired
+        if not persist_strategy_runs:
+            raise ValueError(
+                "Live submission requires enabled strategy-run persistence and a durable state store."
+            )
         if submission_claim_acquired:
             return True
         submission_claim_acquired = claim_live_strategy_run(
@@ -668,7 +672,7 @@ def run_strategy_cycle(
         fetch_order_status=lambda broker_order_id: client.get_order_status(account, broker_order_id),
         before_live_submission=(
             acquire_submission_claim
-            if persist_strategy_runs and not settings.dry_run_only
+            if not settings.dry_run_only
             else None
         ),
     )

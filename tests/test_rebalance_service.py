@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from application.firstrade_client import FirstradeCredentials
 from application.rebalance_service import (
     _publish_cycle_notification,
@@ -169,6 +171,116 @@ class FakeStateStore:
 
 def _latest_strategy_run_payloads(store: FakeStateStore) -> list[dict]:
     return [payload for key, payload in store.writes if key.endswith("latest.json")]
+
+
+@pytest.fixture
+def live_cycle(monkeypatch):
+    client = FakeFirstradeClient(None, live_trading_enabled=True)
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 9, 5, tzinfo=timezone.utc),
+    )
+
+    def run(*, store=None, **overrides):
+        settings = dict(
+            dry_run_only=False, live_trading_enabled=True,
+            live_order_ack=True, persist_strategy_runs=True,
+        )
+        settings.update(overrides)
+        return run_strategy_cycle(
+            runtime_settings=_runtime_settings_with_persistence(**settings),
+            credentials=FirstradeCredentials(username="", password=""),
+            client_factory=lambda *_args, **_kwargs: client,
+            state_store=store,
+            env_reader=lambda _name, default=None: default,
+            send_cycle_notification=False,
+            dispatch_plugin_alerts=False,
+        )
+
+    return run, client
+
+
+@pytest.mark.parametrize("persist,has_store", [(True, False), (False, False), (False, True)])
+def test_live_submission_requires_enabled_persistence_and_store(live_cycle, persist, has_store):
+    run, client = live_cycle
+    store = FakeStateStore() if has_store else None
+    for _ in range(2):
+        with pytest.raises(ValueError, match="persistence"):
+            run(store=store, persist_strategy_runs=persist)
+    assert client.orders == []
+
+
+def test_live_noop_without_persistence_does_not_acquire_claim(live_cycle, monkeypatch):
+    run, client = live_cycle
+    monkeypatch.setattr(
+        "application.rebalance_service.map_strategy_decision_to_plan",
+        lambda *_args, **_kwargs: {
+            "allocation": {"targets": {}},
+            "portfolio": {},
+            "execution": {"current_min_trade": 1.0},
+        },
+    )
+    result = run(persist_strategy_runs=False)
+    assert result["ok"] is True
+    assert result["strategy_run_stage"] == "NO_ACTION"
+    assert client.orders == []
+
+
+def test_dry_run_without_persistence_only_previews(live_cycle, monkeypatch):
+    run, client = live_cycle
+
+    def unexpected_claim(**_kwargs):
+        pytest.fail("dry-run must not acquire a live claim")
+
+    monkeypatch.setattr("application.rebalance_service.claim_live_strategy_run", unexpected_claim)
+    result = run(dry_run_only=True, persist_strategy_runs=False)
+    assert result["strategy_run_stage"] == "DRY_RUN_COMPLETED"
+    assert client.orders
+    assert all(dry_run for _request, dry_run, _ack in client.orders)
+
+
+def test_accepted_timeout_retains_claim_and_blocks_repeat(live_cycle, monkeypatch):
+    run, client = live_cycle
+    store = FakeStateStore()
+    place_order = client.place_stock_order
+
+    def accepted_then_timeout(*args, **kwargs):
+        place_order(*args, **kwargs)
+        raise TimeoutError("synthetic submission timeout")
+
+    monkeypatch.setattr(client, "place_stock_order", accepted_then_timeout)
+    with pytest.raises(TimeoutError):
+        run(store=store)
+    claims = {key: dict(value) for key, value in store.payloads.items() if "/claims/" in key}
+    assert len(claims) == 1
+    repeated = run(store=store)
+    assert repeated["submission_claim_blocks_repeat"] is True
+    assert len(client.orders) == 1
+    assert all(store.payloads[key] == value for key, value in claims.items())
+
+
+def test_completed_write_failure_preserves_submission_and_blocks_repeat(live_cycle):
+    run, client = live_cycle
+
+    class CompletedWriteFailureStore(FakeStateStore):
+        def write_json(self, key, payload):
+            if payload.get("stage") == "PENDING_RECONCILIATION":
+                raise RuntimeError("synthetic completed-state write failure")
+            return super().write_json(key, payload)
+
+    store = CompletedWriteFailureStore()
+    result = run(store=store)
+    assert result["strategy_run_persisted"] is False
+    assert result["broker_submission_done"] is True
+    assert result["submitted_orders"][0]["status"] == "submitted"
+    assert result["strategy_run_stage"] == "PENDING_RECONCILIATION"
+    repeated = run(store=store)
+    assert repeated["submission_claim_blocks_repeat"] is True
+    assert len(client.orders) == 1
 
 
 def test_notification_i18n_keys_are_aligned():
