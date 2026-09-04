@@ -122,11 +122,11 @@ def test_stamp_portfolio_risk_metadata_calls_qpk_helper(monkeypatch):
     from unittest.mock import MagicMock
 
     from quant_platform_kit.common.models import PortfolioSnapshot
-    from quant_platform_kit.strategy_contracts import (
-        StrategyDecision,
-        StrategyManifest,
-        StrategyRuntimeAdapter,
-    )
+    from quant_platform_kit.common.strategy_contracts import (
+    StrategyDecision,
+    StrategyManifest,
+    StrategyRuntimeAdapter,
+)
     import strategy_runtime as strategy_runtime_module
 
     class _Entrypoint:

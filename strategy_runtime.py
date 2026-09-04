@@ -9,7 +9,7 @@ from quant_platform_kit.common.feature_snapshot_runtime import (
     FeatureSnapshotRuntimeSettings,
     evaluate_feature_snapshot_strategy,
 )
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     StrategyDecision,
     StrategyEntrypoint,
     StrategyRuntimeAdapter,

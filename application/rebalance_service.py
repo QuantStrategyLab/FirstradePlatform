@@ -63,7 +63,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
     build_strategy_plugin_alert_context_label as build_alert_context_label,
     publish_strategy_plugin_alerts as dispatch_strategy_plugin_alerts,
 )
-from quant_platform_kit.strategy_contracts import build_strategy_evaluation_inputs
+from quant_platform_kit.common.runtime_inputs import build_strategy_evaluation_inputs
 from quant_platform_kit.strategy_lifecycle.performance_monitor import try_record_platform_execution
 from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
 from runtime_execution_policy import dca_execution_unsupported_reason, notional_buy_execution_enabled
