@@ -648,7 +648,6 @@ def execute_value_target_plan(
     fetch_order_status=None,
     before_live_submission: Callable[[], bool] | None = None,
 ) -> ExecutionCycleResult:
-    del dry_run_only  # ExecutionPort owns preview vs live submission.
     plan = substitute_small_safe_haven_targets_with_cash(
         plan,
         threshold_usd=safe_haven_cash_substitute_threshold_usd,
@@ -721,7 +720,11 @@ def execute_value_target_plan(
         )
 
     def _may_submit_live_order() -> bool:
-        return before_live_submission is None or bool(before_live_submission())
+        if dry_run_only:
+            return True
+        if before_live_submission is None:
+            raise ValueError("Live submission requires a durable submission claim callback.")
+        return bool(before_live_submission())
 
     tradable_deltas: list[tuple[str, float, float]] = []
     for symbol in sorted(set(targets) | set(market_values)):

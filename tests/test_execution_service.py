@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import pytest
+
 from application.execution_service import (
     _apply_notional_cash_buffer,
     execute_value_target_plan,
@@ -56,6 +58,44 @@ class SubmittedExecutionPort(FakeExecutionPort):
         )
 
 
+@pytest.mark.parametrize("side,notional", [("sell", False), ("buy", False), ("buy", True)])
+def test_live_order_requires_submission_claim_callback(side, notional):
+    execution_port = SubmittedExecutionPort()
+    with pytest.raises(ValueError, match="submission claim"):
+        execute_value_target_plan(
+            plan={
+                "allocation": {"targets": {"AAA": 0.0 if side == "sell" else 20.0}},
+                "portfolio": {
+                    "market_values": {"AAA": 20.0 if side == "sell" else 0.0},
+                    "sellable_quantities": {"AAA": 2.0},
+                    "liquid_cash": 100.0,
+                },
+                "execution": {"current_min_trade": 1.0},
+            },
+            market_data_port=FakeMarketDataPort({"AAA": 10.0}),
+            execution_port=execution_port,
+            dry_run_only=False,
+            notional_buy_execution=notional,
+        )
+    assert execution_port.orders == []
+
+
+def test_live_noop_does_not_require_submission_claim():
+    execution_port = SubmittedExecutionPort()
+    result = execute_value_target_plan(
+        plan={
+            "allocation": {"targets": {"AAA": 20.0}},
+            "portfolio": {"market_values": {"AAA": 20.0}},
+            "execution": {"current_min_trade": 1.0},
+        },
+        market_data_port=FakeMarketDataPort({"AAA": 10.0}),
+        execution_port=execution_port,
+        dry_run_only=False,
+    )
+    assert execution_port.orders == []
+    assert result.idempotency_blocked is False
+
+
 def test_execute_value_target_plan_sells_before_buys_and_caps_order_notional():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(
@@ -99,6 +139,7 @@ def test_execute_value_target_plan_marks_live_submissions_pending_reconciliation
         market_data_port=FakeMarketDataPort({"AAA": 10.0}),
         execution_port=execution_port,
         dry_run_only=False,
+        before_live_submission=lambda: True,  # Simulate an acquired durable claim.
     )
 
     assert result.action_done is False
@@ -666,6 +707,7 @@ def test_notional_buy_keeps_cash_buffer_when_order_would_use_all_available_cash(
         market_data_port=FakeMarketDataPort({"IBIT": 35.0}),
         execution_port=execution_port,
         dry_run_only=False,
+        before_live_submission=lambda: True,  # Simulate an acquired durable claim.
         notional_buy_execution=True,
     )
 
@@ -711,6 +753,7 @@ def test_execute_value_target_plan_routes_rejected_notional_buy_to_skipped_order
         market_data_port=FakeMarketDataPort({"IBIT": 35.0}),
         execution_port=execution_port,
         dry_run_only=False,
+        before_live_submission=lambda: True,  # Simulate an acquired durable claim.
         notional_buy_execution=True,
     )
 
