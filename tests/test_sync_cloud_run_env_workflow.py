@@ -296,6 +296,10 @@ def test_sync_cloud_run_env_workflow_is_fail_closed_and_no_traffic_by_default():
     assert "--format='json(status.conditions)'" in deploy_block
     assert 'condition.get("type") == "Ready"' in deploy_block
     assert 'condition.get("status") == "True"' in deploy_block
+    assert "CLOUD_RUN_READY_CONDITION_CATEGORY=" in deploy_block
+    assert 'reason = str(ready.get("reason") or "").upper()' in deploy_block
+    assert 'print("HEALTHCHECK_FAILURE")' in deploy_block
+    assert 'print("UNKNOWN")' in deploy_block
     assert 'fail_readback "created revision did not become ready"' in deploy_block
     assert 'inputs.allow_configuration_sync }}" != "true"' in workflow
     assert 'inputs.allow_traffic_promotion == true' in workflow
