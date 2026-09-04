@@ -376,10 +376,19 @@ jobs:
           scheduler="$(awk -F= '$1 == "scheduler" { print $2 }' "${BASELINE_PATH}")"
           iam="$(awk -F= '$1 == "iam" { print $2 }' "${BASELINE_PATH}")"
           revision_name="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(status.latestCreatedRevisionName)')"
-          ready_revision="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(status.latestReadyRevisionName)')"
           revision_sha="$(gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(metadata.labels.commit-sha)')"
           revision_image="$(gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='value(spec.containers.image)')"
-          [ "${revision_name}" = "${ready_revision}" ] || fail_readback "created revision is not ready"
+          revision_ready="False"
+          for _ in $(seq 1 30); do
+            revision_ready="$(
+              { gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(status.conditions)' 2>/dev/null \
+                | python3 -c 'import json, sys; conditions = json.load(sys.stdin) or []; print("True" if any(isinstance(condition, dict) and condition.get("type") == "Ready" and condition.get("status") == "True" for condition in conditions) else "False")' 2>/dev/null; } \
+                || printf 'False'
+            )"
+            [ "${revision_ready}" = "True" ] && break
+            sleep 2
+          done
+          [ "${revision_ready}" = "True" ] || fail_readback "created revision did not become ready"
           [ "${revision_sha}" = "${EXPECTED_SHA}" ] || fail_readback "revision commit SHA mismatch"
           [[ "${revision_image}" == *"${EXPECTED_IMAGE_DIGEST}"* ]] || fail_readback "revision image digest mismatch"
           [ "${traffic}" = "$(active_traffic_digest)" ] || fail_readback "effective traffic changed"
