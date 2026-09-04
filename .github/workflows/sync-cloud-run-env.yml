@@ -388,6 +388,14 @@ jobs:
             [ "${revision_ready}" = "True" ] && break
             sleep 2
           done
+          revision_ready_category="$(
+            { gcloud run revisions describe "${revision_name}" --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format='json(status.conditions)' 2>/dev/null \
+              | python3 -c 'import json, sys; conditions = json.load(sys.stdin) or []; ready = next((condition for condition in conditions if isinstance(condition, dict) and condition.get("type") == "Ready"), {}); reason = str(ready.get("reason") or "").upper(); print("HEALTHCHECK_FAILURE") if "HEALTH" in reason or "PROBE" in reason else print("CONTAINER_FAILURE") if "CONTAINER" in reason or "IMAGE" in reason else print("RESOURCE_FAILURE") if "RESOURCE" in reason or "QUOTA" in reason else print("PROGRESS_DEADLINE") if "DEADLINE" in reason or "TIMEOUT" in reason else print("PLATFORM_FAILURE") if "INTERNAL" in reason or "PLATFORM" in reason else print("UNKNOWN")' 2>/dev/null; } \
+              || printf 'UNKNOWN'
+          )"
+          if [ "${revision_ready}" != "True" ]; then
+            echo "CLOUD_RUN_READY_CONDITION_CATEGORY=${revision_ready_category}"
+          fi
           [ "${revision_ready}" = "True" ] || fail_readback "created revision did not become ready"
           [ "${revision_sha}" = "${EXPECTED_SHA}" ] || fail_readback "revision commit SHA mismatch"
           [[ "${revision_image}" == *"${EXPECTED_IMAGE_DIGEST}"* ]] || fail_readback "revision image digest mismatch"
