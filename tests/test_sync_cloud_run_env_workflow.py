@@ -289,6 +289,8 @@ def test_sync_cloud_run_env_workflow_is_fail_closed_and_no_traffic_by_default():
     assert "--no-traffic" in deploy_block
     assert "Capture read-only deployment baseline" in workflow
     assert "Verify no-traffic deployment readback" in workflow
+    assert "active_traffic_digest()" in workflow
+    assert 'fail_readback "effective traffic changed"' in workflow
     assert 'inputs.allow_configuration_sync }}" != "true"' in workflow
     assert 'inputs.allow_traffic_promotion == true' in workflow
     assert 'inputs.allow_cleanup == true' in workflow
