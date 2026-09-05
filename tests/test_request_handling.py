@@ -147,7 +147,12 @@ def test_reconcile_enabled_returns_redacted_blocked_receipt(monkeypatch):
         ),
     )
 
+    closed = []
+
     class FakeClient:
+        def close(self):
+            closed.append(True)
+
         def account_numbers(self):
             return ["account-sensitive-001"]
 
@@ -172,6 +177,7 @@ def test_reconcile_enabled_returns_redacted_blocked_receipt(monkeypatch):
 
     assert response.status_code == 200
     payload = response.get_json()
+    assert closed == [True]
     assert payload["permits_active_lkg"] is False
     assert payload["expected_digests_configured"] is False
     assert "account-sensitive-001" not in response.get_data(as_text=True)
@@ -528,3 +534,32 @@ def test_monitor_dispatch_post_dispatches_due_targets(monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["dispatches_due"] == 0
     assert observed["targets"][0]["service_name"] == "firstrade-quant-service"
+
+
+def test_reconciliation_default_builder_uses_cached_only_client(monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+    credentials = object()
+    def from_env(**kwargs):
+        assert kwargs == {"include_login_credentials": False}
+        return credentials
+    def client_factory(actual, *, live_trading_enabled):
+        assert actual is credentials and live_trading_enabled is False
+        return SimpleNamespace(connect_read_only=lambda: calls.append("cached-only") or "client")
+    monkeypatch.setattr(main.FirstradeCredentials, "from_env", from_env)
+    monkeypatch.setattr(main, "FirstradeBrokerClient", client_factory)
+    assert main.READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER() == "client"
+    assert calls == ["cached-only"]
+
+
+def test_reconciliation_missing_account_stops_before_client(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv("FIRSTRADE_BROKER_RECONCILIATION_ENABLED", "true")
+    monkeypatch.delenv("FIRSTRADE_ACCOUNT", raising=False)
+    monkeypatch.setattr(main, "_runtime_settings", lambda: SimpleNamespace(runtime_target=object()))
+    monkeypatch.setattr(main, "validate_reconciliation_preconditions", lambda **_kwargs: None)
+    calls = []
+    monkeypatch.setattr(main, "READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER", lambda: calls.append(True))
+    response = main.app.test_client().post("/reconcile")
+    assert response.status_code == 503
+    assert calls == []

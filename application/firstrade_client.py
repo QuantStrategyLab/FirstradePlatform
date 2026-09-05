@@ -10,9 +10,11 @@ import json
 import os
 from dataclasses import dataclass
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
 from time import time
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from application.account_payload_utils import flatten_values, float_or_none
 from application.state_persistence import GcsStateStore
@@ -52,7 +54,10 @@ class FirstradeCredentials:
     debug: bool = False
 
     @classmethod
-    def from_env(cls, env: Callable[[str, str | None], str | None] = os.getenv) -> "FirstradeCredentials":
+    def from_env(
+        cls, env: Callable[[str, str | None], str | None] = os.getenv,
+        *, include_login_credentials: bool = True,
+    ) -> "FirstradeCredentials":
         def _get_credential(secret_name: str, env_var: str) -> str:
             try:
                 from quant_platform_kit.cloud import get_secret_store
@@ -62,15 +67,15 @@ class FirstradeCredentials:
                 return env(env_var, "") or ""
 
         username = _get_credential("firstrade-username", "FIRSTRADE_USERNAME")
-        password = _get_credential("firstrade-password", "FIRSTRADE_PASSWORD")
+        password = _get_credential("firstrade-password", "FIRSTRADE_PASSWORD") if include_login_credentials else ""
         return cls(
             username=username.strip(),
             password=password,
-            pin=env("FIRSTRADE_PIN", "") or "",
-            email=env("FIRSTRADE_MFA_EMAIL", "") or "",
-            phone=env("FIRSTRADE_MFA_PHONE", "") or "",
-            mfa_secret=_get_credential("firstrade-mfa-secret", "FIRSTRADE_MFA_SECRET"),
-            mfa_code=env("FIRSTRADE_MFA_CODE", "") or "",
+            pin=(env("FIRSTRADE_PIN", "") or "") if include_login_credentials else "",
+            email=(env("FIRSTRADE_MFA_EMAIL", "") or "") if include_login_credentials else "",
+            phone=(env("FIRSTRADE_MFA_PHONE", "") or "") if include_login_credentials else "",
+            mfa_secret=_get_credential("firstrade-mfa-secret", "FIRSTRADE_MFA_SECRET") if include_login_credentials else "",
+            mfa_code=(env("FIRSTRADE_MFA_CODE", "") or "") if include_login_credentials else "",
             cookie_dir=env("FIRSTRADE_COOKIE_DIR", ".runtime/firstrade-cookies")
             or ".runtime/firstrade-cookies",
             reuse_session=(env("FIRSTRADE_REUSE_SESSION", "false") or "").strip().lower() == "true",
@@ -264,6 +269,62 @@ class FirstradeBrokerClient:
         self._save_session_cache(cookie_dir)
         return self
 
+    def connect_read_only(self) -> "FirstradeBrokerClient":
+        """Reuse cached authentication for account reads; never log in or change the cache."""
+        if (
+            self.live_trading_enabled or self.session is not None or self.account_data is not None
+            or not self.credentials.username.strip() or not self.credentials.reuse_session
+        ):
+            raise FirstradeSafetyError("Firstrade cached-only connection requires a fresh non-trading client.")
+        payload = self._load_session_cache(Path(self.credentials.cookie_dir))
+        if not payload or not isinstance(payload.get("access-token"), str) or not payload["access-token"]:
+            raise FirstradePlatformError("Firstrade cached session unavailable.")
+        from firstrade.account import FTAccountData, FTSession
+
+        session_factory = self._session_factory or FTSession
+        account_data_factory = self._account_data_factory or FTAccountData
+        session = session_factory(username="", password="", save_session=False, debug=False)
+        transport = session.session
+        transport.trust_env = False
+        original_request = transport.request
+
+        def read_only_request(method, url, **kwargs):
+            parsed = urlsplit(url)
+            if str(method).lower() != "get" or (
+                parsed.scheme != "https" or parsed.netloc != "api3x.firstrade.com"
+                or parsed.path not in {
+                    "/private/userinfo", "/private/acct_list", "/private/balances",
+                    "/private/positions", "/private/order_status",
+                }
+            ):
+                raise FirstradeSafetyError("Firstrade read-only request denied.")
+            kwargs.update(timeout=(5, 15), allow_redirects=False)
+            response = original_request(method, url, **kwargs)
+            if not 200 <= response.status_code < 300:
+                raise FirstradePlatformError("Firstrade account read unavailable.")
+            body = response.json()
+            if not isinstance(body, (dict, list)) or (isinstance(body, dict) and body.get("error")):
+                raise FirstradePlatformError("Firstrade account read unavailable.")
+            return response
+
+        transport.request = read_only_request
+        try:
+            session.build_session_from_tokens(payload)
+            account_data = account_data_factory(session)
+        except Exception:
+            transport.close()
+            raise FirstradePlatformError("Firstrade cached session unavailable.") from None
+        self.session, self.account_data = session, account_data
+        self.session_reused = True
+        return self
+
+    def close(self) -> None:
+        session, self.session = self.session, None
+        self.account_data = None
+        self.session_reused = False
+        if session is not None:
+            session.session.close()
+
     def _build_session(self, session_factory: Callable[..., Any], cookie_dir: Path) -> Any:
         return session_factory(
             username=self.credentials.username,
@@ -306,9 +367,10 @@ class FirstradeBrokerClient:
         except (TypeError, ValueError):
             return False
         ttl = max(1, int(self.credentials.session_cache_ttl_seconds or 1))
-        if saved_at <= 0.0 or (time() - saved_at) > ttl:
+        age = time() - saved_at
+        if not isfinite(saved_at) or saved_at <= 0.0 or not 0 <= age <= ttl:
             return False
-        return bool(payload.get("ftat") and payload.get("sid"))
+        return all(isinstance(payload.get(key), str) and payload[key].strip() for key in ("ftat", "sid"))
 
     def _try_cached_session(
         self,
