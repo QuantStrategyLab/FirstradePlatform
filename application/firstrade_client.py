@@ -451,14 +451,15 @@ class FirstradeBrokerClient:
     def get_orders(self, account: str, *, per_page: int = 0) -> list[dict[str, Any]]:
         _, account_data = self.require_connected()
         payload = account_data.get_orders(account, per_page=per_page)
-        if isinstance(payload, list):
-            return [dict(row) for row in payload if isinstance(row, dict)]
         if isinstance(payload, dict):
             for key in ("items", "orders", "data", "result"):
                 value = payload.get(key)
                 if isinstance(value, list):
-                    return [dict(row) for row in value if isinstance(row, dict)]
-        return []
+                    payload = value
+                    break
+        if not isinstance(payload, list) or any(not isinstance(row, dict) for row in payload):
+            raise FirstradePlatformError("Firstrade returned an invalid order response.")
+        return [dict(row) for row in payload]
 
     def get_order_status(self, account: str, order_id: str) -> dict[str, Any] | None:
         normalized_order_id = str(order_id or "").strip()
