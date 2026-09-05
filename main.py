@@ -747,10 +747,12 @@ def run_strategy():
         )
     if not _runtime_target_enabled_env():
         return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
-    skip_for_market, skip_payload = _should_skip_for_market_hours()
-    if skip_for_market and skip_payload is not None:
-        return jsonify(skip_payload), 200
     try:
+        if not _runtime_settings().runtime_target_enabled:
+            return jsonify({"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}), 200
+        skip_for_market, skip_payload = _should_skip_for_market_hours()
+        if skip_for_market and skip_payload is not None:
+            return jsonify(skip_payload), 200
         result = _run_strategy_cycle_with_report()
         return jsonify(result), _strategy_result_http_status(result)
     except (FirstradePlatformError, EnvironmentError, ValueError) as exc:
