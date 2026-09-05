@@ -7,6 +7,7 @@ import pytest
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradePlatformError,
     FirstradeSafetyError,
     StockOrderRequest,
     mask_account_id,
@@ -314,3 +315,29 @@ def test_client_reuses_persisted_session_cache_when_local_cache_is_missing(tmp_p
     assert second_client.session_reused is True
     assert ReusableFakeSession.login_calls == 1
     assert store.writes == 2
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, {}, {"error": "private-provider-response"}, [None], {"items": [{}, "private-row"]}],
+)
+def test_order_reads_reject_incomplete_payload_instead_of_empty_success(payload):
+    client = FirstradeBrokerClient(FirstradeCredentials(username="unused", password="unused"))
+    client.session = object()
+    client.account_data = SimpleNamespace(get_orders=lambda *_args, **_kwargs: payload)
+
+    for read in (lambda: client.get_orders("test-account"), lambda: client.get_order_status("test-account", "test-order")):
+        with pytest.raises(FirstradePlatformError) as error:
+            read()
+        assert str(error.value) == "Firstrade returned an invalid order response."
+
+
+@pytest.mark.parametrize("wrapper", [None, "items", "orders", "data", "result"])
+@pytest.mark.parametrize("rows", [[], [{"order_id": "test-order", "status": "Submitted"}]])
+def test_order_reads_preserve_supported_complete_payloads(wrapper, rows):
+    payload = rows if wrapper is None else {wrapper: rows}
+    client = FirstradeBrokerClient(FirstradeCredentials(username="unused", password="unused"))
+    client.session = object()
+    client.account_data = SimpleNamespace(get_orders=lambda *_args, **_kwargs: payload)
+
+    assert client.get_orders("test-account") == rows
