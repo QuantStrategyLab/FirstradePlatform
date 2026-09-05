@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 pytest.importorskip("flask")
@@ -9,6 +11,12 @@ import main
 
 @pytest.fixture(autouse=True)
 def _assume_market_open_for_http_tests(monkeypatch, request):
+    monkeypatch.delenv("QSL_RUNTIME_TARGET_JSON", raising=False)
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", json.dumps({
+        "platform_id": "firstrade", "strategy_profile": "ibit_smart_dca", "dry_run_only": False,
+    }))
+    monkeypatch.setattr(main, "get_project_id", lambda: "test-project")
+    monkeypatch.setattr("runtime_config_support._get_credential", lambda *_args: None)
     if request.node.name == "test_run_endpoint_skips_when_market_closed":
         return
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
@@ -195,6 +203,51 @@ def test_run_endpoint_calls_strategy_cycle_when_gate_enabled(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {"ok": True, "action_done": False}
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("state", [None, "ACTIVE_LKG", "ROLLBACK_LKG", "RECONCILE_ONLY", "PAUSED"])
+def test_run_endpoint_enforces_runtime_continuity_before_runtime_calls(monkeypatch, enabled, state):
+    from quant_platform_kit.common.live_continuity import runtime_target_fingerprint
+
+    target = {
+        "platform_id": "firstrade",
+        "strategy_profile": "ibit_smart_dca",
+        "dry_run_only": False,
+        "execution_mode": "live",
+    }
+    if state is not None:
+        target["live_continuity"] = {
+            "state": state,
+            "baseline_kind": "legacy_authorized",
+            "baseline_id": "test-baseline",
+            "baseline_target_sha256": runtime_target_fingerprint(target),
+            "captured_at": "2026-08-30",
+        }
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", json.dumps(target))
+    monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
+    monkeypatch.setenv("FIRSTRADE_DRY_RUN_ONLY", "false")
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", str(enabled).lower())
+    allowed = enabled and state in {None, "ACTIVE_LKG", "ROLLBACK_LKG"}
+    calls = []
+
+    def strategy_cycle(**_kwargs):
+        calls.append("strategy")
+        return {"ok": True, "action_done": False}
+
+    def fail_broker(*_args, **_kwargs):
+        pytest.fail("HTTP admission test must not construct a broker client")
+
+    monkeypatch.setattr(main, "_run_strategy_cycle_with_report", strategy_cycle)
+    monkeypatch.setattr(main, "FirstradeBrokerClient", fail_broker)
+    response = main.app.test_client().post("/run")
+
+    assert response.status_code == 200
+    assert calls == (["strategy"] if allowed else [])
+    assert response.get_json() == (
+        {"ok": True, "action_done": False} if allowed else
+        {"ok": True, "status": "skipped", "skip_reason": "runtime_target_disabled"}
+    )
 
 
 def test_dry_run_admission_blocks_before_strategy_cycle(monkeypatch):
