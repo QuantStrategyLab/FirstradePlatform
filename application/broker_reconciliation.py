@@ -14,6 +14,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from quant_platform_kit.common.broker_reconciliation import (
@@ -83,6 +84,50 @@ def _canonical_records(records: list[Mapping[str, object]]) -> tuple[Mapping[str
             key=lambda record: json.dumps(record, ensure_ascii=True, sort_keys=True),
         )
     )
+
+
+def _position_quantities(payload: object) -> list[dict[str, str]]:
+    """Bind all SDK items' identities/quantities, not their changing valuations.
+
+    Only the verified items/symbol/quantity shape is supported. Do not filter
+    unmanaged holdings, infer missing quantities, merge duplicate symbols, or
+    round quantities to an assumed instrument precision.
+    """
+
+    payload = _json_value(payload, surface="positions")
+    try:
+        if not isinstance(payload, Mapping) or payload.get("error"):
+            raise ValueError
+        rows = payload.get("items")
+        if not isinstance(rows, list):
+            raise ValueError
+        quantities = []
+        symbols = set()
+        for row in rows:
+            if not isinstance(row, Mapping):
+                raise ValueError
+            symbol, value = row.get("symbol"), row.get("quantity")
+            if not isinstance(symbol, str) or not symbol.strip():
+                raise ValueError
+            symbol = symbol.strip().upper()
+            if symbol in symbols:
+                raise ValueError
+            if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                raise ValueError
+            quantity = Decimal(str(value))
+            if not quantity.is_finite():
+                raise ValueError
+            # Decimal.normalize() can round under the current decimal context.
+            text = format(quantity, "f")
+            if "." in text:
+                text = text.rstrip("0").rstrip(".")
+            quantities.append({"symbol": symbol, "quantity": "0" if quantity == 0 else text})
+            symbols.add(symbol)
+        return sorted(quantities, key=lambda row: row["symbol"])
+    except (InvalidOperation, ValueError) as exc:
+        raise FirstradeReconciliationUnavailable(
+            "Firstrade reconciliation received incomplete position facts."
+        ) from None
 
 
 @dataclass(frozen=True)
@@ -182,6 +227,7 @@ def collect_read_only_reconciliation_observations(
         raise FirstradeReconciliationUnavailable("Firstrade reconciliation received incomplete balances.")
     if not isinstance(positions, Mapping):
         raise FirstradeReconciliationUnavailable("Firstrade reconciliation received incomplete positions.")
+    _position_quantities(positions)
     if not isinstance(orders, list) or any(not isinstance(order, Mapping) for order in orders):
         raise FirstradeReconciliationUnavailable("Firstrade reconciliation received incomplete orders.")
     open_orders: list[Mapping[str, object]] = []
@@ -252,7 +298,8 @@ def build_reconciliation_candidate(
         raise FirstradeReconciliationUnavailable("Firstrade reconciliation runtime target is incomplete.")
     baseline_id, baseline_target_sha256, runtime_target_sha256 = _continuity_fields(runtime_target)
     digests = {
-        "positions_sha256": calculate_broker_observation_sha256(observations.positions),
+        # Existing expected raw-payload digests intentionally do not migrate here.
+        "positions_sha256": calculate_broker_observation_sha256(_position_quantities(observations.positions)),
         "cash_sha256": calculate_broker_observation_sha256(observations.cash),
         "open_orders_sha256": calculate_broker_observation_sha256(observations.open_orders),
         "recent_executions_sha256": calculate_broker_observation_sha256(observations.recent_executions),
