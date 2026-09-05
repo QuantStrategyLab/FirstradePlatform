@@ -68,10 +68,14 @@ MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
 app = Flask(__name__)
 register_health_endpoint(app)  # GET /health /healthz
 
-# There is intentionally no production builder here: the existing client login
-# path can create session artifacts. An explicitly injected ephemeral client is
-# required before this private read-only endpoint can contact the provider.
-READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = None
+def _build_read_only_reconciliation_client():
+    return FirstradeBrokerClient(
+        FirstradeCredentials.from_env(include_login_credentials=False),
+        live_trading_enabled=False,
+    ).connect_read_only()
+
+
+READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = _build_read_only_reconciliation_client
 
 _REDACTED = "<redacted>"
 _TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
@@ -454,6 +458,7 @@ def _handle_reconciliation():
 
     if not reconciliation_enabled(os.getenv):
         return jsonify({"status": "blocked", "reason": "broker_reconciliation_disabled"}), 503
+    client = None
     try:
         settings = _runtime_settings()
         runtime_target = settings.runtime_target
@@ -463,6 +468,8 @@ def _handle_reconciliation():
             env_reader=os.getenv,
         )
         requested_account = str(os.getenv("FIRSTRADE_ACCOUNT") or "").strip()
+        if not requested_account:
+            raise FirstradeReconciliationUnavailable("Firstrade reconciliation requires an explicit account.")
         client = READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER()
         observations = collect_read_only_reconciliation_observations(
             client,
@@ -483,6 +490,12 @@ def _handle_reconciliation():
         return jsonify({"status": "blocked", "reason": "broker_reconciliation_unavailable"}), 503
     except Exception:
         return jsonify({"status": "blocked", "reason": "broker_reconciliation_unavailable"}), 503
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass  # Cleanup must not expose provider details or change the safe response.
 
 
 def _paper_command_consumer_runtime_is_isolated(settings: PlatformRuntimeSettings) -> bool:
