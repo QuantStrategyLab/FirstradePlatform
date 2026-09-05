@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+import re
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_sync_cloud_run_env_workflow_requires_manual_dispatch():
@@ -304,3 +310,55 @@ def test_sync_cloud_run_env_workflow_is_fail_closed_and_no_traffic_by_default():
     assert 'inputs.allow_configuration_sync }}" != "true"' in workflow
     assert 'inputs.allow_traffic_promotion == true' in workflow
     assert 'inputs.allow_cleanup == true' in workflow
+
+
+def _run_readback_python(marker, payload):
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml").read_text()
+    commands = [code for code in re.findall(r"python3 -c '([^']+)'", workflow) if marker in code]
+    assert commands
+    results = [subprocess.run([sys.executable, "-c", code], input=json.dumps(payload),
+                              text=True, capture_output=True, check=True).stdout.strip()
+               for code in commands]
+    assert len(set(results)) == 1  # capture and verify must interpret traffic identically
+    return results[0]
+
+
+@pytest.mark.parametrize("ready,expected", [("True", "True"), ("False", "False"), ("Unknown", "False")])
+def test_readback_parses_nested_ready_conditions(ready, expected):
+    assert _run_readback_python('print("True" if any(', {
+        "status": {"conditions": [{"type": "Ready", "status": ready}]},
+    }) == expected
+
+
+def test_readback_does_not_invent_readiness_when_conditions_missing():
+    assert _run_readback_python('print("True" if any(', {}) == "False"
+
+
+def test_readback_classifies_nested_failure_without_exposing_message():
+    assert _run_readback_python('reason = str(ready.get(', {
+        "status": {"conditions": [{"type": "Ready", "status": "False",
+                                   "reason": "HealthCheckContainerError",
+                                   "message": "synthetic private diagnostic"}]},
+    }) == "HEALTHCHECK_FAILURE"
+
+
+def test_readback_traffic_changes_are_not_hashed_as_empty_lists():
+    def traffic(revision, percent=100):
+        return {"status": {"traffic": [{"revisionName": revision, "percent": percent}]}}
+
+    before = _run_readback_python("active = [", traffic("old-revision"))
+    after = _run_readback_python("active = [", traffic("new-revision"))
+    assert json.loads(before) == [{"revisionName": "old-revision", "percent": 100}]
+    assert before != after
+    tagged = traffic("old-revision")
+    tagged["status"]["traffic"].append({"revisionName": "zero-traffic", "percent": 0, "tag": "test"})
+    assert _run_readback_python("active = [", tagged) == before
+
+
+def test_readback_baseline_projections_include_array_members():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml").read_text()
+    for field in ("spec.template.spec.containers[].resources",
+                  "spec.template.spec.containers[].env[].name",
+                  "spec.template.spec.containers[].env[].valueFrom.secretKeyRef",
+                  "bindings[].role", "bindings[].members", "bindings[].condition"):
+        assert workflow.count(field) == 2  # baseline capture and comparison
