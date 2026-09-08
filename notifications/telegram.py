@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from quant_platform_kit.common.operational_notification_localization import resolve_operational_notification_locale
+
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -146,6 +148,14 @@ _DASHBOARD_POSITION_LINE_RE = re.compile(r"^[A-Z][A-Z0-9./-]{0,12}\s*:")
 
 I18N = {
     "zh": {
+        "runtime_failure_title": "⚠️ Firstrade 策略运行失败",
+        "runtime_probe_failure_title": "⚠️ Firstrade 健康检查失败",
+        "runtime_failure_context": "运行目标：{context}",
+        "runtime_failure_result": "本次运行未正常结束，请查看最新执行报告。",
+        "runtime_failure_action": "下一步：检查账户会话及最新执行报告。",
+        "runtime_notification_missing_target": "异常通知未发送：未配置 Telegram 接收目标（notification_target_missing）",
+        "runtime_notification_delivery_failed": "异常通知发送失败（notification_delivery_failed）",
+        "runtime_failure_log": "策略运行失败（runtime_setup_failed）",
         "rebalance_title": "🔔 【调仓指令】",
         "heartbeat_title": "💓 【心跳检测】",
         "strategy_label": "🧭 策略: {name}",
@@ -319,6 +329,14 @@ I18N = {
         "skip_symbols_reason": "{symbols}（{reason}）",
     },
     "en": {
+        "runtime_failure_title": "⚠️ Firstrade strategy run failed",
+        "runtime_probe_failure_title": "⚠️ Firstrade health check failed",
+        "runtime_failure_context": "Target: {context}",
+        "runtime_failure_result": "The run did not finish successfully; check the latest execution report.",
+        "runtime_failure_action": "Next: Check the account session and the latest execution report.",
+        "runtime_notification_missing_target": "Runtime alert not sent: Telegram target is not configured (notification_target_missing)",
+        "runtime_notification_delivery_failed": "Runtime alert delivery failed (notification_delivery_failed)",
+        "runtime_failure_log": "Strategy run failed (runtime_setup_failed)",
         "rebalance_title": "🔔 【Rebalance Instruction】",
         "heartbeat_title": "💓 【Heartbeat】",
         "strategy_label": "🧭 Strategy: {name}",
@@ -504,8 +522,7 @@ if _merge_strategy_plugin_i18n is not None:
 
 
 def build_translator(lang: str | None) -> Callable[..., str]:
-    normalized = str(lang or "").lower()
-    active_lang = "zh" if normalized.startswith("zh") else "en"
+    active_lang = resolve_operational_notification_locale(lang)
 
     def translate(key: str, **kwargs) -> str:
         template = I18N[active_lang].get(key, I18N["en"].get(key, key))

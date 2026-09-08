@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from notifications.telegram import build_translator
+
 import os
 import re
 import traceback
@@ -139,40 +141,24 @@ def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
 
 
 def _runtime_error_notification_message(exc: Exception) -> str:
-    error_text = _safe_exception_text(exc, include_type=True)
-    if len(error_text) > 1200:
-        error_text = error_text[:1197] + "..."
-    is_health_check = request.path == "/probe"
-    if str(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG") or "").strip().lower().startswith("zh"):
-        return "\n".join(
-            (
-                "Firstrade 健康检查失败" if is_health_check else "Firstrade 策略运行失败",
-                f"服务: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
-                f"版本: {os.getenv('K_REVISION') or '<unknown>'}",
-                f"路由: {request.method} {request.path}",
-                f"策略: {os.getenv('STRATEGY_PROFILE') or '<unset>'}",
-                f"账户范围: {os.getenv('ACCOUNT_REGION') or '<unset>'}",
-                f"错误: {error_text}",
-            )
-        )
-    return "\n".join(
-        (
-            "Firstrade health check failed" if is_health_check else "Firstrade strategy run failed",
-            f"service: {os.getenv('K_SERVICE') or 'firstrade-quant-service'}",
-            f"revision: {os.getenv('K_REVISION') or '<unknown>'}",
-            f"route: {request.method} {request.path}",
-            f"strategy: {os.getenv('STRATEGY_PROFILE') or '<unset>'}",
-            f"account_scope: {os.getenv('ACCOUNT_REGION') or '<unset>'}",
-            f"error: {error_text}",
-        )
-    )
+    t = build_translator(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG"))
+    title = "runtime_probe_failure_title" if request.path == "/probe" else "runtime_failure_title"
+    strategy_name = os.getenv("STRATEGY_DISPLAY_NAME") or os.getenv("STRATEGY_PROFILE") or "Firstrade"
+    return "\n".join((
+        t(title),
+        t("strategy_label", name=strategy_name),
+        t("runtime_failure_context", context=os.getenv('ACCOUNT_REGION') or os.getenv('K_SERVICE') or 'Firstrade'),
+        t("runtime_failure_result"),
+        t("runtime_failure_action"),
+    ))
 
 
 def _notify_runtime_error(exc: Exception) -> bool:
+    t = build_translator(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG"))
     targets = _telegram_notification_targets()
     if not targets:
         print(
-            "Firstrade runtime error notification skipped: no Telegram target configured.",
+            t("runtime_notification_missing_target"),
             flush=True,
         )
         return False
@@ -182,10 +168,11 @@ def _notify_runtime_error(exc: Exception) -> bool:
     for token, chat_id in targets:
         attempted = True
         try:
-            build_sender(token, chat_id)(message)
-        except Exception as send_exc:  # pragma: no cover - build_sender normally handles this.
+            if build_sender(token, chat_id)(message) is False:
+                print(t("runtime_notification_delivery_failed"), flush=True)
+        except Exception:  # pragma: no cover - build_sender normally handles this.
             print(
-                f"Firstrade runtime error Telegram send failed: {redact_sensitive_text(send_exc)}",
+                t("runtime_notification_delivery_failed"),
                 flush=True,
             )
     return attempted
@@ -197,9 +184,8 @@ def _safe_exception_text(exc: Exception, *, include_type: bool = False) -> str:
 
 
 def _handle_strategy_run_exception(exc: Exception) -> bool:
-    print(f"Firstrade strategy run failed: {_safe_exception_text(exc, include_type=True)}", flush=True)
-    for line in traceback.format_exception(type(exc), exc, exc.__traceback__):
-        print(redact_sensitive_text(line.rstrip()), flush=True)
+    t = build_translator(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG"))
+    print(t("runtime_failure_log"), flush=True)
     return _notify_runtime_error(exc)
 
 

@@ -455,7 +455,7 @@ def test_probe_endpoint_notifies_only_on_error(monkeypatch):
     assert sent_messages[0][0] == "token-1"
     assert sent_messages[0][1] == "chat-1"
     assert "Firstrade health check failed" in sent_messages[0][2]
-    assert "RuntimeError: session denied" in sent_messages[0][2]
+    assert "RuntimeError: session denied" not in sent_messages[0][2]
 
 
 def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
@@ -493,8 +493,8 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     assert sent_messages[0][0] == "token-1"
     assert sent_messages[0][1] == "chat-1"
     assert "Firstrade strategy run failed" in sent_messages[0][2]
-    assert "ValueError: snapshot denied" in sent_messages[0][2]
-    assert "strategy: russell_top50_leader_rotation" in sent_messages[0][2]
+    assert "ValueError: snapshot denied" not in sent_messages[0][2]
+    assert "Strategy: russell_top50_leader_rotation" in sent_messages[0][2]
 
 
 def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
@@ -526,7 +526,7 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
     text = sent_messages[0][2]
     assert "Firstrade 策略运行失败" in text
     assert "策略: russell_top50_leader_rotation" in text
-    assert "错误: ValueError: snapshot denied" in text
+    assert "snapshot denied" not in text
 
 
 def test_run_endpoint_redacts_sensitive_error_text(monkeypatch):
@@ -559,7 +559,7 @@ def test_run_endpoint_redacts_sensitive_error_text(monkeypatch):
     assert response.status_code == 500
     payload = response.get_json()
     assert "<redacted>" in payload["error"]
-    assert "<redacted>" in sent_messages[0][2]
+    assert "request failed" not in sent_messages[0][2]
     for raw_secret in ("supersecret123", "abcd1234efgh", "123456789:ABC", "key987654"):
         assert raw_secret not in payload["error"]
         assert raw_secret not in sent_messages[0][2]
