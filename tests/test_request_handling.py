@@ -29,6 +29,49 @@ def route_methods():
     return {route: sorted(methods) for route, methods in methods_by_route.items()}
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("outcome", ["submitted", "blocked", "exception"])
+def test_legacy_cycle_preserves_result_and_report(monkeypatch, dry_run, outcome):
+    persisted = []
+    cycle_calls = []
+    failure = RuntimeError("offline strategy failure")
+    result = {
+        "ok": outcome == "submitted",
+        "strategy_run_stage": "SUBMITTED" if outcome == "submitted" else "EXECUTION_BLOCKED",
+        "submitted_orders": [{"symbol": "IBIT"}] if outcome == "submitted" else [],
+        "execution_blocked": outcome == "blocked",
+    }
+
+    def cycle(**kwargs):
+        cycle_calls.append(kwargs)
+        if outcome == "exception":
+            raise failure
+        return result
+
+    monkeypatch.setattr(main, "run_strategy_cycle", cycle)
+    monkeypatch.setattr(main, "_persist_runtime_report", lambda report: persisted.append(report))
+    if outcome == "exception":
+        with pytest.raises(RuntimeError) as caught:
+            main._run_strategy_cycle_with_report(dry_run_override=dry_run)
+        assert caught.value is failure
+    else:
+        assert main._run_strategy_cycle_with_report(dry_run_override=dry_run) is result
+
+    assert len(cycle_calls) == 1
+    if dry_run:
+        settings = cycle_calls[0]["runtime_settings"]
+        assert settings.live_trading_enabled is False
+        assert settings.runtime_target.execution_environment.value == "dry_run"
+    assert len(persisted) == 1
+    report = persisted[0]
+    assert report["runtime_release_receipt"]["attestation_state"] == "legacy_unattested"
+    assert "execution_receipt" not in report
+    assert report["dry_run"] is dry_run
+    assert report["status"] == ("ok" if outcome == "submitted" else "error")
+    if outcome == "exception":
+        assert report["errors"][0]["error_type"] == "RuntimeError"
+
+
 def test_cloud_run_route_contracts_are_registered():
     assert route_methods() == {
         "/": ["GET"],
