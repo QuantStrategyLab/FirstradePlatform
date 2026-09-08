@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from application.execution_receipt_adapter import attach_strategy_result_execution_receipt
+from application.execution_receipt_adapter import (
+    attach_strategy_result_execution_receipt,
+    attach_unknown_failure_execution_receipt,
+)
 
 
 REVISION = "a" * 40
@@ -22,6 +25,33 @@ def _report() -> dict[str, object]:
 
 
 class ExecutionReceiptAdapterTest(unittest.TestCase):
+    def test_legacy_unattested_results_do_not_fabricate_receipts(self) -> None:
+        for attach in (
+            lambda report: attach_strategy_result_execution_receipt(report, {}, dry_run=False),
+            attach_unknown_failure_execution_receipt,
+        ):
+            report = _report()
+            report["runtime_release_receipt"] = {"attestation_state": "legacy_unattested"}
+            self.assertIs(attach(report), report)
+            self.assertNotIn("execution_receipt", report)
+
+    def test_invalid_attested_revision_still_fails(self) -> None:
+        for revision in (None, "abc1234", "A" * 40):
+            for attach in (
+                lambda report: attach_strategy_result_execution_receipt(report, {}, dry_run=False),
+                attach_unknown_failure_execution_receipt,
+            ):
+                report = _report()
+                report["runtime_release_receipt"]["strategy_release"]["strategy_revision"] = revision
+                with self.assertRaisesRegex(ValueError, "strategy_revision"):
+                    attach(report)
+
+    def test_missing_attestation_is_not_assumed_legacy(self) -> None:
+        report = _report()
+        del report["runtime_release_receipt"]
+        with self.assertRaisesRegex(ValueError, "strategy_revision"):
+            attach_unknown_failure_execution_receipt(report)
+
     def test_submission_is_not_reported_as_a_fill(self) -> None:
         report = _report()
 

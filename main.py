@@ -217,7 +217,11 @@ def _runtime_settings(*, dry_run_override: bool | None = None) -> PlatformRuntim
         return settings
     runtime_target = settings.runtime_target
     if runtime_target is not None:
-        runtime_target = replace(runtime_target, dry_run_only=bool(dry_run_override))
+        runtime_target = replace(
+            runtime_target,
+            dry_run_only=bool(dry_run_override),
+            execution_environment="dry_run" if dry_run_override else runtime_target.execution_environment,
+        )
     return replace(
         settings,
         dry_run_only=bool(dry_run_override),
