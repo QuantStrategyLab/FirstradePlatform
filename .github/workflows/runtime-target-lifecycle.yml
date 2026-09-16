@@ -167,7 +167,7 @@ jobs:
 
       - name: Publish lifecycle to the unified control plane
         if: ${{ steps.lifecycle_ingress.outputs.enabled == 'true' }}
-        uses: QuantStrategyLab/QuantRuntimeSettings/actions/publish-runtime-target-lifecycle@eda6facfb59aee73caaf8fafc80898540a6c7629
+        uses: QuantStrategyLab/QuantRuntimeSettings/actions/publish-runtime-target-lifecycle@f2750be9fd5295c72fba1c5f592245283d7edf54
         with:
           source-id: firstrade.primary
           target-id: firstrade.primary
