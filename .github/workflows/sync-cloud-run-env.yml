@@ -314,6 +314,14 @@ jobs:
             --region="${CLOUD_RUN_REGION}" \
             --service="${CLOUD_RUN_SERVICE}"
 
+      - name: Verify production strategy dependency continuity before build
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          python scripts/verify_production_ues_continuity.py \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${CLOUD_RUN_REGION}" \
+            --service="${CLOUD_RUN_SERVICE}"
 
       - name: Build, push, and deploy Cloud Run image
         id: deploy_image
