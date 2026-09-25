@@ -585,10 +585,11 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
     assert result["skipped_orders"] == [
         {"symbol": "AAA", "reason": "below_trade_threshold", "delta_value": 0.0}
     ]
-    assert result["notification_sent"] is False
-    assert result["notification_suppressed"] is True
-    assert result["notification_suppressed_reason"] == "no_trade_or_error"
-    assert messages == []
+    assert result["notification_sent"] is True
+    assert len(messages) == 1
+    assert "Heartbeat" in messages[0]
+    assert "Total assets: $0.00" in messages[0]
+    assert "Available cash: $0.00" in messages[0]
 
 
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(

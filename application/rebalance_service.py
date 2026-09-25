@@ -267,7 +267,8 @@ def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
         return True
     if result.get("error") or result.get("ok") is False:
         return True
-    return False
+    # A completed strategy run without an order is itself a useful heartbeat.
+    return result.get("ok") is True
 
 
 def load_strategy_plugin_signals(
@@ -857,7 +858,7 @@ def run_strategy_cycle(
     elif send_cycle_notification:
         result["notification_sent"] = False
         result["notification_suppressed"] = True
-        result.setdefault("notification_suppressed_reason", "no_trade_or_error")
+        result.setdefault("notification_suppressed_reason", "policy_or_incomplete_cycle")
     else:
         result["notification_sent"] = False
         result["notification_suppressed"] = True
