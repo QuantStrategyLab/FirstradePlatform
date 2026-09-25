@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from quant_platform_kit.common.operational_notification_localization import resolve_operational_notification_locale
 
+import math
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -158,6 +159,10 @@ I18N = {
         "runtime_failure_log": "策略运行失败（runtime_setup_failed）",
         "rebalance_title": "🔔 【调仓指令】",
         "heartbeat_title": "💓 【心跳检测】",
+        "heartbeat_available_cash": "💵 可用现金: {value}",
+        "heartbeat_account_equity": "💰 账户总权益: {value}",
+        "heartbeat_observed_at": "🕒 账户观察时间: {value}",
+        "heartbeat_unverified": "未核实",
         "strategy_label": "🧭 策略: {name}",
         "account_label": "🆔 账户: {account}",
         "dry_run_banner": "🧪 模拟运行，本轮不提交真实订单",
@@ -339,6 +344,10 @@ I18N = {
         "runtime_failure_log": "Strategy run failed (runtime_setup_failed)",
         "rebalance_title": "🔔 【Rebalance Instruction】",
         "heartbeat_title": "💓 【Heartbeat】",
+        "heartbeat_available_cash": "💵 Available cash: {value}",
+        "heartbeat_account_equity": "💰 Total account equity: {value}",
+        "heartbeat_observed_at": "🕒 Account observed: {value}",
+        "heartbeat_unverified": "Unverified",
         "strategy_label": "🧭 Strategy: {name}",
         "account_label": "🆔 Account: {account}",
         "dry_run_banner": "🧪 Dry run only; no live orders submitted",
@@ -1081,6 +1090,23 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         lines.append(translator("strategy_label", name=strategy_name))
     if account:
         lines.append(translator("account_label", account=account))
+    if not submitted:
+        account_snapshot = result.get("heartbeat_account_snapshot")
+        account_snapshot = account_snapshot if isinstance(account_snapshot, Mapping) else {}
+        observed_at = str(account_snapshot.get("observed_at") or "").strip()
+        verified = False
+        for field, label in (("available_cash", "heartbeat_available_cash"), ("net_assets", "heartbeat_account_equity")):
+            amount = account_snapshot.get(field)
+            valid = (
+                isinstance(amount, (int, float)) and not isinstance(amount, bool)
+                and math.isfinite(amount) and bool(observed_at)
+                and (field != "net_assets" or amount > 0)
+            )
+            verified = verified or valid
+            value = f"USD {amount:,.2f}" if valid else translator("heartbeat_unverified")
+            lines.append(translator(label, value=value))
+        if verified:
+            lines.append(translator("heartbeat_observed_at", value=observed_at))
     if dry_run_only:
         lines.append(translator("dry_run_banner"))
     if bool(result.get("execution_blocked")):

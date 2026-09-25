@@ -3,6 +3,41 @@ from __future__ import annotations
 from notifications.telegram import render_cycle_summary
 
 
+def test_no_trade_heartbeat_shows_broker_account_values_in_both_locales():
+    result = {
+        "account": "****1234",
+        "strategy_profile": "soxl_soxx_trend_income",
+        "portfolio": {"total_equity": 25.0, "liquid_cash": 10.0},
+        "execution": {},
+        "submitted_orders": [],
+        "skipped_orders": [],
+        "heartbeat_account_snapshot": {
+            "available_cash": 100.0,
+            "net_assets": 1234.56,
+            "observed_at": "2026-09-25T19:45:00+00:00",
+        },
+    }
+    zh = render_cycle_summary(result, lang="zh")
+    en = render_cycle_summary(result, lang="en")
+    assert "可用现金: USD 100.00" in zh
+    assert "账户总权益: USD 1,234.56" in zh
+    assert "Available cash: USD 100.00" in en
+    assert "Total account equity: USD 1,234.56" in en
+
+
+def test_no_trade_heartbeat_marks_missing_account_values_unverified():
+    message = render_cycle_summary({
+        "account": "****1234",
+        "portfolio": {},
+        "execution": {},
+        "submitted_orders": [],
+        "skipped_orders": [],
+        "heartbeat_account_snapshot": {"available_cash": 0.0, "net_assets": None},
+    }, lang="en")
+    assert "Available cash: Unverified" in message
+    assert "Total account equity: Unverified" in message
+
+
 def test_render_cycle_summary_dashboard_text_does_not_hide_account_overview():
     message = render_cycle_summary(
         {

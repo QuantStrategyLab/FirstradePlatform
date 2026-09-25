@@ -55,6 +55,7 @@ def test_runtime_adapters_build_quote_and_portfolio_ports():
     assert portfolio.cash_balance == 20.0
     assert portfolio.positions[0].symbol == "SPY"
     assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
+    assert portfolio.metadata["broker_account_equity"] == 120.0
 
 
 def test_portfolio_snapshot_uses_account_value_balance_key():
@@ -72,6 +73,7 @@ def test_portfolio_snapshot_uses_account_value_balance_key():
     assert portfolio.total_equity == 221.0
     assert portfolio.cash_balance == 200.0
     assert portfolio.metadata["total_equity_source"] == "cash_plus_positions"
+    assert portfolio.metadata["broker_account_equity"] == 1234.56
 
 
 def test_managed_portfolio_snapshot_ignores_full_account_value_balance_key():
