@@ -310,6 +310,7 @@ class FirstradeBrokerAdapters:
             prefer_cash_plus_positions=bool(managed),
             cash_only_execution=self.cash_only_execution,
         )
+        broker_account_equity = _first_numeric_by_keyword_groups(balances, _TOTAL_EQUITY_KEYWORD_GROUPS)
         return PortfolioSnapshot(
             as_of=self.clock(),
             total_equity=float(total_equity),
@@ -321,6 +322,7 @@ class FirstradeBrokerAdapters:
                 "account_hash": self.account_hash or mask_account_id(self.account),
                 "api_kind": "unofficial-reverse-engineered",
                 "total_equity_source": total_equity_source,
+                "broker_account_equity": broker_account_equity,
                 "cash_only_execution": self.cash_only_execution,
                 "market_currency_cash": cash_balance,
                 "available_funds": reported_buying_power,

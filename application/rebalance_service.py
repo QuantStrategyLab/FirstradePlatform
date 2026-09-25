@@ -773,6 +773,11 @@ def run_strategy_cycle(
         "strategy_run_stage": strategy_run_stage,
         "strategy_run_persisted": strategy_run_persisted,
         "portfolio": plan.get("portfolio", {}),
+        "heartbeat_account_snapshot": {
+            "available_cash": snapshot.cash_balance,
+            "net_assets": (getattr(snapshot, "metadata", {}) or {}).get("broker_account_equity"),
+            "observed_at": snapshot.as_of.isoformat(),
+        },
         "allocation": plan.get("allocation", {}),
         "execution": plan.get("execution", {}),
         "signal_snapshot": signal_snapshot,
