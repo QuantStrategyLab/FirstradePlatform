@@ -24,7 +24,7 @@ from notifications.telegram import (  # noqa: E402
     build_sender,
     build_strategy_display_name,
     build_translator,
-    render_cycle_summary,
+    render_cycle_notification,
 )
 
 _MAX_PREVIEW_MESSAGES = 6
@@ -117,14 +117,14 @@ def build_preview_messages(*, locale: str | None = None) -> list[str]:
     )
     account_line = translator("account_label", account="PAPER")
 
-    heartbeat = render_cycle_summary(
+    heartbeat = render_cycle_notification(
         {
             **_base_result(dry_run_only=True, strategy_display_name=strategy_name),
         },
         lang=resolved_locale,
-    )
+    ).compact_text
 
-    dry_run = render_cycle_summary(
+    dry_run = render_cycle_notification(
         {
             **_base_result(dry_run_only=True, strategy_display_name=strategy_name),
             "portfolio": {
@@ -146,9 +146,9 @@ def build_preview_messages(*, locale: str | None = None) -> list[str]:
             ],
         },
         lang=resolved_locale,
-    )
+    ).compact_text
 
-    pending = render_cycle_summary(
+    pending = render_cycle_notification(
         {
             **_base_result(dry_run_only=False, strategy_display_name=strategy_name),
             "allocation": {"targets": {_SYNTHETIC_SYMBOL: 100.0}},
@@ -164,7 +164,7 @@ def build_preview_messages(*, locale: str | None = None) -> list[str]:
             ],
         },
         lang=resolved_locale,
-    )
+    ).compact_text
     pending = "\n".join((pending, "synthetic PREVIEW pending confirmation / 订单待确认"))
 
     filled_order = (
@@ -176,15 +176,13 @@ def build_preview_messages(*, locale: str | None = None) -> list[str]:
         (
             translator("rebalance_title"),
             translator("strategy_label", name=strategy_name),
-            account_line,
             translator("dry_run_banner"),
-            translator("order_logs_title"),
             filled_order,
             "synthetic PREVIEW filled / 成交确认",
         )
     )
 
-    rejected = render_cycle_summary(
+    rejected = render_cycle_notification(
         {
             **_base_result(dry_run_only=True, strategy_display_name=strategy_name),
             "allocation": {"targets": {_SYNTHETIC_SYMBOL: 100.0}},
@@ -193,7 +191,7 @@ def build_preview_messages(*, locale: str | None = None) -> list[str]:
             ],
         },
         lang=resolved_locale,
-    )
+    ).compact_text
     rejected = "\n".join((rejected, "synthetic PREVIEW reject / 拒单异常"))
 
     unknown_status = "\n".join(

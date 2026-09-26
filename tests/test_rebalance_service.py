@@ -391,10 +391,10 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert result["notification_sent"] is True
     assert "🔔 【Rebalance Instruction】" in messages[0]
     assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
-    assert "🆔 Account: 12345678" in messages[0]
-    assert "📌 Strategy Account" in messages[0]
-    assert "Target changes: AAA +50.00 USD" in messages[0]
-    assert "🧾 Execution details" in messages[0]
+    assert "🆔 Account: 12345678" not in messages[0]
+    assert "📌 Strategy Account" not in messages[0]
+    assert "Target changes: AAA +50.00 USD" not in messages[0]
+    assert "🧾 Execution details" not in messages[0]
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
 
 
@@ -589,7 +589,7 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
     assert len(messages) == 1
     assert "Heartbeat" in messages[0]
     assert "Total assets: $0.00" in messages[0]
-    assert "Available cash: $0.00" in messages[0]
+    assert "Available cash: $0.00" not in messages[0]
 
 
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
