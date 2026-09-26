@@ -25,6 +25,8 @@ from quant_platform_kit.notifications.renderer_base import (
     localize_price_source_label as _localize_price_source_label,
     present as _present,
 )
+from notifications.compact_adapter import adapt_compact_sections
+from quant_platform_kit.notifications.events import RenderedNotification
 
 try:
     from quant_platform_kit.common.notification_localization import (
@@ -1162,3 +1164,125 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     else:
         lines.append(translator("no_rebalance_needed"))
     return "\n".join(str(line) for line in lines if str(line).strip())
+
+
+def _compact_cycle_total_assets_line(
+    result: Mapping[str, Any],
+    *,
+    translator: Callable[..., str],
+    has_submitted_orders: bool,
+) -> str:
+    if not has_submitted_orders:
+        snapshot = result.get("heartbeat_account_snapshot")
+        snapshot = snapshot if isinstance(snapshot, Mapping) else {}
+        observed_at = str(snapshot.get("observed_at") or "").strip()
+        amount = snapshot.get("net_assets")
+        if (
+            isinstance(amount, (int, float))
+            and not isinstance(amount, bool)
+            and math.isfinite(amount)
+            and amount > 0
+            and observed_at
+        ):
+            return translator("heartbeat_account_equity", value=f"USD {amount:,.2f}")
+
+    portfolio = result.get("portfolio")
+    portfolio = portfolio if isinstance(portfolio, Mapping) else {}
+    total_equity = _safe_float(portfolio.get("total_equity"))
+    if total_equity is None:
+        return ""
+    execution = result.get("execution")
+    execution = execution if isinstance(execution, Mapping) else {}
+    cash_only = bool(execution.get("cash_only_execution", portfolio.get("cash_only_execution", True)))
+    label = translator("total_assets" if cash_only else "total_assets_margin")
+    return f"💰 {label}: {_format_money(total_equity)}"
+
+
+def _compact_strategy_name(result: Mapping[str, Any], *, lang: str, translator) -> str:
+    strategy_profile = str(result.get("strategy_profile") or "").strip()
+    strategy_name = str(result.get("strategy_display_name") or strategy_profile).strip()
+    strategy_metadata = result.get("strategy_metadata")
+    if strategy_metadata is not None:
+        from quant_platform_kit.common.notification_localization import resolve_strategy_display_name
+
+        return resolve_strategy_display_name(lang, strategy_metadata, translator=translator)
+    translated = translator(f"strategy_name_{strategy_profile}") if strategy_profile else ""
+    if translated and translated != f"strategy_name_{strategy_profile}":
+        return translated
+    return strategy_name
+
+
+def render_cycle_notification(result: Mapping[str, Any], *, lang: str = "en") -> RenderedNotification:
+    """Render full technical detail for logs and a concise user-facing message."""
+    translator = build_translator(lang)
+    submitted = list(result.get("submitted_orders") or ())
+    skipped = list(result.get("skipped_orders") or ())
+    allocation = dict(result.get("allocation") or {})
+    portfolio = dict(result.get("portfolio") or {})
+    execution = dict(result.get("execution") or {})
+    target_diff_lines = _format_target_diff_lines(allocation, portfolio, translator=translator)
+    meaningful_skipped = [
+        item for item in skipped if str(item.get("reason") or "") != "below_trade_threshold"
+    ]
+    has_rebalance_attempt = bool(submitted or target_diff_lines or meaningful_skipped)
+
+    lines = [translator("rebalance_title" if has_rebalance_attempt else "heartbeat_title")]
+    strategy_name = _compact_strategy_name(result, lang=lang, translator=translator)
+    if strategy_name:
+        lines.append(translator("strategy_label", name=strategy_name))
+    total_assets_line = _compact_cycle_total_assets_line(
+        result,
+        translator=translator,
+        has_submitted_orders=bool(submitted),
+    )
+    if total_assets_line:
+        lines.append(total_assets_line)
+    if bool(result.get("dry_run_only")):
+        lines.append(translator("dry_run_banner"))
+    compact_dashboard = "\n".join(
+        _format_dashboard_lines(portfolio, execution, translator=translator)
+    )
+    lines.extend(
+        adapt_compact_sections(
+            compact_dashboard,
+            locale=lang,
+            supplemental_lines=result.get("compact_supplemental_lines", ()),
+        )
+    )
+
+    if bool(result.get("execution_blocked")):
+        blocked = list(result.get("execution_blocking_skips") or skipped)
+        reason = _format_skipped_reason(blocked, translator=translator)
+        if bool(result.get("funding_blocked")):
+            banner_key = "funding_blocked_banner"
+        elif bool(result.get("execution_block_retryable")):
+            banner_key = "execution_blocked_retryable_banner"
+        else:
+            banner_key = "execution_blocked_banner"
+        lines.append(translator(banner_key, reason=reason))
+
+    if submitted:
+        lines.extend(
+            _format_order_lines(
+                submitted,
+                dry_run_only=bool(result.get("dry_run_only")),
+                translator=translator,
+            )
+        )
+        hard_skips = [
+            item
+            for item in meaningful_skipped
+            if str(item.get("reason") or "")
+            not in {"buy_quantity_zero", "sell_quantity_zero", "quantity_zero", "min_notional"}
+        ]
+        if hard_skips:
+            lines.append(translator("no_order_submitted", reason=_format_skipped_reason(hard_skips, translator=translator)))
+    elif skipped and has_rebalance_attempt:
+        lines.append(translator("no_order_submitted", reason=_format_skipped_reason(skipped, translator=translator)))
+    else:
+        lines.append(translator("no_rebalance_needed"))
+
+    return RenderedNotification(
+        detailed_text=render_cycle_summary(result, lang=lang),
+        compact_text="\n".join(str(line) for line in lines if str(line).strip()),
+    )

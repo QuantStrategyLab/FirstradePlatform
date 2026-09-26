@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from notifications.telegram import render_cycle_summary
+from notifications.telegram import render_cycle_notification, render_cycle_summary
 
 
 def test_no_trade_heartbeat_shows_broker_account_values_in_both_locales():
@@ -23,6 +23,76 @@ def test_no_trade_heartbeat_shows_broker_account_values_in_both_locales():
     assert "账户总权益: USD 1,234.56" in zh
     assert "Available cash: USD 100.00" in en
     assert "Total account equity: USD 1,234.56" in en
+
+
+def test_compact_heartbeat_keeps_nonzero_holdings_and_result():
+    notification = render_cycle_notification({
+        "account": "****1234",
+        "strategy_profile": "soxl_soxx_trend_income",
+        "portfolio": {
+            "total_equity": 1234.56,
+            "liquid_cash": 100.0,
+            "portfolio_rows": (("SOXL",),),
+            "market_values": {"SOXL": 1134.56},
+            "quantities": {"SOXL": 1},
+        },
+        "allocation": {"targets": {"SOXL": 1134.56}},
+        "execution": {"signal_display": "hold"},
+        "strategy_plugin_error_lines": ("🧩 插件本次影响：仅通知复核",),
+        "submitted_orders": [],
+        "skipped_orders": [],
+        "heartbeat_account_snapshot": {
+            "available_cash": 100.0,
+            "net_assets": 1234.56,
+            "observed_at": "2026-09-25T19:45:00+00:00",
+        },
+    }, lang="zh")
+
+    assert notification.compact_text == (
+        "💓 【心跳检测】\n"
+        "🧭 策略: SOXL/SOXX 半导体趋势收益\n"
+        "💰 账户总权益: USD 1,234.56\n"
+        "💼 持仓\n"
+        "- SOXL: $1,134.56 / 1股\n"
+        "✅ 无需调仓"
+    )
+
+
+def test_compact_trade_keeps_nonzero_holdings_and_order_result():
+    notification = render_cycle_notification({
+        "account": "****1234",
+        "strategy_profile": "soxl_soxx_trend_income",
+        "portfolio": {
+            "total_equity": 1234.56,
+            "liquid_cash": 100.0,
+            "portfolio_rows": (("BOXX", "QQQM"),),
+            "market_values": {"BOXX": 500.0, "QQQM": 0.0},
+            "quantities": {"BOXX": 5, "QQQM": 0},
+        },
+        "execution": {"cash_only_execution": True},
+        "compact_supplemental_lines": ("⚠️ 订单仍待券商确认",),
+        "allocation": {"targets": {"SOXL": 500.0}},
+        "submitted_orders": [{
+            "side": "buy",
+            "symbol": "SOXL",
+            "quantity": 1,
+            "order_type": "limit",
+            "limit_price": 151.8,
+            "broker_order_id": "21",
+        }],
+        "skipped_orders": [{"symbol": "QQQM", "reason": "buy_quantity_zero"}],
+    }, lang="zh")
+
+    assert notification.compact_text == (
+        "🔔 【调仓指令】\n"
+        "🧭 策略: SOXL/SOXX 半导体趋势收益\n"
+        "💰 总资产（策略标的+现金）: $1,234.56\n"
+        "💼 持仓\n"
+        "- BOXX: $500.00 / 5股\n"
+        "⚠️ 订单仍待券商确认\n"
+        "📈 已提交限价买入 SOXL: 1股 @ $151.80（订单号: 21）"
+        "（尚未确认成交；限价单可能未成交或取消）"
+    )
 
 
 def test_no_trade_heartbeat_marks_missing_account_values_unverified():

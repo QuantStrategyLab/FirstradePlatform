@@ -39,7 +39,7 @@ from application.strategy_run_persistence import (
     resolve_strategy_run_period,
 )
 from decision_mapper import map_strategy_decision_to_plan
-from notifications.telegram import build_sender, build_translator, render_cycle_summary
+from notifications.telegram import build_sender, build_translator, render_cycle_notification
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
     filter_execution_blocking_skips,
@@ -57,7 +57,7 @@ from quant_platform_kit.common.strategy_plugins import (
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
 )
-from quant_platform_kit.notifications.events import NotificationPublisher, RenderedNotification
+from quant_platform_kit.notifications.events import NotificationPublisher
 from quant_platform_kit.notifications.strategy_plugin_alerts import (
     StrategyPluginAlertStateSettings,
     build_strategy_plugin_alert_context_label as build_alert_context_label,
@@ -238,7 +238,7 @@ def _publish_cycle_notification(
         if not settings.tg_token or not settings.tg_chat_id:
             return False
         sender = build_sender(settings.tg_token, settings.tg_chat_id)
-    message = render_cycle_summary(result, lang=settings.notify_lang)
+    notification = render_cycle_notification(result, lang=settings.notify_lang)
     def publish_log(text: str) -> None:
         try:
             log_message(text, flush=True)
@@ -256,7 +256,7 @@ def _publish_cycle_notification(
     NotificationPublisher(
         log_message=publish_log,
         send_message=send_and_capture,
-    ).publish(RenderedNotification(detailed_text=message, compact_text=message))
+    ).publish(notification)
     return delivery_sent
 
 
