@@ -121,10 +121,77 @@ class ReconcileCloudRuntimeTest(unittest.TestCase):
                 return _completed(command, stdout=json.dumps(service_state))
             if command[:4] == ["run", "revisions", "describe", "firstrade-platform-service-00002"]:
                 return _completed(command, stdout=json.dumps(revision_state))
+            if command[:4] == ["run", "revisions", "list", "--service"]:
+                return _completed(command, stdout="[]")
             raise AssertionError(f"Unexpected gcloud command: {command}")
 
         with self.assertRaisesRegex(RuntimeError, "commit-sha"):
             reconciler.reconcile_traffic(env, run_gcloud=fake_run_gcloud)
+
+    def test_reconcile_traffic_selects_ready_revision_for_target_commit(self):
+        env = {
+            "GCP_PROJECT_ID": "firstradequant",
+            "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+            "CLOUD_RUN_REGION": "us-central1",
+            "GITHUB_SHA": "abc123",
+            "SYNC_PLAN_JSON": json.dumps(
+                {"targets": [{"service_name": "firstrade-platform-service"}]}
+            ),
+        }
+        service_state = {
+            "status": {
+                "latestReadyRevisionName": "firstrade-platform-service-00003",
+                "traffic": [
+                    {"revisionName": "firstrade-platform-service-00001", "percent": 100}
+                ],
+            }
+        }
+        revisions = [
+            {
+                "metadata": {
+                    "name": "firstrade-platform-service-00002",
+                    "creationTimestamp": "2026-09-26T15:03:00Z",
+                    "labels": {"commit-sha": "abc123"},
+                },
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+            },
+            {
+                "metadata": {
+                    "name": "firstrade-platform-service-00003",
+                    "creationTimestamp": "2026-09-26T15:04:00Z",
+                    "labels": {"commit-sha": "oldsha"},
+                },
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+            },
+        ]
+        calls: list[list[str]] = []
+
+        def fake_run_gcloud(command: list[str]):
+            calls.append(command)
+            if command[:4] == ["run", "services", "describe", "firstrade-platform-service"]:
+                return _completed(command, stdout=json.dumps(service_state))
+            if command[:4] == ["run", "revisions", "describe", "firstrade-platform-service-00003"]:
+                return _completed(
+                    command,
+                    stdout=json.dumps({"metadata": {"labels": {"commit-sha": "oldsha"}}}),
+                )
+            if command[:4] == ["run", "revisions", "list", "--service"]:
+                return _completed(command, stdout=json.dumps(revisions))
+            if command[:4] == ["run", "services", "update-traffic", "firstrade-platform-service"]:
+                service_state["status"]["traffic"] = [
+                    {"revisionName": "firstrade-platform-service-00002", "percent": 100}
+                ]
+                return _completed(command)
+            raise AssertionError(f"Unexpected gcloud command: {command}")
+
+        reconciler.reconcile_traffic(env, run_gcloud=fake_run_gcloud)
+
+        update_call = next(
+            command
+            for command in calls
+            if command[:3] == ["run", "services", "update-traffic"]
+        )
+        self.assertIn("firstrade-platform-service-00002=100", update_call)
 
     def test_cleanup_legacy_scheduler_jobs_preserves_canonical_direct_jobs(self):
         env = {

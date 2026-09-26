@@ -179,6 +179,62 @@ def _describe_revision(
     )
 
 
+def _list_revisions(
+    ctx: RuntimeContext,
+    run_gcloud: RunGcloud = _run_gcloud,
+) -> list[dict[str, Any]]:
+    command = [
+        "run",
+        "revisions",
+        "list",
+        "--service",
+        ctx.service_name,
+        "--project",
+        ctx.project_id,
+        "--region",
+        ctx.region,
+        "--format=json",
+    ]
+    result = run_gcloud(command)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(
+            f"gcloud {' '.join(command)} failed with exit code {result.returncode}"
+            + (f": {stderr}" if stderr else "")
+        )
+    payload = json.loads((result.stdout or "[]").strip() or "[]")
+    if not isinstance(payload, list):
+        raise RuntimeError("Cloud Run revision list did not return a JSON array")
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _ready_revision_for_commit(
+    ctx: RuntimeContext,
+    target_sha: str,
+    *,
+    run_gcloud: RunGcloud = _run_gcloud,
+) -> str:
+    matches = []
+    for revision in _list_revisions(ctx, run_gcloud=run_gcloud):
+        metadata = revision.get("metadata", {})
+        if str(metadata.get("labels", {}).get("commit-sha") or "").strip() != target_sha:
+            continue
+        conditions = revision.get("status", {}).get("conditions", []) or []
+        if not any(
+            isinstance(condition, Mapping)
+            and condition.get("type") == "Ready"
+            and str(condition.get("status") or "").lower() == "true"
+            for condition in conditions
+        ):
+            continue
+        name = str(metadata.get("name") or "").strip()
+        if name:
+            matches.append((str(metadata.get("creationTimestamp") or ""), name))
+    if not matches:
+        return ""
+    return max(matches)[1]
+
+
 def _wait_for_latest_ready_revision(
     ctx: RuntimeContext,
     *,
@@ -204,7 +260,7 @@ def _wait_for_latest_ready_revision(
         time.sleep(poll_seconds)
 
 
-def _traffic_is_reconciled(service: Mapping[str, Any], latest_revision: str) -> bool:
+def _traffic_is_reconciled(service: Mapping[str, Any], target_revision: str) -> bool:
     traffic = service.get("status", {}).get("traffic", []) or []
     positive = [
         entry
@@ -214,9 +270,15 @@ def _traffic_is_reconciled(service: Mapping[str, Any], latest_revision: str) -> 
     if len(positive) != 1:
         return False
     entry = positive[0]
-    return int(entry.get("percent", 0) or 0) == 100 and (
-        entry.get("latestRevision") is True or str(entry.get("revisionName") or "") == latest_revision
-    )
+    if int(entry.get("percent", 0) or 0) != 100:
+        return False
+    revision_name = str(entry.get("revisionName") or "").strip()
+    if revision_name:
+        return revision_name == target_revision
+    latest_ready = str(
+        service.get("status", {}).get("latestReadyRevisionName") or ""
+    ).strip()
+    return entry.get("latestRevision") is True and latest_ready == target_revision
 
 
 def reconcile_traffic(
@@ -230,17 +292,25 @@ def reconcile_traffic(
         raise ValueError("GITHUB_SHA is required for traffic reconciliation")
 
     service, latest_revision = _wait_for_latest_ready_revision(ctx, run_gcloud=run_gcloud)
+    target_revision = latest_revision
     revision = _describe_revision(ctx, latest_revision, run_gcloud=run_gcloud)
     revision_sha = str(
         revision.get("metadata", {}).get("labels", {}).get("commit-sha") or ""
     ).strip()
     if revision_sha != target_sha:
-        raise RuntimeError(
-            f"Latest ready revision {latest_revision} on {ctx.service_name} has commit-sha "
-            f"{revision_sha or '<missing>'}, expected {target_sha}"
+        target_revision = _ready_revision_for_commit(
+            ctx,
+            target_sha,
+            run_gcloud=run_gcloud,
         )
+        if not target_revision:
+            raise RuntimeError(
+                f"Latest ready revision {latest_revision} on {ctx.service_name} has commit-sha "
+                f"{revision_sha or '<missing>'}, and no Ready revision matches expected "
+                f"commit {target_sha}"
+            )
 
-    if not _traffic_is_reconciled(service, latest_revision):
+    if not _traffic_is_reconciled(service, target_revision):
         _run_gcloud_ok(
             [
                 "run",
@@ -252,7 +322,7 @@ def reconcile_traffic(
                 "--region",
                 ctx.region,
                 "--to-revisions",
-                f"{latest_revision}=100",
+                f"{target_revision}=100",
                 "--quiet",
             ],
             run_gcloud=run_gcloud,
@@ -261,14 +331,14 @@ def reconcile_traffic(
     deadline = time.monotonic() + 300
     while True:
         service = _describe_service(ctx, run_gcloud=run_gcloud)
-        if _traffic_is_reconciled(service, latest_revision):
+        if _traffic_is_reconciled(service, target_revision):
             print(
-                f"Cloud Run service {ctx.service_name} traffic reconciled to {latest_revision}."
+                f"Cloud Run service {ctx.service_name} traffic reconciled to {target_revision}."
             )
             return
         if time.monotonic() >= deadline:
             raise RuntimeError(
-                f"Timed out waiting for {ctx.service_name} traffic to converge on {latest_revision}"
+                f"Timed out waiting for {ctx.service_name} traffic to converge on {target_revision}"
             )
         time.sleep(5)
 
