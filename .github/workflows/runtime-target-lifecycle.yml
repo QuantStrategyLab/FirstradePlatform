@@ -2,6 +2,12 @@ name: Runtime Target Lifecycle
 
 on:
   workflow_dispatch:
+    inputs:
+      metadata_only:
+        description: Inspect the configured serving revision without invoking the service
+        type: boolean
+        required: true
+        default: false
   workflow_run:
     workflows: ["Deploy Cloud Run"]
     types: [completed]
@@ -20,6 +26,7 @@ concurrency:
 jobs:
   lifecycle:
     name: Publish Firstrade target lifecycle
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -205,3 +212,32 @@ jobs:
             echo
             echo "This workflow is read-only: it cannot enable a target, alter its lane, or submit an order."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  account_data_readiness:
+    name: Inspect Firstrade account-data configuration
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.metadata_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Inspect serving account-data configuration
+        run: python3 scripts/inspect_account_data_readiness.py

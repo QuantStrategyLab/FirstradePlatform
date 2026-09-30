@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -105,6 +104,22 @@ def test_lifecycle_observes_completed_sync_regardless_of_conclusion() -> None:
     assert "types: [completed]" in workflow
     assert "github.event.workflow_run.conclusion" not in workflow
     assert "github.event.workflow_run.head_sha" not in workflow
+
+
+def test_metadata_only_dispatch_is_opt_in_and_skips_lifecycle_job() -> None:
+    workflow = (ROOT / ".github/workflows/runtime-target-lifecycle.yml").read_text()
+    lifecycle = workflow.split("  lifecycle:", 1)[1].split("  account_data_readiness:", 1)[0]
+    metadata_job = workflow.split("  account_data_readiness:", 1)[1]
+
+    assert "metadata_only:" in workflow
+    assert "type: boolean" in workflow
+    assert "default: false" in workflow
+    assert "if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.metadata_only) }}" in lifecycle
+    assert "if: ${{ github.event_name == 'workflow_dispatch' && inputs.metadata_only }}" in metadata_job
+    assert "uv sync --frozen --no-dev" not in metadata_job
+    assert "scripts/inspect_account_data_readiness.py" in metadata_job
+    assert "CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}" in metadata_job
+    assert "CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}" in metadata_job
 
 
 def test_lifecycle_publishes_read_only_observation_for_exact_service() -> None:
