@@ -35,7 +35,7 @@ def test_container_difference_categories_keep_private_details_closed():
 
 @pytest.mark.parametrize(
     ("service_name_length", "error"),
-    [(44, None), (45, "diagnostic_tag_name_budget_exceeded")],
+    [(43, None), (44, "diagnostic_tag_name_budget_exceeded")],
 )
 def test_diagnostic_traffic_tag_budget_is_checked_without_exposing_name(service_name_length, error):
     service_name = "s" * service_name_length
@@ -44,6 +44,12 @@ def test_diagnostic_traffic_tag_budget_is_checked_without_exposing_name(service_
             stage._validate_diagnostic_tag_budget(service_name, stage.DIAGNOSTIC_TAG)
     else:
         stage._validate_diagnostic_tag_budget(service_name, stage.DIAGNOSTIC_TAG)
+
+
+def test_diagnostic_traffic_tag_rejects_short_fixed_tag(monkeypatch):
+    monkeypatch.setattr(stage, "DIAGNOSTIC_TAG", "cb")
+    with pytest.raises(ValueError, match="diagnostic_tag_too_short"):
+        stage._validate_diagnostic_tag_budget("service-placeholder", "cb")
 
 
 def test_diagnostic_traffic_tag_budget_rejects_a_different_tag():
@@ -55,7 +61,7 @@ def test_tag_budget_cli_reports_only_closed_result(monkeypatch, capsys):
     monkeypatch.setattr(
         stage.sys,
         "argv",
-        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", "private-service", "--tag", "cb"],
+        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", "private-service", "--tag", "cbd"],
     )
     assert stage.main() == 0
     output = capsys.readouterr()
@@ -64,11 +70,11 @@ def test_tag_budget_cli_reports_only_closed_result(monkeypatch, capsys):
 
 
 def test_tag_budget_cli_rejects_long_name_without_echoing_it(monkeypatch, capsys):
-    service_name = "s" * 45
+    service_name = "s" * 44
     monkeypatch.setattr(
         stage.sys,
         "argv",
-        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", service_name, "--tag", "cb"],
+        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", service_name, "--tag", "cbd"],
     )
     assert stage.main() == 1
     output = capsys.readouterr()

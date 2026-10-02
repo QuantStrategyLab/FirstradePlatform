@@ -69,7 +69,7 @@ jobs:
       GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
       CACHED_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
       EXPECTED_SERVING_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
-      CACHED_DIAGNOSTIC_TAG: cb
+      CACHED_DIAGNOSTIC_TAG: cbd
     steps:
       - name: Validate isolated stage inputs
         env:
