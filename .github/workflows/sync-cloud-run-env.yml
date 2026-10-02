@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      stage_cached_balance_diagnostic:
+        description: "Stage the fixed cached-balance diagnostic image on a zero-traffic tagged revision only"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -45,10 +50,259 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  stage-cached-balance-diagnostic:
+    name: Stage cached-balance diagnostic (no traffic)
+    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENABLE_GITHUB_CLOUD_RUN_DEPLOY: ${{ vars.ENABLE_GITHUB_CLOUD_RUN_DEPLOY }}
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      GCP_PROJECT_ID: firstradequant
+      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+      GCP_ARTIFACT_REGISTRY_HOSTNAME: us-central1-docker.pkg.dev
+      GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
+      CACHED_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+      EXPECTED_SERVING_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
+      CACHED_DIAGNOSTIC_TAG: cached-balance-diagnostic
+    steps:
+      - name: Validate isolated stage inputs
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          ALLOW_CONFIGURATION_SYNC: ${{ inputs.allow_configuration_sync }}
+          ALLOW_TRAFFIC_PROMOTION: ${{ inputs.allow_traffic_promotion }}
+          ALLOW_CLEANUP: ${{ inputs.allow_cleanup }}
+        run: |
+          set -euo pipefail
+          if [ "${ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-}" != "true" ]; then
+            echo "Cached-balance diagnostic staging is disabled." >&2
+            exit 1
+          fi
+          if [ -z "${CLOUD_RUN_REGION:-}" ] || [ -z "${CLOUD_RUN_SERVICE:-}" ]; then
+            echo "Cached-balance diagnostic staging is missing its fixed service target." >&2
+            exit 1
+          fi
+          if [ "${ALLOW_CONFIGURATION_SYNC,,}" = "true" ] \
+            || [ "${ALLOW_TRAFFIC_PROMOTION,,}" = "true" ] \
+            || [ "${ALLOW_CLEANUP,,}" = "true" ]; then
+            echo "Stage-only mode cannot be combined with configuration, traffic, or cleanup actions." >&2
+            exit 1
+          fi
+          if ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          fi
+          case "${APPROVED_REF}" in refs/heads/*) ;; *) echo "approved_ref must be a branch ref." >&2; exit 1 ;; esac
+          if [ "${DISPATCH_SHA}" != "${EXPECTED_SHA}" ]; then
+            echo "The dispatched workflow commit must match expected_sha." >&2
+            exit 1
+          fi
+
+      - name: Checkout approved stage workflow source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify approved stage workflow source
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          approved_sha="$(git ls-remote --exit-code origin "${APPROVED_REF}" | awk 'NR == 1 { print $1 }')"
+          if [ "${checked_out_sha}" != "${EXPECTED_SHA}" ] || [ "${approved_sha}" != "${EXPECTED_SHA}" ]; then
+            echo "The checked-out workflow and approved ref must match expected_sha." >&2
+            exit 1
+          fi
+
+      - name: Checkout fixed cached-diagnostic candidate
+        uses: actions/checkout@v6
+        with:
+          ref: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+          path: cached-diagnostic-source
+
+      - name: Verify fixed candidate source
+        working-directory: cached-diagnostic-source
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "${CACHED_DIAGNOSTIC_SOURCE_SHA}" ]; then
+            echo "The cached-diagnostic source does not match the fixed candidate." >&2
+            exit 1
+          fi
+          if ! grep -Fq 'FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP=true' Dockerfile; then
+            echo "The fixed candidate image is missing its diagnostic-only gate default." >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          version: ">= 416.0.0"
+
+      - name: Capture protected service baseline
+        id: stage_baseline
+        env:
+          STATE_PATH: ${{ runner.temp }}/cached-balance-stage-state.json
+          CONTROL_STATE_PATH: ${{ runner.temp }}/cached-balance-stage-controls.sha256
+          SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION || vars.CLOUD_RUN_REGION }}
+          EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+          EXPECTED_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
+        run: |
+          set -euo pipefail
+          service_json="${RUNNER_TEMP}/cached-balance-stage-service.json"
+          revision_json="${RUNNER_TEMP}/cached-balance-stage-revision.json"
+          if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            > "${service_json}" 2>"${RUNNER_TEMP}/cached-balance-stage-read.err"; then
+            echo "Unable to read the current Cloud Run service configuration." >&2
+            exit 1
+          fi
+          active_revision="$(python3 scripts/verify_cached_diagnostic_stage.py active-revision < "${service_json}")"
+          if [ -z "${active_revision}" ]; then
+            echo "Unable to identify the currently serving immutable revision." >&2
+            exit 1
+          fi
+          if ! gcloud run revisions describe "${active_revision}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            > "${revision_json}" 2>"${RUNNER_TEMP}/cached-balance-stage-revision-read.err"; then
+            echo "Unable to read back the currently serving immutable revision." >&2
+            exit 1
+          fi
+          chmod 600 "${service_json}" "${revision_json}"
+          if ! python3 scripts/verify_cached_diagnostic_stage.py capture \
+            --state "${STATE_PATH}" --revision "${revision_json}" \
+            --expected-service "${EXPECTED_SERVICE}" --expected-source-sha "${EXPECTED_SOURCE_SHA}" \
+            < "${service_json}" >/dev/null; then
+            exit 1
+          fi
+          if ! gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            2>"${RUNNER_TEMP}/cached-balance-stage-iam.err" \
+            | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))' \
+            | sha256sum | awk '{print $1}' > "${RUNNER_TEMP}/cached-balance-stage-iam.sha256"; then
+            echo "Unable to read the current Cloud Run IAM policy." >&2
+            exit 1
+          fi
+          if ! gcloud scheduler jobs list --project="${GCP_PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+            --format=json \
+            2>"${RUNNER_TEMP}/cached-balance-stage-scheduler.err" \
+            | python3 scripts/verify_cached_diagnostic_stage.py scheduler-hash \
+            > "${RUNNER_TEMP}/cached-balance-stage-scheduler.sha256"; then
+            echo "Unable to read the current Cloud Scheduler configuration." >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/cached-balance-stage-iam.sha256" \
+            "${RUNNER_TEMP}/cached-balance-stage-scheduler.sha256" > "${CONTROL_STATE_PATH}"
+          chmod 600 "${STATE_PATH}" "${CONTROL_STATE_PATH}"
+          echo "state_path=${STATE_PATH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push the fixed diagnostic image
+        id: diagnostic_image
+        env:
+          CANDIDATE_PATH: ${{ github.workspace }}/cached-diagnostic-source
+        run: |
+          set -euo pipefail
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          image="${image_repo}:cached-diagnostic-${CACHED_DIAGNOSTIC_SOURCE_SHA}"
+          gcloud auth configure-docker "${GCP_ARTIFACT_REGISTRY_HOSTNAME}" --quiet >/dev/null
+          if ! docker build --pull --tag="${image}" "${CANDIDATE_PATH}" \
+            >"${RUNNER_TEMP}/cached-balance-image-build.out" 2>&1; then
+            echo "The fixed cached-balance diagnostic image could not be built." >&2
+            exit 1
+          fi
+          if ! docker push "${image}" \
+            >"${RUNNER_TEMP}/cached-balance-image-push.out" 2>&1; then
+            echo "The fixed cached-balance diagnostic image could not be pushed." >&2
+            exit 1
+          fi
+          if ! image_digest="$(gcloud artifacts docker images describe "${image}" --project="${GCP_PROJECT_ID}" --format='value(image_summary.digest)' 2>"${RUNNER_TEMP}/cached-balance-image-read.err")"; then
+            echo "Unable to read back the staged image digest." >&2
+            exit 1
+          fi
+          if ! [[ "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "The staged image digest has an invalid format." >&2
+            exit 1
+          fi
+          echo "image_digest=${image_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Stage the image on a zero-traffic tagged revision
+        env:
+          IMAGE_DIGEST: ${{ steps.diagnostic_image.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          image_ref="${image_repo}@${IMAGE_DIGEST}"
+          if ! gcloud run deploy "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" \
+            --image="${image_ref}" --no-traffic --tag="${CACHED_DIAGNOSTIC_TAG}" --quiet \
+            >"${RUNNER_TEMP}/cached-balance-stage-deploy.out" \
+            2>"${RUNNER_TEMP}/cached-balance-stage-deploy.err"; then
+            echo "The cached-balance diagnostic revision could not be staged." >&2
+            exit 1
+          fi
+
+      - name: Verify stage readback and unchanged controls
+        env:
+          STATE_PATH: ${{ steps.stage_baseline.outputs.state_path }}
+          CONTROL_STATE_PATH: ${{ runner.temp }}/cached-balance-stage-controls.sha256
+          SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION || vars.CLOUD_RUN_REGION }}
+          IMAGE_DIGEST: ${{ steps.diagnostic_image.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          image_ref="${image_repo}@${IMAGE_DIGEST}"
+          service_json="${RUNNER_TEMP}/cached-balance-stage-after.json"
+          if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            > "${service_json}" 2>"${RUNNER_TEMP}/cached-balance-stage-after-read.err"; then
+            echo "Unable to read back the staged Cloud Run service." >&2
+            exit 1
+          fi
+          python3 scripts/verify_cached_diagnostic_stage.py verify \
+            --state "${STATE_PATH}" --expected-image "${image_ref}" < "${service_json}"
+          current_controls="${RUNNER_TEMP}/cached-balance-stage-controls-after.sha256"
+          if ! gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            2>"${RUNNER_TEMP}/cached-balance-stage-after-iam.err" \
+            | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))' \
+            | sha256sum | awk '{print $1}' > "${RUNNER_TEMP}/cached-balance-stage-after-iam.sha256"; then
+            echo "Unable to verify the Cloud Run IAM policy readback." >&2
+            exit 1
+          fi
+          if ! gcloud scheduler jobs list --project="${GCP_PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+            --format=json \
+            2>"${RUNNER_TEMP}/cached-balance-stage-after-scheduler.err" \
+            | python3 scripts/verify_cached_diagnostic_stage.py scheduler-hash \
+            > "${RUNNER_TEMP}/cached-balance-stage-after-scheduler.sha256"; then
+            echo "Unable to verify the Cloud Scheduler readback." >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/cached-balance-stage-after-iam.sha256" \
+            "${RUNNER_TEMP}/cached-balance-stage-after-scheduler.sha256" > "${current_controls}"
+          if ! cmp -s "${CONTROL_STATE_PATH}" "${current_controls}"; then
+            echo "IAM or Scheduler configuration changed during diagnostic staging." >&2
+            exit 1
+          fi
+
   deploy-cloud-run:
     name: Deploy Cloud Run
     # Production deployment and environment sync require an explicit operator dispatch.
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
