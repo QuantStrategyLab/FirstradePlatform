@@ -67,7 +67,8 @@ jobs:
       GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
       GCP_ARTIFACT_REGISTRY_HOSTNAME: us-central1-docker.pkg.dev
       GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
-      CACHED_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+      CACHED_DIAGNOSTIC_SOURCE_SHA: c4727934730bcb6431e9e7dd4310fb8c9bc30182
+      EXISTING_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
       EXPECTED_SERVING_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
       CACHED_DIAGNOSTIC_TAG: cbd
     steps:
@@ -134,7 +135,7 @@ jobs:
       - name: Checkout fixed cached-diagnostic candidate
         uses: actions/checkout@v6
         with:
-          ref: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+          ref: c4727934730bcb6431e9e7dd4310fb8c9bc30182
           path: cached-diagnostic-source
 
       - name: Verify fixed candidate source
@@ -170,8 +171,22 @@ jobs:
           SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION || vars.CLOUD_RUN_REGION }}
           EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
           EXPECTED_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
+          EXISTING_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
         run: |
           set -euo pipefail
+          image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
+          existing_image_tag="${image_repo}:cached-diagnostic-${EXISTING_DIAGNOSTIC_SOURCE_SHA}"
+          if ! existing_image_digest="$(gcloud artifacts docker images describe "${existing_image_tag}" \
+            --project="${GCP_PROJECT_ID}" --format='value(image_summary.digest)' \
+            2>"${RUNNER_TEMP}/cached-balance-existing-image-read.err")"; then
+            echo "Unable to read the fixed existing diagnostic image digest." >&2
+            exit 1
+          fi
+          if ! [[ "${existing_image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "The fixed existing diagnostic image digest has an invalid format." >&2
+            exit 1
+          fi
+          expected_existing_image_ref="${image_repo}@${existing_image_digest}"
           service_json="${RUNNER_TEMP}/cached-balance-stage-service.json"
           revision_json="${RUNNER_TEMP}/cached-balance-stage-revision.json"
           if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
@@ -195,6 +210,7 @@ jobs:
           if ! python3 scripts/verify_cached_diagnostic_stage.py capture \
             --state "${STATE_PATH}" --revision "${revision_json}" \
             --expected-service "${EXPECTED_SERVICE}" --expected-source-sha "${EXPECTED_SOURCE_SHA}" \
+            --expected-existing-image "${expected_existing_image_ref}" \
             < "${service_json}" >/dev/null; then
             exit 1
           fi

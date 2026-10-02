@@ -581,6 +581,29 @@ def _traffic_hash(rows: list[dict[str, Any]]) -> str:
     return _canonical_hash(canonical_rows)
 
 
+def _validate_existing_diagnostic_tag(summary: dict[str, Any]) -> None:
+    latest_created = summary["latest_created_revision"]
+    matching_rows = [
+        row
+        for row in summary["all_traffic_rows"]
+        if isinstance(row, dict) and row.get("tag") == DIAGNOSTIC_TAG
+    ]
+    if len(matching_rows) != 1:
+        raise ValueError("diagnostic_tag_ambiguous")
+    row = matching_rows[0]
+    try:
+        percent = int(row.get("percent", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("diagnostic_tag_invalid") from exc
+    if percent != 0 or row.get("revisionName") != latest_created:
+        raise ValueError("diagnostic_tag_revision_invalid")
+
+
+def _validate_digest_image_ref(image_ref: str) -> None:
+    if not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", image_ref):
+        raise ValueError("existing_image_digest_invalid")
+
+
 def _scheduler_jobs_hash(jobs: Any) -> str:
     if not isinstance(jobs, list) or any(not isinstance(job, dict) for job in jobs):
         raise ValueError("scheduler_shape_invalid")
@@ -609,6 +632,7 @@ def capture_baseline(
     *,
     expected_service: str,
     expected_source_sha: str,
+    expected_existing_image: str | None = None,
 ) -> None:
     service = _read_service()
     try:
@@ -617,6 +641,8 @@ def capture_baseline(
         raise ValueError("active_revision_json_invalid") from exc
     if not isinstance(revision, dict):
         raise ValueError("active_revision_json_invalid")
+    if expected_existing_image is not None:
+        _validate_digest_image_ref(expected_existing_image)
     name_mode = _validate_serving_revision(
         service,
         revision,
@@ -630,7 +656,13 @@ def capture_baseline(
         desired_document=service["spec"]["template"],
     ):
         name_mode = "provider_default"
-    summary = _service_summary(service, allow_diagnostic_tag=False)
+    summary = _service_summary(
+        service, allow_diagnostic_tag=expected_existing_image is not None
+    )
+    if expected_existing_image is not None:
+        _validate_existing_diagnostic_tag(summary)
+        if summary["first_container_image"] != expected_existing_image:
+            raise ValueError("existing_candidate_image_not_read_back")
     desired_positive_rows = [
         row for row in summary["desired_traffic_rows"] if int(row.get("percent", 0)) > 0
     ]
@@ -719,6 +751,7 @@ def main() -> int:
     parser.add_argument("--revision", type=Path)
     parser.add_argument("--expected-service")
     parser.add_argument("--expected-source-sha")
+    parser.add_argument("--expected-existing-image")
     parser.add_argument("--expected-image")
     parser.add_argument("--tag")
     args = parser.parse_args()
@@ -746,6 +779,7 @@ def main() -> int:
                 args.revision,
                 expected_service=args.expected_service,
                 expected_source_sha=args.expected_source_sha,
+                expected_existing_image=args.expected_existing_image,
             )
         else:
             if not args.expected_image:
