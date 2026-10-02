@@ -113,6 +113,106 @@ def test_primary_name_mismatch_keeps_blocking_and_adds_only_closed_diagnostic():
     assert "registry.invalid" not in message
 
 
+def _provider_default_case():
+    service = _service()
+    desired_spec = service["spec"]["template"]["spec"]
+    desired_spec["containers"] = [copy.deepcopy(desired_spec["containers"][0])]
+    desired_spec["containers"][0].pop("name")
+    revision = _revision()
+    revision_spec = revision["spec"]
+    revision_spec["containers"] = [copy.deepcopy(revision_spec["containers"][0])]
+    revision_spec["containers"][0].update(
+        {
+            "name": "app-1",
+            "image": "registry.invalid/app:old",
+        }
+    )
+    return service, revision
+
+
+def test_provider_generated_default_name_is_accepted_and_remains_closed_on_readback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    service, revision = _provider_default_case()
+    state_path = _capture(monkeypatch, tmp_path, service=service, revision=revision)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["primary_name_mode"] == "provider_default"
+
+    staged = _staged_service()
+    staged_spec = staged["spec"]["template"]["spec"]
+    staged_spec["containers"] = [copy.deepcopy(staged_spec["containers"][0])]
+    staged_spec["containers"][0]["image"] = "registry.invalid/app@sha256:" + "a" * 64
+    staged_spec["containers"][0]["name"] = "app-2"
+    monkeypatch.setattr(stage.sys, "stdin", io.StringIO(json.dumps(staged)))
+    stage.verify_readback(state_path, staged_spec["containers"][0]["image"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "explicit_name",
+        "empty_name",
+        "multiple_containers",
+        "dependency_reference",
+        "nonmatching_name",
+        "basename_without_suffix",
+        "other_config_difference",
+    ],
+)
+def test_provider_default_name_exception_rejects_every_unproven_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, mutation
+):
+    service, revision = _provider_default_case()
+    desired_spec = service["spec"]["template"]["spec"]
+    revision_spec = revision["spec"]
+    if mutation == "explicit_name":
+        desired_spec["containers"][0]["name"] = "app"
+    elif mutation == "empty_name":
+        desired_spec["containers"][0]["name"] = ""
+    elif mutation == "multiple_containers":
+        desired_spec["containers"].append({"image": "registry.invalid/sidecar:old"})
+        revision_spec["containers"].append({"image": "registry.invalid/sidecar:old"})
+    elif mutation == "dependency_reference":
+        service["spec"]["template"]["metadata"].setdefault("annotations", {})[
+            "run.googleapis.com/container-dependencies"
+        ] = '{"app":["sidecar"]}'
+    elif mutation == "nonmatching_name":
+        revision_spec["containers"][0]["name"] = "custom-name"
+    elif mutation == "basename_without_suffix":
+        revision_spec["containers"][0]["name"] = "app"
+    elif mutation == "other_config_difference":
+        desired_spec["timeoutSeconds"] = 301
+
+    with pytest.raises(ValueError, match="active_revision_service_config_mismatch"):
+        _capture(monkeypatch, tmp_path, service=service, revision=revision)
+
+
+@pytest.mark.parametrize("mutation", ["explicit_name", "bad_suffix", "multiple_containers", "dependency_reference"])
+def test_provider_default_readback_rejects_unproven_generated_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, mutation
+):
+    service, revision = _provider_default_case()
+    state_path = _capture(monkeypatch, tmp_path, service=service, revision=revision)
+    staged = _staged_service()
+    spec = staged["spec"]["template"]["spec"]
+    spec["containers"] = [copy.deepcopy(spec["containers"][0])]
+    spec["containers"][0]["image"] = "registry.invalid/app@sha256:" + "a" * 64
+    spec["containers"][0]["name"] = "app-2"
+    if mutation == "explicit_name":
+        spec["containers"][0]["name"] = "operator-chosen"
+    elif mutation == "bad_suffix":
+        spec["containers"][0]["name"] = "other-2"
+    elif mutation == "multiple_containers":
+        spec["containers"].append({"image": "registry.invalid/sidecar:old"})
+    elif mutation == "dependency_reference":
+        staged["spec"]["template"]["metadata"].setdefault("annotations", {})[
+            "run.googleapis.com/container-dependencies"
+        ] = '{"app-2":["sidecar"]}'
+    monkeypatch.setattr(stage.sys, "stdin", io.StringIO(json.dumps(staged)))
+    with pytest.raises(ValueError, match="service_configuration_changed"):
+        stage.verify_readback(state_path, spec["containers"][0]["image"])
+
+
 def _target(selector: str = "synthetic-account-placeholder") -> dict:
     return {
         "platform_id": "firstrade",
