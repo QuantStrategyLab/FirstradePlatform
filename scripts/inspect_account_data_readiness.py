@@ -194,6 +194,103 @@ def _selector_configuration(revision: Mapping[str, Any]) -> tuple[bool, str]:
     return False, "absent"
 
 
+def _unique_env_entry(env: list[Any], name: str) -> Mapping[str, Any] | None:
+    matches = [
+        entry
+        for entry in env
+        if isinstance(entry, Mapping) and entry.get("name") == name
+    ]
+    if len(matches) > 1:
+        raise DiagnosticFailure("runtime_target_configuration_ambiguous")
+    return matches[0] if matches else None
+
+
+def _literal_env_value(entry: Mapping[str, Any]) -> str | None:
+    value_source = entry.get("valueSource")
+    secret_ref = (
+        value_source.get("secretKeyRef")
+        if isinstance(value_source, Mapping)
+        else None
+    )
+    has_secret_ref = isinstance(secret_ref, Mapping)
+    has_literal = "value" in entry
+    if has_secret_ref and has_literal:
+        raise DiagnosticFailure("runtime_target_configuration_ambiguous")
+    if has_secret_ref:
+        return None
+    value = entry.get("value")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise DiagnosticFailure("runtime_target_configuration_invalid")
+    return value
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DiagnosticFailure("runtime_target_json_ambiguous")
+        result[key] = value
+    return result
+
+
+def _selector_is_nonempty(value: Any) -> bool:
+    if value is None:
+        return False
+    try:
+        if isinstance(value, str):
+            return bool(value.strip())
+        return any(item is not None and str(item).strip() for item in value)
+    except TypeError:
+        raise DiagnosticFailure("runtime_target_selector_invalid") from None
+
+
+def _effective_selector_configuration(
+    revision: Mapping[str, Any], direct_selector: tuple[bool, str]
+) -> tuple[bool, str]:
+    containers = revision.get("containers")
+    if not isinstance(containers, list) or len(containers) != 1:
+        raise DiagnosticFailure("revision_container_invalid")
+    container = containers[0]
+    env = container.get("env") if isinstance(container, Mapping) else None
+    if env is None:
+        env = []
+    if not isinstance(env, list):
+        raise DiagnosticFailure("revision_environment_invalid")
+
+    # The deployed resolver prefers QSL_RUNTIME_TARGET_JSON, then
+    # RUNTIME_TARGET_JSON, and only uses FIRSTRADE_ACCOUNT when both are empty.
+    for name, source in (
+        ("QSL_RUNTIME_TARGET_JSON", "qsl_runtime_target_literal"),
+        ("RUNTIME_TARGET_JSON", "runtime_target_literal"),
+    ):
+        entry = _unique_env_entry(env, name)
+        if entry is None:
+            continue
+        raw = _literal_env_value(entry)
+        if raw is None:
+            return False, "runtime_target_secret_unresolved"
+        if raw == "":
+            continue
+        if not raw.strip():
+            raise DiagnosticFailure("runtime_target_json_invalid")
+        try:
+            payload = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+        except DiagnosticFailure:
+            raise
+        except (json.JSONDecodeError, TypeError, ValueError):
+            raise DiagnosticFailure("runtime_target_json_invalid") from None
+        if not isinstance(payload, Mapping):
+            raise DiagnosticFailure("runtime_target_json_invalid")
+        return _selector_is_nonempty(payload.get("account_selector")), source
+
+    direct_configured, direct_source = direct_selector
+    if direct_source == "secret_reference":
+        return False, "first_trade_account_secret_unresolved"
+    return direct_configured, f"first_trade_account_{direct_source}"
+
+
 def inspect_readiness(
     service_name: str,
     region: str,
@@ -226,6 +323,9 @@ def inspect_readiness(
     if not isinstance(source_commit, str) or not COMMIT_RE.fullmatch(source_commit):
         raise DiagnosticFailure("source_commit_unavailable")
     selector_configured, selector_source = _selector_configuration(revision)
+    selector_nonempty, effective_selector_source = _effective_selector_configuration(
+        revision, (selector_configured, selector_source)
+    )
     after = request_json(service_url, token)
     if after.get("name") != service_path:
         raise DiagnosticFailure("service_identity_mismatch")
@@ -238,6 +338,8 @@ def inspect_readiness(
         "source_commit": source_commit.lower(),
         "selector_configured": selector_configured,
         "selector_source": selector_source,
+        "selector_nonempty": selector_nonempty,
+        "effective_selector_source": effective_selector_source,
     }
 
 
