@@ -9,7 +9,6 @@ import re
 import traceback
 from dataclasses import replace
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -875,15 +874,12 @@ def account_balance_diagnostic():
         return jsonify({"status": "blocked", "reason": "diagnostic_disabled"}), 403
     try:
         raw_runtime_target = os.getenv("QSL_RUNTIME_TARGET_JSON") or os.getenv("RUNTIME_TARGET_JSON")
-        if raw_runtime_target:
+        if not raw_runtime_target:
+            runtime_target = None
+        else:
             runtime_target = resolve_runtime_target_from_env(
                 env=os.environ,
                 expected_platform_id=FIRSTRADE_PLATFORM,
-            )
-        else:
-            legacy_selector = str(os.getenv("FIRSTRADE_ACCOUNT") or "").strip()
-            runtime_target = (
-                SimpleNamespace(account_selector=(legacy_selector,)) if legacy_selector else None
             )
     except Exception:
         return jsonify({"status": "runtime_target_unavailable"}), 503

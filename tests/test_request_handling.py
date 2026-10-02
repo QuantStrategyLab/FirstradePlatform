@@ -709,9 +709,7 @@ def test_cached_balance_diagnostic_uses_explicit_runtime_target_without_strategy
     assert observed["resolver_args"][1] == main.FIRSTRADE_PLATFORM
 
 
-def test_cached_balance_diagnostic_uses_legacy_service_selector_when_runtime_target_is_absent(monkeypatch):
-    from types import SimpleNamespace
-
+def test_cached_balance_diagnostic_rejects_missing_runtime_target_even_with_legacy_selector(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
     monkeypatch.delenv("QSL_RUNTIME_TARGET_JSON", raising=False)
     monkeypatch.delenv("RUNTIME_TARGET_JSON", raising=False)
@@ -721,16 +719,10 @@ def test_cached_balance_diagnostic_uses_legacy_service_selector_when_runtime_tar
         "resolve_runtime_target_from_env",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("legacy binding must not parse a target")),
     )
-    observed = {}
-
-    def run_diagnostic(*, runtime_target):
-        observed["runtime_target"] = runtime_target
-        observed["selector"] = runtime_target.account_selector
-        return {"status": "ok"}
-
-    monkeypatch.setattr(main, "run_cached_balance_field_diagnostic", run_diagnostic)
     response = main.app.test_client().post("/account-balance-diagnostic")
 
-    assert response.status_code == 200
-    assert observed["selector"] == ("synthetic-account-placeholder",)
-    assert isinstance(observed["runtime_target"], SimpleNamespace)
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "status": "runtime_target_invalid",
+        "cached_session_fresh": False,
+    }
