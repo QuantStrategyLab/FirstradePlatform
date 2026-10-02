@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -129,6 +130,95 @@ def _config_difference_groups(serving: dict[str, Any], desired: dict[str, Any]) 
     }:
         groups.append("other_spec")
     return sorted(set(groups))
+
+
+def _container_name_status(container: Any) -> str:
+    if not isinstance(container, dict) or "name" not in container:
+        return "absent"
+    name = container.get("name")
+    if name == "":
+        return "empty"
+    return "present" if isinstance(name, str) else "invalid_type"
+
+
+def _container_count_status(spec: dict[str, Any]) -> str:
+    containers = spec.get("containers")
+    if not isinstance(containers, list):
+        return "invalid"
+    return "empty" if not containers else "single" if len(containers) == 1 else "multiple"
+
+
+def _name_image_relation(container: Any) -> str:
+    if _container_name_status(container) != "present":
+        return "unavailable"
+    image = container.get("image")
+    if not isinstance(image, str) or not image:
+        return "image_unavailable"
+    image_name = image.split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0]
+    name = container["name"]
+    if name == image_name:
+        return "matches_image_basename"
+    if re.fullmatch(re.escape(image_name) + r"-[0-9]+", name):
+        return "image_basename_numbered_suffix"
+    return "other"
+
+
+def _container_dependency_status(*documents: dict[str, Any]) -> str:
+    for document in documents:
+        spec = document.get("spec")
+        containers = spec.get("containers") if isinstance(spec, dict) else None
+        if isinstance(containers, list):
+            for container in containers:
+                if isinstance(container, dict) and "dependsOn" in container:
+                    dependencies = container["dependsOn"]
+                    if not isinstance(dependencies, list):
+                        return "invalid"
+                    if dependencies:
+                        return "present"
+        metadata = document.get("metadata")
+        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+        annotation_key = "run.googleapis.com/container-dependencies"
+        if isinstance(annotations, dict) and annotation_key in annotations:
+            annotation = annotations[annotation_key]
+            try:
+                dependencies = json.loads(annotation) if isinstance(annotation, str) else None
+            except json.JSONDecodeError:
+                dependencies = None
+            if not isinstance(dependencies, dict) or any(
+                not isinstance(value, list) for value in dependencies.values()
+            ):
+                return "invalid"
+            if any(dependencies.values()):
+                return "present"
+    return "absent"
+
+
+def _primary_name_shape_diagnostic(
+    serving: dict[str, Any],
+    desired: dict[str, Any],
+    *,
+    serving_document: dict[str, Any],
+    desired_document: dict[str, Any],
+) -> dict[str, str]:
+    serving_containers = serving.get("containers")
+    desired_containers = desired.get("containers")
+    serving_valid = isinstance(serving_containers, list)
+    desired_valid = isinstance(desired_containers, list)
+    serving_containers = serving_containers if serving_valid else []
+    desired_containers = desired_containers if desired_valid else []
+    old_primary = serving_containers[0] if serving_containers else None
+    new_primary = desired_containers[0] if desired_containers else None
+    return {
+        "serving_name": _container_name_status(old_primary),
+        "desired_name": _container_name_status(new_primary),
+        "serving_image_relation": _name_image_relation(old_primary),
+        "desired_image_relation": _name_image_relation(new_primary),
+        "serving_container_count": _container_count_status(serving),
+        "desired_container_count": _container_count_status(desired),
+        "container_dependency_reference": _container_dependency_status(
+            serving_document, desired_document
+        ),
+    }
 
 
 def _desired_traffic_rows(service: dict[str, Any], *, allow_diagnostic_tag: bool) -> list[dict[str, Any]]:
@@ -380,8 +470,24 @@ def _validate_serving_revision(
     if not isinstance(service_template_spec, dict):
         raise ValueError("service_template_spec_missing")
     if _config_spec_hash(revision_spec) != _config_spec_hash(service_template_spec):
-        groups = ",".join(_config_difference_groups(revision_spec, service_template_spec))
-        raise ValueError(f"active_revision_service_config_mismatch:{groups}")
+        difference_groups = _config_difference_groups(revision_spec, service_template_spec)
+        groups = ",".join(difference_groups)
+        details = ""
+        if "primary_name" in difference_groups:
+            details = ":primary_name_shape=" + json.dumps(
+                _primary_name_shape_diagnostic(
+                    revision_spec,
+                    service_template_spec,
+                    serving_document=revision,
+                    desired_document={
+                        "metadata": template.get("metadata"),
+                        "spec": service_template_spec,
+                    },
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        raise ValueError(f"active_revision_service_config_mismatch:{groups}{details}")
 
 
 def _traffic_hash(rows: list[dict[str, Any]]) -> str:

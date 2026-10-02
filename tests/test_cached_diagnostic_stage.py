@@ -33,6 +33,86 @@ def test_container_difference_categories_keep_private_details_closed():
     ]
 
 
+def test_primary_name_shape_classifies_names_images_counts_and_dependencies():
+    serving = {"containers": [
+        {"name": "hidden-serving-app-1", "image": "registry.invalid/team/hidden-serving-app:stable"},
+        {"name": "hidden-sidecar", "image": "registry.invalid/team/sidecar@sha256:" + "a" * 64},
+    ]}
+    desired = {"containers": [
+        {"name": "hidden-desired-app", "image": "registry.invalid/team/hidden-desired-app@sha256:" + "b" * 64}
+    ]}
+    diagnostic = stage._primary_name_shape_diagnostic(
+        serving,
+        desired,
+        serving_document={"spec": serving},
+        desired_document={
+            "metadata": {"annotations": {
+                "run.googleapis.com/container-dependencies": '{"hidden-desired-app":["hidden-sidecar"]}'
+            }},
+            "spec": desired,
+        },
+    )
+    assert diagnostic == {
+        "serving_name": "present",
+        "desired_name": "present",
+        "serving_image_relation": "image_basename_numbered_suffix",
+        "desired_image_relation": "matches_image_basename",
+        "serving_container_count": "multiple",
+        "desired_container_count": "single",
+        "container_dependency_reference": "present",
+    }
+    assert not any("hidden-" in value for value in diagnostic.values())
+
+
+@pytest.mark.parametrize(
+    ("serving_container", "desired_container", "expected"),
+    [
+        ({"image": "registry.invalid/app:tag"}, {"name": "", "image": "registry.invalid/other"}, ("absent", "empty")),
+        ({"name": None, "image": "app@sha256:" + "c" * 64}, {"name": 4, "image": "other:tag"}, ("invalid_type", "invalid_type")),
+    ],
+)
+def test_primary_name_shape_reports_absent_empty_and_invalid_names(
+    serving_container, desired_container, expected
+):
+    serving = {"containers": [serving_container]}
+    desired = {"containers": [desired_container]}
+    diagnostic = stage._primary_name_shape_diagnostic(
+        serving, desired,
+        serving_document={"spec": serving},
+        desired_document={"spec": desired},
+    )
+    assert (diagnostic["serving_name"], diagnostic["desired_name"]) == expected
+    assert diagnostic["container_dependency_reference"] == "absent"
+
+
+def test_primary_name_mismatch_keeps_blocking_and_adds_only_closed_diagnostic():
+    service = _service()
+    revision = _revision()
+    revision["spec"]["containers"][0].update({
+        "name": "private-serving-name-1",
+        "image": "registry.invalid/private/private-serving-name:tag",
+    })
+    service["spec"]["template"]["spec"]["containers"][0].update({
+        "name": "private-desired-name",
+        "image": "registry.invalid/private/private-desired-name@sha256:" + "d" * 64,
+    })
+    with pytest.raises(ValueError) as error:
+        stage._validate_serving_revision(
+            service, revision,
+            expected_service=EXPECTED_SERVICE,
+            expected_source_sha=EXPECTED_SOURCE,
+        )
+    message = str(error.value)
+    assert "active_revision_service_config_mismatch:primary_name" in message
+    assert '"serving_name":"present"' in message
+    assert '"desired_name":"present"' in message
+    assert "image_basename_numbered_suffix" in message
+    assert "matches_image_basename" in message
+    assert "private-serving-name" not in message
+    assert "private-desired-name" not in message
+    assert "registry.invalid" not in message
+
+
 def _target(selector: str = "synthetic-account-placeholder") -> dict:
     return {
         "platform_id": "firstrade",
