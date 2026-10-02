@@ -248,7 +248,14 @@ def _has_provider_default_primary_name(
         and _container_count_status(desired) == "single"
         and isinstance(serving_containers, list)
         and isinstance(desired_containers, list)
-        and _container_name_status(desired_containers[0]) == "absent"
+        and (
+            _container_name_status(desired_containers[0]) == "absent"
+            or (
+                _container_name_status(desired_containers[0]) == "present"
+                and desired_containers[0].get("name") == serving_containers[0].get("name")
+                and desired_containers[0].get("image") == serving_containers[0].get("image")
+            )
+        )
         and _container_name_status(serving_containers[0]) == "present"
         and _name_image_relation(serving_containers[0]) == "image_basename_numbered_suffix"
         and _container_dependency_status(serving_document, desired_document) == "absent"
@@ -616,6 +623,13 @@ def capture_baseline(
         expected_service=expected_service,
         expected_source_sha=expected_source_sha,
     )
+    if name_mode == "strict" and _has_provider_default_primary_name(
+        revision["spec"],
+        service["spec"]["template"]["spec"],
+        serving_document=revision,
+        desired_document=service["spec"]["template"],
+    ):
+        name_mode = "provider_default"
     summary = _service_summary(service, allow_diagnostic_tag=False)
     desired_positive_rows = [
         row for row in summary["desired_traffic_rows"] if int(row.get("percent", 0)) > 0

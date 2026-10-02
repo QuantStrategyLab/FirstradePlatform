@@ -196,6 +196,34 @@ def test_provider_generated_default_name_is_accepted_and_remains_closed_on_readb
     stage.verify_readback(state_path, staged_spec["containers"][0]["image"])
 
 
+@pytest.mark.parametrize("custom_name", [False, True])
+def test_paired_baseline_name_allows_only_proven_default_name_removal(
+    monkeypatch, tmp_path, custom_name
+):
+    service, revision = _provider_default_case()
+    serving = revision["spec"]["containers"][0]
+    if custom_name:
+        serving["name"] = "operator-chosen"
+    desired = service["spec"]["template"]["spec"]["containers"][0]
+    desired["image"] = serving["image"]
+    desired["name"] = serving["name"]
+    state_path = _capture(monkeypatch, tmp_path, service=service, revision=revision)
+    assert json.loads(state_path.read_text())["primary_name_mode"] == (
+        "strict" if custom_name else "provider_default"
+    )
+    staged = _staged_service()
+    spec = staged["spec"]["template"]["spec"]
+    spec["containers"] = [copy.deepcopy(spec["containers"][0])]
+    spec["containers"][0].pop("name")
+    spec["containers"][0]["image"] = "registry.invalid/app@sha256:" + "a" * 64
+    monkeypatch.setattr(stage.sys, "stdin", io.StringIO(json.dumps(staged)))
+    if custom_name:
+        with pytest.raises(ValueError, match="service_configuration_changed"):
+            stage.verify_readback(state_path, spec["containers"][0]["image"])
+    else:
+        stage.verify_readback(state_path, spec["containers"][0]["image"])
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
