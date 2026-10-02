@@ -359,6 +359,10 @@ class FirstradeBrokerClient:
             return persisted_payload
         return None
 
+    def has_fresh_cached_session(self) -> bool:
+        """Report whether a valid cached session exists without authenticating."""
+        return self._load_session_cache(Path(self.credentials.cookie_dir)) is not None
+
     def _is_valid_session_cache_payload(self, payload: Any) -> bool:
         if not isinstance(payload, dict):
             return False

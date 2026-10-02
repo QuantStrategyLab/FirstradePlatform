@@ -83,6 +83,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/dry-run": ["GET", "POST"],
         "/paper-command-consumer": ["POST"],
         "/reconcile": ["POST"],
+        "/account-balance-diagnostic": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["POST"],
         "/static/<path:filename>": ["GET"],
@@ -659,3 +660,50 @@ def test_reconciliation_missing_account_stops_before_client(monkeypatch):
     response = main.app.test_client().post("/reconcile")
     assert response.status_code == 503
     assert calls == []
+
+
+def test_cached_balance_diagnostic_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", raising=False)
+    monkeypatch.setattr(
+        main,
+        "resolve_runtime_target_from_env",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("disabled route must not parse target")),
+    )
+    response = main.app.test_client().post("/account-balance-diagnostic")
+    assert response.status_code == 403
+    assert response.get_json() == {"status": "blocked", "reason": "diagnostic_disabled"}
+
+
+def test_cached_balance_diagnostic_uses_explicit_runtime_target_without_strategy_cycle(monkeypatch):
+    runtime_target = object()
+    observed = {}
+    monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", "synthetic-runtime-target")
+
+    def resolve_runtime_target_from_env(*, env, expected_platform_id):
+        observed["resolver_args"] = (env, expected_platform_id)
+        return runtime_target
+
+    monkeypatch.setattr(main, "resolve_runtime_target_from_env", resolve_runtime_target_from_env)
+
+    def run_diagnostic(*, runtime_target):
+        observed["runtime_target"] = runtime_target
+        return {"status": "ok", "fields": [{"path": "synthetic", "type": "number"}]}
+
+    monkeypatch.setattr(main, "run_cached_balance_field_diagnostic", run_diagnostic)
+    monkeypatch.setattr(
+        main,
+        "_run_strategy_cycle_with_report",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("diagnostic must not run strategy")),
+    )
+
+    response = main.app.test_client().post("/account-balance-diagnostic")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "fields": [{"path": "synthetic", "type": "number"}],
+    }
+    assert observed["runtime_target"] is runtime_target
+    assert observed["resolver_args"][0] is main.os.environ
+    assert observed["resolver_args"][1] == main.FIRSTRADE_PLATFORM

@@ -47,7 +47,10 @@ from application.broker_reconciliation import (
     validate_reconciliation_candidate,
     validate_reconciliation_preconditions,
 )
-from application.session_check_service import run_session_check
+from application.session_check_service import (
+    run_cached_balance_field_diagnostic,
+    run_session_check,
+)
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
     append_runtime_report_error,
@@ -55,13 +58,14 @@ from quant_platform_kit.common.runtime_reports import (
     finalize_runtime_report,
     persist_runtime_report,
 )
+from quant_platform_kit.common.runtime_target import resolve_runtime_target_from_env
 from entrypoints.cloud_run import is_market_open_now
 from runtime_config_support import (
     PlatformRuntimeSettings,
     _runtime_target_enabled_env,
     load_platform_runtime_settings,
 )
-from strategy_registry import get_platform_profile_status_matrix
+from strategy_registry import FIRSTRADE_PLATFORM, get_platform_profile_status_matrix
 from strategy_runtime import load_strategy_runtime
 
 MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
@@ -862,6 +866,24 @@ def paper_execution_command_consumer():
 @app.post("/reconcile")
 def reconcile():
     return _handle_reconciliation()
+
+
+@app.post("/account-balance-diagnostic")
+def account_balance_diagnostic():
+    if not _flag("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP"):
+        return jsonify({"status": "blocked", "reason": "diagnostic_disabled"}), 403
+    try:
+        if not (os.getenv("QSL_RUNTIME_TARGET_JSON") or os.getenv("RUNTIME_TARGET_JSON")):
+            runtime_target = None
+        else:
+            runtime_target = resolve_runtime_target_from_env(
+                env=os.environ,
+                expected_platform_id=FIRSTRADE_PLATFORM,
+            )
+    except Exception:
+        return jsonify({"status": "runtime_target_unavailable"}), 503
+    result = run_cached_balance_field_diagnostic(runtime_target=runtime_target)
+    return jsonify(result), 200 if result.get("status") == "ok" else 503
 
 
 @app.post("/probe")

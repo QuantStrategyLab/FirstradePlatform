@@ -43,6 +43,48 @@ _FEATURE_SNAPSHOT_INPUT = "feature_snapshot"
 _SESSION_CHECK_POLICY_DEFAULT = "auto"
 _SESSION_CHECK_POLICY_SKIP_VALUES = frozenset({"skip", "never", "disabled", "off", "false", "0"})
 _SESSION_CHECK_POLICY_ALWAYS_VALUES = frozenset({"always", "run", "true", "1"})
+_DIAGNOSTIC_SCHEMA_KEY_CODES = {
+    "cash": "cash",
+    "cash balance": "cash_balance",
+    "cash_balance": "cash_balance",
+    "available": "available",
+    "available cash": "available_cash",
+    "available_cash": "available_cash",
+    "settled cash": "settled_cash",
+    "settled_cash": "settled_cash",
+    "unsettled cash": "unsettled_cash",
+    "unsettled_cash": "unsettled_cash",
+    "balance": "balance",
+    "balances": "balances",
+    "value": "value",
+    "total": "total",
+    "total value": "total_value",
+    "total_value": "total_value",
+    "total account value": "total_account_value",
+    "equity": "equity",
+    "net liquidation": "net_liquidation",
+    "buying power": "buying_power",
+    "buying_power": "buying_power",
+    "margin": "margin",
+    "label": "label",
+    "display label": "display_label",
+    "display_label": "display_label",
+    "display name": "display_name",
+    "display_name": "display_name",
+    "displayname": "display_name",
+    "unit": "unit",
+    "currency": "currency",
+    "currency code": "currency_code",
+    "currency_code": "currency_code",
+    "currencycode": "currency_code",
+}
+_DIAGNOSTIC_LABELS = {
+    "Total Account Value": "total_account_value",
+    "Cash Balance": "cash_balance",
+    "Available Cash": "available_cash",
+}
+_DIAGNOSTIC_LABEL_KEYS = frozenset({"label", "display_label", "displayname", "display_name"})
+_DIAGNOSTIC_UNIT_KEYS = frozenset({"unit", "currency", "currency_code", "currencycode"})
 
 
 @dataclass(frozen=True)
@@ -340,6 +382,199 @@ def build_account_funds_snapshot(
     if positions_payload is not None:
         snapshot["positions"] = _compact_positions(positions_payload)
     return snapshot
+
+
+def _diagnostic_field_schema(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe bounded static balance fields without returning broker values."""
+    fields: set[tuple[str, str]] = set()
+    recognized_labels: set[tuple[str, str]] = set()
+    unit_paths: set[str] = set()
+    unknown_label_present = False
+    unrecognized_fields_omitted = False
+    unrecognized_field_count = 0
+    visited = 0
+    truncated = False
+
+    def visit(value: Any, path: str, depth: int) -> None:
+        nonlocal visited, truncated, unknown_label_present
+        nonlocal unrecognized_fields_omitted, unrecognized_field_count
+        if visited >= 256 or depth > 6 or len(fields) >= 64:
+            truncated = True
+            return
+        visited += 1
+        if isinstance(value, Mapping):
+            if path:
+                fields.add((path, "object"))
+            for raw_key, child in value.items():
+                if visited >= 256 or len(fields) >= 64:
+                    truncated = True
+                    break
+                visited += 1
+                key = str(raw_key)
+                field_code = _DIAGNOSTIC_SCHEMA_KEY_CODES.get(key.casefold())
+                if field_code is None:
+                    unrecognized_fields_omitted = True
+                    unrecognized_field_count += 1
+                    continue
+                child_path = f"{path}.{field_code}" if path else field_code
+                if len(child_path) > 160:
+                    truncated = True
+                    continue
+                normalized_key = field_code
+                if normalized_key in _DIAGNOSTIC_UNIT_KEYS and child not in (None, ""):
+                    unit_paths.add(child_path)
+                if (
+                    normalized_key in _DIAGNOSTIC_LABEL_KEYS
+                    and isinstance(child, str)
+                    and child.strip()
+                ):
+                    label = _DIAGNOSTIC_LABELS.get(child.strip())
+                    if label:
+                        recognized_labels.add((child_path, label))
+                    else:
+                        unknown_label_present = True
+                label_from_key = _DIAGNOSTIC_LABELS.get(key)
+                if label_from_key:
+                    recognized_labels.add((child_path, label_from_key))
+                visit(child, child_path, depth + 1)
+            return
+        if isinstance(value, list):
+            if path:
+                fields.add((path, "array"))
+            for child in value[:8]:
+                visit(child, f"{path}[]" if path else "[]", depth + 1)
+            if len(value) > 8:
+                truncated = True
+            return
+        if path:
+            if value is None:
+                value_type = "null"
+            elif isinstance(value, bool):
+                value_type = "boolean"
+            elif isinstance(value, (int, float)):
+                value_type = "number"
+            elif isinstance(value, str):
+                value_type = "string"
+            else:
+                value_type = "other"
+            fields.add((path, value_type))
+
+    visit(payload, "", 0)
+    return {
+        "fields": [
+            {"path": path, "type": value_type}
+            for path, value_type in sorted(fields)[:64]
+        ],
+        "recognized_display_labels": [
+            {"path": path, "label": label}
+            for path, label in sorted(recognized_labels)[:16]
+        ],
+        "unknown_display_label_present": unknown_label_present,
+        "unit_field_paths": sorted(unit_paths)[:16],
+        "unrecognized_field_count": unrecognized_field_count,
+        "unrecognized_fields_omitted": unrecognized_fields_omitted,
+        "schema_truncated": truncated or len(fields) > 64,
+    }
+
+
+def run_cached_balance_field_diagnostic(
+    *,
+    runtime_target: object,
+    credentials: FirstradeCredentials | None = None,
+    client_factory: Callable[..., FirstradeBrokerClient] = FirstradeBrokerClient,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Inspect one exact RuntimeTarget account via a fresh cached-only session."""
+    selectors = getattr(runtime_target, "account_selector", None)
+    if (
+        not isinstance(selectors, (tuple, list))
+        or len(selectors) != 1
+        or not isinstance(selectors[0], str)
+        or not selectors[0].strip()
+    ):
+        return {"status": "runtime_target_invalid", "cached_session_fresh": False}
+    expected_account = selectors[0].strip()
+    client = None
+    cached_session_fresh = False
+    read_only_session_accepted = False
+    try:
+        resolved_credentials = credentials or FirstradeCredentials.from_env(
+            env_reader, include_login_credentials=False
+        )
+        if not resolved_credentials.reuse_session:
+            return {"status": "cached_session_not_enabled", "cached_session_fresh": False}
+        client = client_factory(resolved_credentials, live_trading_enabled=False)
+        cached_session_fresh = bool(client.has_fresh_cached_session())
+        if not cached_session_fresh:
+            return {"status": "cached_session_missing_or_stale", "cached_session_fresh": False}
+        client.connect_read_only()
+        if getattr(client, "session_reused", False) is not True:
+            return {
+                "status": "cached_session_unavailable",
+                "cached_session_fresh": True,
+                "read_only_session_accepted": False,
+            }
+        read_only_session_accepted = True
+        account_numbers = client.account_numbers()
+        if (
+            not isinstance(account_numbers, (tuple, list))
+            or sum(account == expected_account for account in account_numbers) != 1
+        ):
+            return {
+                "status": "runtime_target_account_mismatch",
+                "cached_session_fresh": True,
+                "read_only_session_accepted": True,
+                "account_match": False,
+            }
+        if client.select_account(expected_account) != expected_account:
+            return {
+                "status": "runtime_target_account_mismatch",
+                "cached_session_fresh": True,
+                "read_only_session_accepted": True,
+                "account_match": False,
+            }
+        _, account_data = client.require_connected()
+        get_account_balances = getattr(account_data, "get_account_balances", None)
+        if not callable(get_account_balances):
+            return {
+                "status": "balance_payload_unavailable",
+                "cached_session_fresh": True,
+                "read_only_session_accepted": True,
+                "account_match": True,
+            }
+        balance_payload = get_account_balances(expected_account)
+        if not isinstance(balance_payload, Mapping):
+            return {
+                "status": "balance_payload_unavailable",
+                "cached_session_fresh": True,
+                "read_only_session_accepted": True,
+                "account_match": True,
+            }
+        result = {
+            "status": "ok",
+            "observed_at": (now or _utcnow()).isoformat(),
+            "cached_session_fresh": True,
+            "read_only_session_accepted": True,
+            "account_match": True,
+            "source": "firstrade_private_balances",
+        }
+        result.update(_diagnostic_field_schema(balance_payload))
+        return result
+    except Exception:
+        return {
+        "status": "cached_read_only_unavailable",
+            "cached_session_fresh": cached_session_fresh,
+            "read_only_session_accepted": read_only_session_accepted,
+        }
+    finally:
+        if client is not None:
+            close = getattr(client, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
 
 
 def persist_funds_snapshot(
