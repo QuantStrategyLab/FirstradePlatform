@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -85,6 +88,9 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         "schema_version": "firstrade_cached_stage_diagnostic.v1",
         "service_readable": True,
         "target_matches": True,
+        "diagnostic_tag_budget_ok": True,
+        "failure_subcategory": "none",
+        "combined_traffic_tag_service_name_length_error_observed": False,
         "service_ready": True,
         "traffic_row_count": 1,
         "positive_traffic_row_count": 1,
@@ -151,6 +157,53 @@ def test_missing_logging_permission_is_reported_without_guessing_failure_categor
     assert summary["audit_entry_count"] is None
     assert summary["failure_source"] == "revision"
     assert summary["failure_categories"] == ["permission"]
+
+
+def test_combined_traffic_tag_length_is_closed_subcategory_and_budget_stays_private():
+    message = (
+        "traffic[].tag: traffic tag [TAG] and service name [SERVICE] together are too long. "
+        "Combined traffic tag and service name cannot exceed 46 characters."
+    )
+    service, revisions, policy, jobs, audit = _evidence(message)
+    summary = diagnostic.summarize(
+        service=service,
+        revisions=revisions,
+        expected_service=PRIVATE_SERVICE,
+        expected_project=PRIVATE_PROJECT,
+        expected_region=PRIVATE_REGION,
+        audit_window_start=WINDOW_START,
+        audit_window_end=WINDOW_END,
+        policy=policy,
+        jobs=jobs,
+        audit_entries=audit,
+        audit_status="ok",
+    )
+    assert summary["failure_categories"] == ["invalid_name"]
+    assert summary["failure_subcategory"] == "combined_traffic_tag_service_name_length"
+    assert summary["combined_traffic_tag_service_name_length_error_observed"] is True
+    assert summary["diagnostic_tag_budget_ok"] is True
+    assert PRIVATE_SERVICE not in json.dumps(summary)
+
+
+def test_tag_budget_false_is_reported_as_boolean_without_service_name():
+    service, revisions, policy, jobs, audit = _evidence()
+    long_name = "s" * 45
+    service["metadata"]["name"] = long_name
+    summary = diagnostic.summarize(
+        service=service,
+        revisions=revisions,
+        expected_service=long_name,
+        expected_project=PRIVATE_PROJECT,
+        expected_region=PRIVATE_REGION,
+        audit_window_start=WINDOW_START,
+        audit_window_end=WINDOW_END,
+        policy=policy,
+        jobs=jobs,
+        audit_entries=audit,
+        audit_status="ok",
+    )
+    assert summary["diagnostic_tag_budget_ok"] is False
+    assert long_name not in json.dumps(summary)
 
 
 def test_unreadable_metadata_stays_unknown_and_never_serializes_input():
@@ -244,3 +297,87 @@ def test_workflow_is_opt_in_read_only_and_reuses_existing_identity():
     assert "docker build" not in workflow
     assert "docker push" not in workflow
     assert "actions/upload-artifact" not in workflow
+    assert workflow.count("python3 -m scripts.diagnose_cached_stage_failure") == 2
+    assert "python3 scripts/diagnose_cached_stage_failure.py" not in workflow
+
+
+def test_module_cli_runs_from_repository_root_without_pythonpath(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    service, revisions, policy, jobs, audit = _evidence()
+    now = datetime.now(UTC).replace(microsecond=0)
+    audit[0]["timestamp"] = (now - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    inputs = {
+        "service": service,
+        "revisions": revisions,
+        "iam-policy": policy,
+        "scheduler-jobs": jobs,
+        "audit-entries": audit,
+    }
+    paths = {}
+    for name, value in inputs.items():
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(value), encoding="utf-8")
+        paths[name] = str(path)
+
+    window_end = now.isoformat().replace("+00:00", "Z")
+    window_start = (now - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+
+    validated = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.diagnose_cached_stage_failure",
+            "--validate-window",
+            window_start,
+            window_end,
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert validated.returncode == 0, validated.stderr
+    assert validated.stdout == ""
+
+    summarized = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.diagnose_cached_stage_failure",
+            "--service",
+            paths["service"],
+            "--revisions",
+            paths["revisions"],
+            "--expected-service",
+            PRIVATE_SERVICE,
+            "--expected-project",
+            PRIVATE_PROJECT,
+            "--expected-region",
+            PRIVATE_REGION,
+            "--window-start",
+            window_start,
+            "--window-end",
+            window_end,
+            "--iam-policy",
+            paths["iam-policy"],
+            "--scheduler-jobs",
+            paths["scheduler-jobs"],
+            "--audit-entries",
+            paths["audit-entries"],
+            "--audit-status",
+            "ok",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert summarized.returncode == 0, summarized.stderr
+    summary = json.loads(summarized.stdout)
+    assert summary["failure_source"] == "audit"
+    assert summary["failure_categories"] == ["image"]
+    assert PRIVATE_SERVICE not in summarized.stdout
+    assert PRIVATE_MESSAGE not in summarized.stdout

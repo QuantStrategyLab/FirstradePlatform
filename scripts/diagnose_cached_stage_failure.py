@@ -10,6 +10,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from scripts.verify_cached_diagnostic_stage import (
+    DIAGNOSTIC_TAG,
+    MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH,
+)
+
 REASONS = (
     "permission",
     "act_as",
@@ -35,6 +40,10 @@ _REASON_PATTERNS = {
     "startup": re.compile(r"startup probe|container failed to start|startup[^\n]*failed", re.I),
     "permission": re.compile(r"permission denied|permission_denied|not authorized|forbidden|\b403\b", re.I),
 }
+_COMBINED_TAG_NAME_LIMIT = re.compile(
+    r"traffic[^\n]*tag[^\n]*too long|combined traffic tag and service name cannot exceed 46",
+    re.I,
+)
 
 
 def _read_json(path: str | None) -> Any:
@@ -65,6 +74,10 @@ def _ready(resource: Any) -> bool | None:
 def _classify(texts: list[str]) -> list[str]:
     joined = "\n".join(texts)
     return [reason for reason in REASONS if _REASON_PATTERNS[reason].search(joined)] or ["unknown"]
+
+
+def _has_combined_tag_name_limit(texts: list[str]) -> bool:
+    return bool(_COMBINED_TAG_NAME_LIMIT.search("\n".join(texts)))
 
 
 def _revision_for_service(service: Any, revisions: Any) -> dict[str, Any] | None:
@@ -277,16 +290,30 @@ def summarize(
     if audit_error_count and audit_status == "ok":
         failure_source = "audit"
         failure_categories = audit_categories
+        failure_texts = audit_texts
     elif latest_ready is False:
         failure_source = "revision"
         failure_categories = revision_categories
+        failure_texts = revision_texts
     else:
         failure_source = "none"
         failure_categories = ["unknown"]
+        failure_texts = []
+    combined_tag_name_error = _has_combined_tag_name_limit(failure_texts)
+    target_matches = bool(isinstance(metadata, dict) and metadata.get("name") == expected_service)
+    tag_budget_ok = bool(
+        target_matches
+        and isinstance(metadata, dict)
+        and isinstance(metadata.get("name"), str)
+        and len(metadata["name"]) + len(DIAGNOSTIC_TAG) <= MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH
+    )
     result = {
         "schema_version": "firstrade_cached_stage_diagnostic.v1",
         "service_readable": service_ok,
-        "target_matches": bool(isinstance(metadata, dict) and metadata.get("name") == expected_service),
+        "target_matches": target_matches,
+        "diagnostic_tag_budget_ok": tag_budget_ok,
+        "failure_subcategory": "combined_traffic_tag_service_name_length" if combined_tag_name_error else "none",
+        "combined_traffic_tag_service_name_length_error_observed": combined_tag_name_error,
         "service_ready": _ready(service),
         "traffic_row_count": len(traffic_rows) if traffic_rows is not None else None,
         "positive_traffic_row_count": len(positive),
