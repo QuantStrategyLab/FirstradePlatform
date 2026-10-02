@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from notifications.telegram import build_translator
 
 import os
@@ -84,6 +86,30 @@ def _build_read_only_reconciliation_client():
 READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = _build_read_only_reconciliation_client
 
 _REDACTED = "<redacted>"
+_CACHED_BALANCE_DIAGNOSTIC_CORRELATION_RE = re.compile(r"^[0-9a-f]{32}$")
+_CACHED_BALANCE_DIAGNOSTIC_STATUSES = frozenset(
+    {
+        "ok",
+        "runtime_target_invalid",
+        "cached_session_not_enabled",
+        "cached_session_missing_or_stale",
+        "cached_session_unavailable",
+        "runtime_target_account_mismatch",
+        "balance_payload_unavailable",
+        "cached_read_only_unavailable",
+    }
+)
+_CACHED_BALANCE_DIAGNOSTIC_FIELD_CODES = frozenset(
+    {
+        "cash", "cash_balance", "available", "available_cash", "settled_cash",
+        "unsettled_cash", "balance", "balances", "value", "total", "total_value",
+        "total_account_value", "equity", "net_liquidation", "buying_power", "margin",
+        "label", "display_label", "display_name", "unit", "currency", "currency_code",
+    }
+)
+_CACHED_BALANCE_DIAGNOSTIC_LABELS = frozenset(
+    {"total_account_value", "cash_balance", "available_cash"}
+)
 _TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
 _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|key|password|secret|signature|token)=)([^&\s]+)"
@@ -100,6 +126,103 @@ def get_project_id() -> str | None:
 
 def _flag(name: str, default: str = "false") -> bool:
     return (os.getenv(name, default) or "").strip().lower() == "true"
+
+
+def _cached_balance_diagnostic_correlation_id() -> tuple[str | None, bool]:
+    raw_body = request.get_data(cache=True)
+    if not raw_body:
+        return None, True
+    if not request.is_json:
+        return None, False
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) - {"correlation_id"}:
+        return None, False
+    if "correlation_id" not in body:
+        return None, True
+    correlation_id = body["correlation_id"]
+    if (
+        not isinstance(correlation_id, str)
+        or not _CACHED_BALANCE_DIAGNOSTIC_CORRELATION_RE.fullmatch(correlation_id)
+    ):
+        return None, False
+    return correlation_id, True
+
+
+def _cached_balance_diagnostic_path_is_allowed(path: object) -> bool:
+    if not isinstance(path, str) or not path or len(path) > 160:
+        return False
+    parts = path.split(".")
+    return all(
+        part.removesuffix("[]") in _CACHED_BALANCE_DIAGNOSTIC_FIELD_CODES
+        and (not part.endswith("[]") or part.count("[") == 1 and part.endswith("[]"))
+        for part in parts
+    )
+
+
+def _cached_balance_diagnostic_log_projection(result: object) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"status": "invalid_result"}
+    status = result.get("status")
+    projected: dict[str, Any] = {
+        "status": status
+        if isinstance(status, str) and status in _CACHED_BALANCE_DIAGNOSTIC_STATUSES
+        else "invalid_result"
+    }
+    for name in (
+        "cached_session_fresh",
+        "read_only_session_accepted",
+        "account_match",
+        "unknown_display_label_present",
+        "unrecognized_fields_omitted",
+        "schema_truncated",
+    ):
+        value = result.get(name)
+        if type(value) is bool:
+            projected[name] = value
+    if result.get("source") == "firstrade_private_balances":
+        projected["source"] = "firstrade_private_balances"
+    fields = result.get("fields")
+    if isinstance(fields, list):
+        projected["fields"] = [
+            {"path": item["path"], "type": item["type"]}
+            for item in fields[:64]
+            if isinstance(item, dict)
+            and set(item) == {"path", "type"}
+            and _cached_balance_diagnostic_path_is_allowed(item.get("path"))
+            and isinstance(item.get("type"), str)
+            and item.get("type")
+            in {"object", "array", "null", "boolean", "number", "string", "other"}
+        ]
+    labels = result.get("recognized_display_labels")
+    if isinstance(labels, list):
+        projected["recognized_display_labels"] = [
+            {"path": item["path"], "label": item["label"]}
+            for item in labels[:16]
+            if isinstance(item, dict)
+            and set(item) == {"path", "label"}
+            and _cached_balance_diagnostic_path_is_allowed(item.get("path"))
+            and isinstance(item.get("label"), str)
+            and item.get("label") in _CACHED_BALANCE_DIAGNOSTIC_LABELS
+        ]
+    unit_paths = result.get("unit_field_paths")
+    if isinstance(unit_paths, list):
+        projected["unit_field_paths"] = [
+            path for path in unit_paths[:16] if _cached_balance_diagnostic_path_is_allowed(path)
+        ]
+    unrecognized_count = result.get("unrecognized_field_count")
+    if type(unrecognized_count) is int and 0 <= unrecognized_count <= 256:
+        projected["unrecognized_field_count"] = unrecognized_count
+    return projected
+
+
+def _log_cached_balance_diagnostic(result: object, correlation_id: str | None) -> None:
+    event = {
+        "event": "firstrade_cached_balance_field_diagnostic",
+        "diagnostic": _cached_balance_diagnostic_log_projection(result),
+    }
+    if correlation_id is not None:
+        event["correlation_id"] = correlation_id
+    print(json.dumps(event, ensure_ascii=True, separators=(",", ":")), flush=True)
 
 
 def _split_env_list(value: str | None) -> tuple[str, ...]:
@@ -872,6 +995,9 @@ def reconcile():
 def account_balance_diagnostic():
     if not _flag("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP"):
         return jsonify({"status": "blocked", "reason": "diagnostic_disabled"}), 403
+    correlation_id, valid_request = _cached_balance_diagnostic_correlation_id()
+    if not valid_request:
+        return jsonify({"status": "blocked", "reason": "invalid_request"}), 400
     try:
         raw_runtime_target = os.getenv("QSL_RUNTIME_TARGET_JSON") or os.getenv("RUNTIME_TARGET_JSON")
         if not raw_runtime_target:
@@ -883,7 +1009,11 @@ def account_balance_diagnostic():
             )
     except Exception:
         return jsonify({"status": "runtime_target_unavailable"}), 503
-    result = run_cached_balance_field_diagnostic(runtime_target=runtime_target)
+    try:
+        result = run_cached_balance_field_diagnostic(runtime_target=runtime_target)
+    except Exception:
+        result = {"status": "cached_read_only_unavailable"}
+    _log_cached_balance_diagnostic(result, correlation_id)
     return jsonify(result), 200 if result.get("status") == "ok" else 503
 
 

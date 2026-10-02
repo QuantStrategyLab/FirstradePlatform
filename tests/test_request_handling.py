@@ -674,9 +674,12 @@ def test_cached_balance_diagnostic_is_disabled_by_default(monkeypatch):
     assert response.get_json() == {"status": "blocked", "reason": "diagnostic_disabled"}
 
 
-def test_cached_balance_diagnostic_uses_explicit_runtime_target_without_strategy_cycle(monkeypatch):
+def test_cached_balance_diagnostic_uses_explicit_runtime_target_and_logs_only_projected_schema(
+    monkeypatch, capsys
+):
     runtime_target = object()
     observed = {}
+    private_marker = "PRIVATE_BALANCE_ACCOUNT_TOKEN"
     monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
     monkeypatch.setenv("RUNTIME_TARGET_JSON", "synthetic-runtime-target")
 
@@ -688,7 +691,30 @@ def test_cached_balance_diagnostic_uses_explicit_runtime_target_without_strategy
 
     def run_diagnostic(*, runtime_target):
         observed["runtime_target"] = runtime_target
-        return {"status": "ok", "fields": [{"path": "synthetic", "type": "number"}]}
+        return {
+            "status": "ok",
+            "cached_session_fresh": True,
+            "read_only_session_accepted": True,
+            "account_match": True,
+            "source": "firstrade_private_balances",
+            "fields": [
+                {"path": "cash_balance", "type": "number"},
+                {"path": private_marker, "type": private_marker},
+                {"path": "cash_balance", "type": "number", "private": private_marker},
+            ],
+            "recognized_display_labels": [
+                {"path": "cash_balance", "label": "cash_balance"},
+                {"path": private_marker, "label": private_marker},
+            ],
+            "unit_field_paths": ["cash.currency", private_marker],
+            "unrecognized_field_count": 2,
+            "unknown_display_label_present": True,
+            "unrecognized_fields_omitted": True,
+            "schema_truncated": False,
+            "account": private_marker,
+            "balance": private_marker,
+            "unknown_tag": private_marker,
+        }
 
     monkeypatch.setattr(main, "run_cached_balance_field_diagnostic", run_diagnostic)
     monkeypatch.setattr(
@@ -697,16 +723,104 @@ def test_cached_balance_diagnostic_uses_explicit_runtime_target_without_strategy
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("diagnostic must not run strategy")),
     )
 
-    response = main.app.test_client().post("/account-balance-diagnostic")
+    response = main.app.test_client().post(
+        "/account-balance-diagnostic", json={"correlation_id": "a" * 32}
+    )
 
     assert response.status_code == 200
-    assert response.get_json() == {
-        "status": "ok",
-        "fields": [{"path": "synthetic", "type": "number"}],
-    }
+    assert response.get_json()["status"] == "ok"
     assert observed["runtime_target"] is runtime_target
     assert observed["resolver_args"][0] is main.os.environ
     assert observed["resolver_args"][1] == main.FIRSTRADE_PLATFORM
+    log_event = json.loads(capsys.readouterr().out)
+    assert set(log_event) == {"event", "diagnostic", "correlation_id"}
+    assert log_event["event"] == "firstrade_cached_balance_field_diagnostic"
+    assert log_event["correlation_id"] == "a" * 32
+    assert log_event["diagnostic"] == {
+        "status": "ok",
+        "cached_session_fresh": True,
+        "read_only_session_accepted": True,
+        "account_match": True,
+        "unknown_display_label_present": True,
+        "unrecognized_fields_omitted": True,
+        "schema_truncated": False,
+        "source": "firstrade_private_balances",
+        "fields": [{"path": "cash_balance", "type": "number"}],
+        "recognized_display_labels": [{"path": "cash_balance", "label": "cash_balance"}],
+        "unit_field_paths": ["cash.currency"],
+        "unrecognized_field_count": 2,
+    }
+    assert private_marker not in json.dumps(log_event)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"correlation_id": "not-32-hex"},
+        {"correlation_id": "A" * 32},
+        {"correlation_id": "a" * 32, "unexpected": "private"},
+    ],
+)
+def test_cached_balance_diagnostic_rejects_invalid_json_fields_before_reader(monkeypatch, payload):
+    monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", "synthetic-runtime-target")
+    calls = []
+    monkeypatch.setattr(
+        main, "run_cached_balance_field_diagnostic", lambda **_kwargs: calls.append(True)
+    )
+
+    response = main.app.test_client().post("/account-balance-diagnostic", json=payload)
+
+    assert response.status_code == 400
+    assert response.get_json() == {"status": "blocked", "reason": "invalid_request"}
+    assert calls == []
+
+
+def test_cached_balance_diagnostic_correlation_id_is_optional(monkeypatch, capsys):
+    monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", "synthetic-runtime-target")
+    monkeypatch.setattr(main, "resolve_runtime_target_from_env", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        main,
+        "run_cached_balance_field_diagnostic",
+        lambda **_kwargs: {"status": "runtime_target_invalid", "cached_session_fresh": False},
+    )
+
+    response = main.app.test_client().post("/account-balance-diagnostic", json={})
+
+    assert response.status_code == 503
+    assert response.get_json() == {"status": "runtime_target_invalid", "cached_session_fresh": False}
+    event = json.loads(capsys.readouterr().out)
+    assert set(event) == {"event", "diagnostic"}
+    assert event["diagnostic"] == {
+        "status": "runtime_target_invalid",
+        "cached_session_fresh": False,
+    }
+
+
+def test_cached_balance_diagnostic_logs_closed_result_on_reader_exception(monkeypatch, capsys):
+    monkeypatch.setenv("FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP", "true")
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", "synthetic-runtime-target")
+    monkeypatch.setattr(main, "resolve_runtime_target_from_env", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        main,
+        "run_cached_balance_field_diagnostic",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("PRIVATE_BALANCE_ACCOUNT_TOKEN")),
+    )
+
+    response = main.app.test_client().post(
+        "/account-balance-diagnostic", json={"correlation_id": "b" * 32}
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {"status": "cached_read_only_unavailable"}
+    event_text = capsys.readouterr().out
+    assert "PRIVATE_BALANCE_ACCOUNT_TOKEN" not in event_text
+    assert json.loads(event_text) == {
+        "event": "firstrade_cached_balance_field_diagnostic",
+        "correlation_id": "b" * 32,
+        "diagnostic": {"status": "cached_read_only_unavailable"},
+    }
 
 
 def test_cached_balance_diagnostic_rejects_missing_runtime_target_even_with_legacy_selector(monkeypatch):
