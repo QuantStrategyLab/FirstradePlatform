@@ -13,7 +13,8 @@ from typing import Any
 
 DIAGNOSTIC_GATE = "FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP"
 RUNTIME_TARGET_KEYS = ("QSL_RUNTIME_TARGET_JSON", "RUNTIME_TARGET_JSON")
-DIAGNOSTIC_TAG = "cb"
+DIAGNOSTIC_TAG = "cbd"
+MIN_TRAFFIC_TAG_LENGTH = 3
 MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH = 46
 EXPECTED_PLATFORM_ID = "firstrade"
 GENERATED_TEMPLATE_ANNOTATIONS = {
@@ -66,6 +67,8 @@ def _validate_diagnostic_tag_budget(service_name: str, tag: str) -> None:
         raise ValueError("diagnostic_service_name_missing")
     if tag != DIAGNOSTIC_TAG:
         raise ValueError("diagnostic_tag_mismatch")
+    if len(tag) < MIN_TRAFFIC_TAG_LENGTH:
+        raise ValueError("diagnostic_tag_too_short")
     if len(service_name) + len(tag) > MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH:
         raise ValueError("diagnostic_tag_name_budget_exceeded")
 
