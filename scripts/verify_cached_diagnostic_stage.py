@@ -221,6 +221,61 @@ def _primary_name_shape_diagnostic(
     }
 
 
+def _has_provider_default_primary_name(
+    serving: dict[str, Any],
+    desired: dict[str, Any],
+    *,
+    serving_document: dict[str, Any],
+    desired_document: dict[str, Any],
+) -> bool:
+    serving_containers = serving.get("containers")
+    desired_containers = desired.get("containers")
+    return (
+        _container_count_status(serving) == "single"
+        and _container_count_status(desired) == "single"
+        and isinstance(serving_containers, list)
+        and isinstance(desired_containers, list)
+        and _container_name_status(desired_containers[0]) == "absent"
+        and _container_name_status(serving_containers[0]) == "present"
+        and _name_image_relation(serving_containers[0]) == "image_basename_numbered_suffix"
+        and _container_dependency_status(serving_document, desired_document) == "absent"
+    )
+
+
+def _service_spec_for_name_mode(
+    spec: dict[str, Any],
+    mode: str,
+    *,
+    document: dict[str, Any],
+    name_source_spec: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if mode == "strict":
+        return spec
+    if mode != "provider_default":
+        raise ValueError("baseline_invalid")
+    template = spec.get("template")
+    template_spec = template.get("spec") if isinstance(template, dict) else None
+    if not isinstance(template_spec, dict) or not isinstance(name_source_spec, dict):
+        raise ValueError("service_configuration_changed")
+    containers = name_source_spec.get("containers")
+    if (
+        _container_count_status(name_source_spec) != "single"
+        or not isinstance(containers, list)
+        or _container_dependency_status(document) != "absent"
+    ):
+        raise ValueError("service_configuration_changed")
+    name_status = _container_name_status(containers[0])
+    if name_status not in ("absent", "present") or (
+        name_status == "present"
+        and _name_image_relation(containers[0]) != "image_basename_numbered_suffix"
+    ):
+        raise ValueError("service_configuration_changed")
+    normalized = copy.deepcopy(spec)
+    if name_status == "present":
+        normalized["template"]["spec"]["containers"][0].pop("name")
+    return normalized
+
+
 def _desired_traffic_rows(service: dict[str, Any], *, allow_diagnostic_tag: bool) -> list[dict[str, Any]]:
     active, _ = _active_traffic(service)
     active_revision = active[0]["revisionName"]
@@ -438,7 +493,7 @@ def _validate_serving_revision(
     *,
     expected_service: str,
     expected_source_sha: str,
-) -> None:
+) -> str:
     metadata = service.get("metadata") or {}
     if metadata.get("name") != expected_service:
         raise ValueError("service_target_mismatch")
@@ -469,8 +524,21 @@ def _validate_serving_revision(
     service_template_spec = ((service.get("spec") or {}).get("template") or {}).get("spec")
     if not isinstance(service_template_spec, dict):
         raise ValueError("service_template_spec_missing")
+    name_mode = "strict"
     if _config_spec_hash(revision_spec) != _config_spec_hash(service_template_spec):
         difference_groups = _config_difference_groups(revision_spec, service_template_spec)
+        desired_document = {
+            "metadata": template.get("metadata"),
+            "spec": service_template_spec,
+        }
+        if difference_groups == ["primary_name"] and _has_provider_default_primary_name(
+            revision_spec,
+            service_template_spec,
+            serving_document=revision,
+            desired_document=desired_document,
+        ):
+            name_mode = "provider_default"
+            return name_mode
         groups = ",".join(difference_groups)
         details = ""
         if "primary_name" in difference_groups:
@@ -479,15 +547,13 @@ def _validate_serving_revision(
                     revision_spec,
                     service_template_spec,
                     serving_document=revision,
-                    desired_document={
-                        "metadata": template.get("metadata"),
-                        "spec": service_template_spec,
-                    },
+                    desired_document=desired_document,
                 ),
                 sort_keys=True,
                 separators=(",", ":"),
             )
         raise ValueError(f"active_revision_service_config_mismatch:{groups}{details}")
+    return name_mode
 
 
 def _traffic_hash(rows: list[dict[str, Any]]) -> str:
@@ -531,7 +597,7 @@ def capture_baseline(
         raise ValueError("active_revision_json_invalid") from exc
     if not isinstance(revision, dict):
         raise ValueError("active_revision_json_invalid")
-    _validate_serving_revision(
+    name_mode = _validate_serving_revision(
         service,
         revision,
         expected_service=expected_service,
@@ -549,7 +615,18 @@ def capture_baseline(
     state = {
         "active_traffic_sha256": _traffic_hash(summary["traffic_rows"]),
         "desired_traffic_sha256": _canonical_hash(summary["desired_traffic_rows"]),
-        "service_spec_sha256": _canonical_hash(summary["service_spec_without_primary_image"]),
+        "service_spec_sha256": _canonical_hash(
+            _service_spec_for_name_mode(
+                summary["service_spec_without_primary_image"],
+                name_mode,
+                document={
+                    "metadata": service["spec"]["template"].get("metadata"),
+                    "spec": service["spec"]["template"]["spec"],
+                },
+                name_source_spec=service["spec"]["template"]["spec"],
+            )
+        ),
+        "primary_name_mode": name_mode,
     }
     state_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(state_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -570,7 +647,21 @@ def verify_readback(state_path: Path, expected_image: str) -> None:
         raise ValueError("active_traffic_changed")
     if _canonical_hash(summary["desired_traffic_rows"]) != state.get("desired_traffic_sha256"):
         raise ValueError("desired_traffic_changed")
-    if _canonical_hash(summary["service_spec_without_primary_image"]) != state.get("service_spec_sha256"):
+    try:
+        normalized_service_spec = _service_spec_for_name_mode(
+            summary["service_spec_without_primary_image"],
+            state.get("primary_name_mode"),
+            document={
+                "metadata": (service.get("spec") or {}).get("template", {}).get("metadata"),
+                "spec": (service.get("spec") or {}).get("template", {}).get("spec"),
+            },
+            name_source_spec=(service.get("spec") or {}).get("template", {}).get("spec"),
+        )
+    except ValueError as exc:
+        if str(exc) == "baseline_invalid":
+            raise
+        raise ValueError("service_configuration_changed") from exc
+    if _canonical_hash(normalized_service_spec) != state.get("service_spec_sha256"):
         raise ValueError("service_configuration_changed")
     if summary["first_container_image"] != expected_image:
         raise ValueError("candidate_image_not_read_back")
