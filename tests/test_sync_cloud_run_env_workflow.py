@@ -253,7 +253,8 @@ def test_cached_balance_diagnostic_stage_is_opt_in_and_separate_from_deploy_and_
     assert "inputs.allow_traffic_promotion" in stage_job
     assert "inputs.allow_cleanup" in stage_job
     assert "c4727934730bcb6431e9e7dd4310fb8c9bc30182" in stage_job
-    assert "3317c0282ca5e70a55b97084572e5013a8eeae3f" in stage_job
+    assert "78f976c3a23fa58a543a6dc695f5c43b26f2b125" in stage_job
+    assert "FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP=true" in stage_job
     assert "e0043ca860a36c1790ddbb866cb848e298a3d3c7" in stage_job
     assert "verify_cached_diagnostic_stage.py capture" in stage_job
     assert "--expected-existing-image \"${expected_existing_image_ref}\"" in stage_job
