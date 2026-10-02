@@ -93,7 +93,7 @@ jobs:
             echo "The checked-out source and current main ref must match expected_sha." >&2
             exit 1
           fi
-          python3 scripts/diagnose_cached_stage_failure.py \
+          python3 -m scripts.diagnose_cached_stage_failure \
             --validate-window "${FAILURE_WINDOW_START}" "${FAILURE_WINDOW_END}"
 
       - name: Authenticate with the existing deployment WIF identity
@@ -149,7 +149,7 @@ jobs:
             fi
           fi
 
-          python3 scripts/diagnose_cached_stage_failure.py \
+          python3 -m scripts.diagnose_cached_stage_failure \
             --service "${service_file}" --revisions "${revisions_file}" \
             --expected-service "${EXPECTED_SERVICE}" --iam-policy "${iam_file}" \
             --expected-project "${GCP_PROJECT_ID}" --expected-region "${CLOUD_RUN_REGION}" \

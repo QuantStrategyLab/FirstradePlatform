@@ -13,7 +13,8 @@ from typing import Any
 
 DIAGNOSTIC_GATE = "FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP"
 RUNTIME_TARGET_KEYS = ("QSL_RUNTIME_TARGET_JSON", "RUNTIME_TARGET_JSON")
-DIAGNOSTIC_TAG = "cached-balance-diagnostic"
+DIAGNOSTIC_TAG = "cb"
+MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH = 46
 EXPECTED_PLATFORM_ID = "firstrade"
 GENERATED_TEMPLATE_ANNOTATIONS = {
     "run.googleapis.com/client-name",
@@ -58,6 +59,15 @@ def _active_traffic(service: dict[str, Any]) -> tuple[list[dict[str, Any]], list
         raise ValueError("traffic_not_single_revision_100")
     active_traffic.sort(key=lambda item: (item["revisionName"], item["percent"]))
     return active_traffic, traffic_rows
+
+
+def _validate_diagnostic_tag_budget(service_name: str, tag: str) -> None:
+    if not isinstance(service_name, str) or not service_name:
+        raise ValueError("diagnostic_service_name_missing")
+    if tag != DIAGNOSTIC_TAG:
+        raise ValueError("diagnostic_tag_mismatch")
+    if len(service_name) + len(tag) > MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH:
+        raise ValueError("diagnostic_tag_name_budget_exceeded")
 
 
 def _normalize_template_metadata(template: dict[str, Any]) -> None:
@@ -685,18 +695,25 @@ def verify_readback(state_path: Path, expected_image: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=("active-revision", "capture", "verify", "scheduler-hash"))
+    parser.add_argument(
+        "phase", choices=("active-revision", "capture", "verify", "scheduler-hash", "tag-budget")
+    )
     parser.add_argument("--state", type=Path)
     parser.add_argument("--revision", type=Path)
     parser.add_argument("--expected-service")
     parser.add_argument("--expected-source-sha")
     parser.add_argument("--expected-image")
+    parser.add_argument("--tag")
     args = parser.parse_args()
     try:
         if args.phase == "active-revision":
             service = _read_service()
             active, _ = _active_traffic(service)
             print(active[0]["revisionName"])
+            return 0
+        if args.phase == "tag-budget":
+            _validate_diagnostic_tag_budget(args.expected_service or "", args.tag or "")
+            print("diagnostic_tag_budget_ok")
             return 0
         if args.phase == "scheduler-hash":
             jobs = json.load(sys.stdin)

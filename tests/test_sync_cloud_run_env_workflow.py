@@ -259,6 +259,11 @@ def test_cached_balance_diagnostic_stage_is_opt_in_and_separate_from_deploy_and_
     assert "verify_cached_diagnostic_stage.py active-revision" in stage_job
     assert "verify_cached_diagnostic_stage.py scheduler-hash" in stage_job
     assert "--no-traffic --tag=\"${CACHED_DIAGNOSTIC_TAG}\"" in stage_job
+    assert "CACHED_DIAGNOSTIC_TAG: cb" in stage_job
+    budget_check = stage_job.index("Validate fixed diagnostic traffic tag budget")
+    image_build = stage_job.index("Build and push the fixed diagnostic image")
+    assert budget_check < image_build
+    assert "verify_cached_diagnostic_stage.py tag-budget" in stage_job
     assert "--ingress=" not in stage_job
     assert "--service-account=" not in stage_job
     assert "--set-env-vars" not in stage_job

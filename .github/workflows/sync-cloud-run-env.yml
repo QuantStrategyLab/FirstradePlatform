@@ -69,7 +69,7 @@ jobs:
       GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
       CACHED_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
       EXPECTED_SERVING_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
-      CACHED_DIAGNOSTIC_TAG: cached-balance-diagnostic
+      CACHED_DIAGNOSTIC_TAG: cb
     steps:
       - name: Validate isolated stage inputs
         env:
@@ -122,6 +122,14 @@ jobs:
             echo "The checked-out workflow and approved ref must match expected_sha." >&2
             exit 1
           fi
+
+      - name: Validate fixed diagnostic traffic tag budget
+        env:
+          EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_cached_diagnostic_stage.py tag-budget \
+            --expected-service "${EXPECTED_SERVICE}" --tag "${CACHED_DIAGNOSTIC_TAG}"
 
       - name: Checkout fixed cached-diagnostic candidate
         uses: actions/checkout@v6

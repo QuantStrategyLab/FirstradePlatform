@@ -33,6 +33,49 @@ def test_container_difference_categories_keep_private_details_closed():
     ]
 
 
+@pytest.mark.parametrize(
+    ("service_name_length", "error"),
+    [(44, None), (45, "diagnostic_tag_name_budget_exceeded")],
+)
+def test_diagnostic_traffic_tag_budget_is_checked_without_exposing_name(service_name_length, error):
+    service_name = "s" * service_name_length
+    if error:
+        with pytest.raises(ValueError, match=error):
+            stage._validate_diagnostic_tag_budget(service_name, stage.DIAGNOSTIC_TAG)
+    else:
+        stage._validate_diagnostic_tag_budget(service_name, stage.DIAGNOSTIC_TAG)
+
+
+def test_diagnostic_traffic_tag_budget_rejects_a_different_tag():
+    with pytest.raises(ValueError, match="diagnostic_tag_mismatch"):
+        stage._validate_diagnostic_tag_budget("service-placeholder", "long-tag")
+
+
+def test_tag_budget_cli_reports_only_closed_result(monkeypatch, capsys):
+    monkeypatch.setattr(
+        stage.sys,
+        "argv",
+        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", "private-service", "--tag", "cb"],
+    )
+    assert stage.main() == 0
+    output = capsys.readouterr()
+    assert output.out == "diagnostic_tag_budget_ok\n"
+    assert "private-service" not in output.out + output.err
+
+
+def test_tag_budget_cli_rejects_long_name_without_echoing_it(monkeypatch, capsys):
+    service_name = "s" * 45
+    monkeypatch.setattr(
+        stage.sys,
+        "argv",
+        ["verify_cached_diagnostic_stage.py", "tag-budget", "--expected-service", service_name, "--tag", "cb"],
+    )
+    assert stage.main() == 1
+    output = capsys.readouterr()
+    assert output.err == "cached_diagnostic_stage_blocked:diagnostic_tag_name_budget_exceeded\n"
+    assert service_name not in output.out + output.err
+
+
 def test_primary_name_shape_classifies_names_images_counts_and_dependencies():
     serving = {"containers": [
         {"name": "hidden-serving-app-1", "image": "registry.invalid/team/hidden-serving-app:stable"},
