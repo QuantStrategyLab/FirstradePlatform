@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.firstrade_client import FirstradeCredentials
+from application.firstrade_client import FirstradeCredentials, FirstradePlatformError
 from application.rebalance_service import (
     _publish_cycle_notification,
     _runtime_metadata_with_execution_policy,
@@ -89,17 +89,34 @@ class FakeFirstradeClient:
     def __init__(self, _credentials, *, live_trading_enabled=False):
         self.live_trading_enabled = live_trading_enabled
         self.orders = []
+        self.accounts = ["12345678"]
+        self.selected_account = None
+        self.connect_calls = 0
+        self.account_numbers_calls = 0
+        self.select_account_calls = []
+        self.balance_calls = []
+        self.position_calls = []
 
     def connect(self):
+        self.connect_calls += 1
         return self
 
-    def select_account(self, requested_account=None):
-        return requested_account or "12345678"
+    def account_numbers(self):
+        self.account_numbers_calls += 1
+        return list(self.accounts)
 
-    def get_balances(self, _account):
+    def select_account(self, requested_account=None):
+        self.select_account_calls.append(requested_account)
+        if self.selected_account is not None:
+            return self.selected_account
+        return requested_account or (self.accounts[0] if len(self.accounts) == 1 else "")
+
+    def get_balances(self, account):
+        self.balance_calls.append(account)
         return {"total_value": "1000.00", "cash": "1000.00", "buying_power": "1000.00"}
 
-    def get_positions(self, _account):
+    def get_positions(self, account):
+        self.position_calls.append(account)
         return {"items": []}
 
     def get_quote(self, _account, symbol):
@@ -388,6 +405,7 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert request.limit_price == 10.05
     assert dry_run is True
     assert explicit_live_ack is False
+    assert observed["client"].select_account_calls == [None]
     assert result["notification_sent"] is True
     assert "🔔 【Rebalance Instruction】" in messages[0]
     assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
@@ -396,6 +414,198 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert "Target changes: AAA +50.00 USD" not in messages[0]
     assert "🧾 Execution details" not in messages[0]
     assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+
+
+@pytest.mark.parametrize(
+    "selectors",
+    [None, (), ("",), ("SYNTHETIC_ACCOUNT_A", "SYNTHETIC_ACCOUNT_B")],
+)
+def test_runtime_target_requires_exactly_one_account_selector_before_connect(
+    selectors, monkeypatch
+):
+    factory_calls = []
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: pytest.fail("strategy must not load"),
+    )
+
+    def client_factory(*args, **kwargs):
+        factory_calls.append((args, kwargs))
+        return FakeFirstradeClient(*args, **kwargs)
+
+    with pytest.raises(
+        FirstradePlatformError,
+        match="Runtime target must declare exactly one Firstrade account selector",
+    ) as caught:
+        run_strategy_cycle(
+            runtime_settings=_runtime_settings_with_persistence(
+                runtime_target=SimpleNamespace(account_selector=selectors)
+            ),
+            credentials=FirstradeCredentials(username="user", password="pass"),
+            client_factory=client_factory,
+            env_reader=lambda _name, default=None: default,
+            send_cycle_notification=False,
+        )
+
+    assert factory_calls == []
+    assert "SYNTHETIC_ACCOUNT" not in str(caught.value)
+
+
+def test_runtime_target_rejects_conflicting_legacy_account_before_connect():
+    factory_calls = []
+
+    def client_factory(*args, **kwargs):
+        factory_calls.append((args, kwargs))
+        return FakeFirstradeClient(*args, **kwargs)
+
+    def env_reader(name, default=None):
+        if name == "FIRSTRADE_ACCOUNT":
+            return "SYNTHETIC_OTHER_ACCOUNT"
+        return default
+
+    with pytest.raises(FirstradePlatformError, match="FIRSTRADE_ACCOUNT conflicts with the runtime target account selector") as caught:
+        run_strategy_cycle(
+            runtime_settings=_runtime_settings_with_persistence(
+                runtime_target=SimpleNamespace(account_selector=("SYNTHETIC_ACCOUNT",))
+            ),
+            credentials=FirstradeCredentials(username="user", password="pass"),
+            client_factory=client_factory,
+            env_reader=env_reader,
+            send_cycle_notification=False,
+        )
+
+    assert factory_calls == []
+    assert "SYNTHETIC" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("accounts", "selected"),
+    [
+        (["SYNTHETIC_OTHER_ACCOUNT"], None),
+        (["SYNTHETIC_ACCOUNT", "SYNTHETIC_ACCOUNT"], None),
+        (["SYNTHETIC_ACCOUNT"], "SYNTHETIC_OTHER_ACCOUNT"),
+    ],
+)
+def test_runtime_target_native_account_mismatch_stops_before_strategy_and_snapshot(
+    accounts, selected, monkeypatch
+):
+    observed = {}
+    strategy_calls = []
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: strategy_calls.append(True),
+    )
+
+    def client_factory(*args, **kwargs):
+        client = FakeFirstradeClient(*args, **kwargs)
+        client.accounts = accounts
+        client.selected_account = selected
+        observed["client"] = client
+        return client
+
+    with pytest.raises(FirstradePlatformError, match="Configured Firstrade account selector did not match the connected account list") as caught:
+        run_strategy_cycle(
+            runtime_settings=_runtime_settings_with_persistence(
+                runtime_target=SimpleNamespace(account_selector=("SYNTHETIC_ACCOUNT",))
+            ),
+            credentials=FirstradeCredentials(username="user", password="pass"),
+            client_factory=client_factory,
+            env_reader=lambda _name, default=None: default,
+            send_cycle_notification=False,
+        )
+
+    client = observed["client"]
+    assert client.connect_calls == 1
+    assert client.account_numbers_calls == 1
+    assert client.select_account_calls == (
+        ["SYNTHETIC_ACCOUNT"]
+        if accounts.count("SYNTHETIC_ACCOUNT") == 1
+        else []
+    )
+    assert client.balance_calls == []
+    assert client.position_calls == []
+    assert client.orders == []
+    assert strategy_calls == []
+    assert "SYNTHETIC" not in str(caught.value)
+
+
+def test_runtime_target_selects_exact_account_before_strategy_and_snapshot(monkeypatch):
+    observed = {}
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: FakeStrategyRuntime(),
+    )
+
+    def client_factory(*args, **kwargs):
+        client = FakeFirstradeClient(*args, **kwargs)
+        client.accounts = ["SYNTHETIC_ACCOUNT"]
+        observed["client"] = client
+        return client
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            runtime_target=SimpleNamespace(account_selector=("SYNTHETIC_ACCOUNT",))
+        ),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=client_factory,
+        env_reader=lambda _name, default=None: default,
+        send_cycle_notification=False,
+    )
+
+    client = observed["client"]
+    assert result["ok"] is True
+    assert result["account"] == "SYNTHETIC_ACCOUNT"
+    assert client.select_account_calls == ["SYNTHETIC_ACCOUNT"]
+    assert client.balance_calls == ["SYNTHETIC_ACCOUNT"]
+    assert client.position_calls == ["SYNTHETIC_ACCOUNT"]
+    assert len(client.orders) == 1
+
+
+@pytest.mark.parametrize(
+    ("selectors", "configured_account"),
+    [
+        (None, None),
+        (("SYNTHETIC_ACCOUNT_A", "SYNTHETIC_ACCOUNT_B"), None),
+        (("SYNTHETIC_ACCOUNT",), "SYNTHETIC_OTHER_ACCOUNT"),
+    ],
+)
+def test_unsupported_strategy_returns_before_runtime_account_validation(
+    selectors, configured_account, monkeypatch
+):
+    client_factory_calls = []
+    monkeypatch.setattr(
+        "application.rebalance_service.dca_execution_unsupported_reason",
+        lambda _profile: "Synthetic unsupported strategy",
+    )
+    monkeypatch.setattr(
+        "application.rebalance_service.load_strategy_runtime",
+        lambda *_args, **_kwargs: pytest.fail("strategy must not load"),
+    )
+
+    def client_factory(*args, **kwargs):
+        client_factory_calls.append((args, kwargs))
+        return FakeFirstradeClient(*args, **kwargs)
+
+    def env_reader(name, default=None):
+        if name == "FIRSTRADE_ACCOUNT":
+            return configured_account or default
+        return default
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            runtime_target=SimpleNamespace(account_selector=selectors)
+        ),
+        credentials=FirstradeCredentials(username="user", password="pass"),
+        client_factory=client_factory,
+        env_reader=env_reader,
+        send_cycle_notification=False,
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "skipped"
+    assert result["strategy_run_stage"] == "NO_ACTION"
+    assert result["submitted_orders"] == []
+    assert client_factory_calls == []
 
 
 def test_run_strategy_cycle_persists_broker_rejection_as_retryable_block(monkeypatch):

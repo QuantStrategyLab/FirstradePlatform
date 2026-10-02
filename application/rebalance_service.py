@@ -23,6 +23,7 @@ from application.execution_service import (
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradePlatformError,
     mask_account_id,
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
@@ -224,6 +225,46 @@ def _connect_client(
         credentials,
         live_trading_enabled=live_trading_enabled,
     ).connect()
+
+
+def _runtime_target_account_selector(runtime_target: object) -> str | None:
+    if runtime_target is None:
+        return None
+    selectors = getattr(runtime_target, "account_selector", None)
+    if not isinstance(selectors, (tuple, list)) or len(selectors) != 1:
+        raise FirstradePlatformError(
+            "Runtime target must declare exactly one Firstrade account selector."
+        )
+    selector = selectors[0]
+    if not isinstance(selector, str) or not selector.strip():
+        raise FirstradePlatformError(
+            "Runtime target must declare exactly one Firstrade account selector."
+        )
+    return selector.strip()
+
+
+def _select_runtime_target_account(
+    client: FirstradeBrokerClient, expected_selector: str
+) -> str:
+    account_numbers = getattr(client, "account_numbers", None)
+    if not callable(account_numbers):
+        raise FirstradePlatformError(
+            "Configured Firstrade account selector did not match the connected account list."
+        )
+    accounts = account_numbers()
+    if (
+        not isinstance(accounts, (tuple, list))
+        or sum(account == expected_selector for account in accounts) != 1
+    ):
+        raise FirstradePlatformError(
+            "Configured Firstrade account selector did not match the connected account list."
+        )
+    selected = client.select_account(expected_selector)
+    if selected != expected_selector:
+        raise FirstradePlatformError(
+            "Configured Firstrade account selector did not match the connected account list."
+        )
+    return expected_selector
 
 
 def _publish_cycle_notification(
@@ -447,6 +488,16 @@ def run_strategy_cycle(
             strategy_plugin_error=strategy_plugin_error,
             translator=translator,
         )
+    expected_account = _runtime_target_account_selector(settings.runtime_target)
+    configured_account = (
+        str(env_reader("FIRSTRADE_ACCOUNT", "") or "").strip()
+        if expected_account is not None
+        else None
+    )
+    if configured_account and configured_account != expected_account:
+        raise FirstradePlatformError(
+            "FIRSTRADE_ACCOUNT conflicts with the runtime target account selector."
+        )
     resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
     store = state_store or build_gcs_state_store_from_env(env_reader)
     persist_strategy_runs = bool(settings.persist_strategy_runs and store is not None)
@@ -456,7 +507,11 @@ def run_strategy_cycle(
         client_factory=client_factory,
     )
     print(f"Firstrade session reused={bool(getattr(client, 'session_reused', False))}", flush=True)
-    account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+    account = (
+        _select_runtime_target_account(client, expected_account)
+        if expected_account is not None
+        else client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+    )
     strategy_runtime = load_strategy_runtime(
         settings.strategy_profile,
         runtime_settings=settings,
