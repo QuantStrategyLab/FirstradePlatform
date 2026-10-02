@@ -77,6 +77,8 @@ def test_inspects_only_exact_project_region_service_and_serving_revision() -> No
         "source_commit": COMMIT,
         "selector_configured": True,
         "selector_source": "literal",
+        "selector_nonempty": True,
+        "effective_selector_source": "first_trade_account_literal",
     }
     assert urls == [
         f"{readiness.API_ROOT}/{PROJECT}",
@@ -106,6 +108,161 @@ def test_selector_reports_only_presence_and_source(
     assert result["selector_configured"] is configured
     assert result["selector_source"] == source
     assert SENTINEL not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ("env", "nonempty", "source"),
+    [
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":["private"]}'}],
+            True,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[]}'}],
+            False,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[null]}'}],
+            False,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[null,"  "]}'}],
+            False,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[null,"real-placeholder"]}'}],
+            True,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":"  "}'}],
+            False,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"platform_id":"firstrade"}'}],
+            False,
+            "runtime_target_literal",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "valueSource": {"secretKeyRef": {"secret": SENTINEL}}}],
+            False,
+            "runtime_target_secret_unresolved",
+        ),
+        (
+            [{"name": "FIRSTRADE_ACCOUNT", "value": "private"}],
+            True,
+            "first_trade_account_literal",
+        ),
+        (
+            [{"name": "FIRSTRADE_ACCOUNT", "valueSource": {"secretKeyRef": {"secret": SENTINEL}}}],
+            False,
+            "first_trade_account_secret_unresolved",
+        ),
+        ([], False, "first_trade_account_absent"),
+    ],
+)
+def test_effective_selector_reports_runtime_target_without_exposing_values(
+    env: list[dict[str, Any]], nonempty: bool, source: str
+) -> None:
+    request, _ = _runner(revision=_revision(env=env))
+
+    result = readiness.inspect_readiness(
+        "firstrade-platform", "us-central1", "token", request_json=request
+    )
+
+    assert result["selector_nonempty"] is nonempty
+    assert result["effective_selector_source"] == source
+    serialized = json.dumps(result)
+    assert SENTINEL not in serialized
+    assert "private" not in serialized
+
+
+def test_qsl_runtime_target_literal_has_deployed_precedence() -> None:
+    request, _ = _runner(
+        revision=_revision(
+            env=[
+                {"name": "QSL_RUNTIME_TARGET_JSON", "value": '{"account_selector":[]}'},
+                {"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":["private"]}'},
+                {"name": "FIRSTRADE_ACCOUNT", "value": "another-private-value"},
+            ]
+        )
+    )
+
+    result = readiness.inspect_readiness(
+        "firstrade-platform", "us-central1", "token", request_json=request
+    )
+
+    assert result["selector_nonempty"] is False
+    assert result["effective_selector_source"] == "qsl_runtime_target_literal"
+    assert "private" not in json.dumps(result)
+
+
+def test_empty_qsl_runtime_target_falls_through_to_runtime_target() -> None:
+    request, _ = _runner(
+        revision=_revision(
+            env=[
+                {"name": "QSL_RUNTIME_TARGET_JSON", "value": ""},
+                {"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":["private"]}'},
+            ]
+        )
+    )
+
+    result = readiness.inspect_readiness(
+        "firstrade-platform", "us-central1", "token", request_json=request
+    )
+
+    assert result["selector_nonempty"] is True
+    assert result["effective_selector_source"] == "runtime_target_literal"
+    assert "private" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ("env", "reason"),
+    [
+        (
+            [
+                {"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[]}'},
+                {"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":["x"]}'},
+            ],
+            "runtime_target_configuration_ambiguous",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":'}],
+            "runtime_target_json_invalid",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":[],"account_selector":["x"]}'}],
+            "runtime_target_json_ambiguous",
+        ),
+        (
+            [{"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":1}'}],
+            "runtime_target_selector_invalid",
+        ),
+        (
+            [
+                {"name": "QSL_RUNTIME_TARGET_JSON", "value": " "},
+                {"name": "RUNTIME_TARGET_JSON", "value": '{"account_selector":["x"]}'},
+            ],
+            "runtime_target_json_invalid",
+        ),
+    ],
+)
+def test_rejects_ambiguous_or_invalid_runtime_target_selector_safely(
+    env: list[dict[str, Any]], reason: str
+) -> None:
+    request, _ = _runner(revision=_revision(env=env))
+
+    with pytest.raises(readiness.DiagnosticFailure, match=reason) as caught:
+        readiness.inspect_readiness(
+            "firstrade-platform", "us-central1", "token", request_json=request
+        )
+
+    assert SENTINEL not in str(caught.value)
 
 
 @pytest.mark.parametrize(
