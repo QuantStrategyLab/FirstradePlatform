@@ -357,7 +357,7 @@ def _revision(
     }
 
 
-def _capture(monkeypatch, tmp_path, *, service=None, revision=None):
+def _capture(monkeypatch, tmp_path, *, service=None, revision=None, expected_existing_image=None):
     state_path = tmp_path / "state.json"
     revision_path = tmp_path / "revision.json"
     revision_path.parent.mkdir(parents=True, exist_ok=True)
@@ -368,6 +368,7 @@ def _capture(monkeypatch, tmp_path, *, service=None, revision=None):
         revision_path,
         expected_service=EXPECTED_SERVICE,
         expected_source_sha=EXPECTED_SOURCE,
+        expected_existing_image=expected_existing_image,
     )
     return state_path
 
@@ -396,6 +397,107 @@ def _staged_service(*, image: str = "registry.invalid/app@sha256:" + "a" * 64) -
         }
     )
     return staged
+
+
+EXISTING_DIAGNOSTIC_IMAGE = "registry.invalid/app@sha256:" + "b" * 64
+
+
+def _existing_diagnostic_service() -> dict:
+    service = _service()
+    service["spec"]["template"]["spec"]["containers"][0]["image"] = EXISTING_DIAGNOSTIC_IMAGE
+    service["spec"]["traffic"].append(
+        {"revisionName": "revision-diagnostic-placeholder", "percent": 0, "tag": stage.DIAGNOSTIC_TAG}
+    )
+    service["status"]["latestCreatedRevisionName"] = "revision-diagnostic-placeholder"
+    service["status"]["traffic"].append(
+        {
+            "revisionName": "revision-diagnostic-placeholder",
+            "percent": 0,
+            "tag": stage.DIAGNOSTIC_TAG,
+            "url": "https://tagged-service-placeholder.invalid",
+        }
+    )
+    return service
+
+
+def test_capture_accepts_only_exact_existing_diagnostic_tag_image_and_preserves_baseline(
+    monkeypatch, tmp_path
+):
+    state_path = _capture(
+        monkeypatch,
+        tmp_path,
+        service=_existing_diagnostic_service(),
+        expected_existing_image=EXISTING_DIAGNOSTIC_IMAGE,
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["active_traffic_sha256"] == stage._traffic_hash(
+        [{"revisionName": "revision-old-placeholder", "percent": 100}]
+    )
+    staged = _staged_service()
+    monkeypatch.setattr(stage.sys, "stdin", io.StringIO(json.dumps(staged)))
+    stage.verify_readback(
+        state_path,
+        staged["spec"]["template"]["spec"]["containers"][0]["image"],
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_image", "error"),
+    [
+        (lambda service: None, "registry.invalid/app@sha256:" + "c" * 64, "existing_candidate_image_not_read_back"),
+        (
+                lambda service: service["status"]["traffic"][-1].update({"percent": 10}),
+                EXISTING_DIAGNOSTIC_IMAGE,
+                "traffic_not_single_revision_100",
+        ),
+        (
+            lambda service: service["spec"]["traffic"][-1].update({"revisionName": "other-placeholder"}),
+            EXISTING_DIAGNOSTIC_IMAGE,
+            "diagnostic_tag_revision_invalid",
+        ),
+        (
+            lambda service: service["spec"]["template"]["spec"]["containers"][0]["env"][1].update(
+                {"value": json.dumps(_target("different-placeholder"))}
+            ),
+            EXISTING_DIAGNOSTIC_IMAGE,
+            "active_revision_binding_mismatch",
+        ),
+        (
+            lambda service: service["spec"]["template"]["spec"]["volumes"][0]["emptyDir"].update(
+                {"medium": "Memory"}
+            ),
+            EXISTING_DIAGNOSTIC_IMAGE,
+            "active_revision_service_config_mismatch",
+        ),
+    ],
+)
+def test_capture_rejects_existing_diagnostic_tag_when_digest_or_baseline_drifted(
+    monkeypatch, tmp_path, mutation, expected_image, error
+):
+    service = _existing_diagnostic_service()
+    mutation(service)
+    with pytest.raises(ValueError, match=error):
+        _capture(
+            monkeypatch,
+            tmp_path,
+            service=service,
+            expected_existing_image=expected_image,
+        )
+
+
+def test_capture_without_existing_image_option_keeps_strict_tag_rejection(monkeypatch, tmp_path):
+    with pytest.raises(ValueError, match="diagnostic_tag_already_present"):
+        _capture(monkeypatch, tmp_path, service=_existing_diagnostic_service())
+
+
+def test_capture_rejects_malformed_expected_existing_digest(monkeypatch, tmp_path):
+    with pytest.raises(ValueError, match="existing_image_digest_invalid"):
+        _capture(
+            monkeypatch,
+            tmp_path,
+            service=_existing_diagnostic_service(),
+            expected_existing_image="registry.invalid/app:mutable",
+        )
 
 
 def test_stage_preserves_real_config_and_sidecar_images_while_primary_image_changes(
