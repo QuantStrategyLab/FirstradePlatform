@@ -1,0 +1,158 @@
+name: Diagnose cached-balance stage failure
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full merged main SHA containing this read-only diagnostic
+        required: true
+        type: string
+      approved_ref:
+        description: Must be refs/heads/main
+        required: true
+        type: string
+      run_readonly_diagnostic:
+        description: Read current Cloud Run/control metadata and bounded failure logs
+        required: true
+        default: false
+        type: boolean
+      failure_window_start:
+        description: UTC RFC3339 start time for the failed stage deployment
+        required: true
+        type: string
+      failure_window_end:
+        description: UTC RFC3339 end time for the failed stage deployment (maximum 30 minutes after start)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+# Share the existing deployment lock while this bounded read-only inspection runs.
+concurrency:
+  group: Deploy Cloud Run-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Read-only failed-stage diagnosis
+    if: github.event_name == 'workflow_dispatch' && inputs.run_readonly_diagnostic == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION || vars.CLOUD_RUN_REGION }}
+      FAILURE_WINDOW_START: ${{ inputs.failure_window_start }}
+      FAILURE_WINDOW_END: ${{ inputs.failure_window_end }}
+    steps:
+      - name: Validate fixed target, source, and bounded time window
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${APPROVED_REF}" != "refs/heads/main" ] \
+            || [ "${DISPATCH_SHA}" != "${EXPECTED_SHA}" ] \
+            || ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Diagnostic source must be the exact approved main commit." >&2
+            exit 1
+          fi
+          if [ -z "${CLOUD_RUN_REGION:-}" ] || [ -z "${CLOUD_RUN_SERVICE:-}" ] \
+            || [ -z "${SCHEDULER_LOCATION:-}" ]; then
+            echo "The fixed service or Scheduler target is unavailable." >&2
+            exit 1
+          fi
+          if ! [[ "${CLOUD_RUN_SERVICE}" =~ ^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+            echo "The configured Cloud Run service target has an invalid shape." >&2
+            exit 1
+          fi
+      - name: Checkout approved main source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Verify checked-out source and bounded window
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          approved_sha="$(git ls-remote --exit-code origin "${APPROVED_REF}" | awk 'NR == 1 { print $1 }')"
+          if [ "${checked_out_sha}" != "${EXPECTED_SHA}" ] || [ "${approved_sha}" != "${EXPECTED_SHA}" ]; then
+            echo "The checked-out source and current main ref must match expected_sha." >&2
+            exit 1
+          fi
+          python3 scripts/diagnose_cached_stage_failure.py \
+            --validate-window "${FAILURE_WINDOW_START}" "${FAILURE_WINDOW_END}"
+
+      - name: Authenticate with the existing deployment WIF identity
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          version: ">= 416.0.0"
+
+      - name: Read private Cloud Run, IAM, Scheduler, and audit evidence
+        env:
+          EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          private_dir="${RUNNER_TEMP}/firstrade-stage-diagnostic"
+          mkdir -m 700 "${private_dir}"
+          trap 'rm -f "${private_dir}"/*; rmdir "${private_dir}"' EXIT
+
+          service_file="${private_dir}/service.json"
+          revisions_file="${private_dir}/revisions.json"
+          iam_file="${private_dir}/iam.json"
+          scheduler_file="${private_dir}/scheduler.json"
+          audit_file="${private_dir}/audit.json"
+
+          gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${service_file}" 2>"${private_dir}/service.err" || true
+          gcloud run revisions list --service="${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --limit=20 --format=json \
+            >"${revisions_file}" 2>"${private_dir}/revisions.err" || true
+          gcloud run services get-iam-policy "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${iam_file}" 2>"${private_dir}/iam.err" || true
+          gcloud scheduler jobs list --project="${GCP_PROJECT_ID}" \
+            --location="${SCHEDULER_LOCATION}" --format=json \
+            >"${scheduler_file}" 2>"${private_dir}/scheduler.err" || true
+
+          identity_filter="protoPayload.resourceName=\"projects/${GCP_PROJECT_ID}/locations/${CLOUD_RUN_REGION}/services/${CLOUD_RUN_SERVICE}\" OR (protoPayload.resourceName=\"namespaces/${GCP_PROJECT_ID}/services/${CLOUD_RUN_SERVICE}\" AND resource.labels.project_id=\"${GCP_PROJECT_ID}\" AND resource.labels.location=\"${CLOUD_RUN_REGION}\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\") OR (resource.labels.project_id=\"${GCP_PROJECT_ID}\" AND resource.labels.location=\"${CLOUD_RUN_REGION}\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\")"
+          filter="(${identity_filter}) AND timestamp >= \"${FAILURE_WINDOW_START}\" AND timestamp <= \"${FAILURE_WINDOW_END}\" AND protoPayload.serviceName=\"run.googleapis.com\" AND (protoPayload.methodName:\"UpdateService\" OR protoPayload.methodName:\"CreateService\" OR protoPayload.methodName:\"ReplaceService\")"
+          audit_status=ok
+          if ! gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" \
+            --limit=100 --format=json >"${audit_file}" 2>"${private_dir}/audit.err"; then
+            if grep -Eqi 'permission denied|permission_denied|not authorized|forbidden|\b403\b' "${private_dir}/audit.err"; then
+              audit_status=permission_denied
+            else
+              audit_status=unavailable
+            fi
+          fi
+
+          python3 scripts/diagnose_cached_stage_failure.py \
+            --service "${service_file}" --revisions "${revisions_file}" \
+            --expected-service "${EXPECTED_SERVICE}" --iam-policy "${iam_file}" \
+            --expected-project "${GCP_PROJECT_ID}" --expected-region "${CLOUD_RUN_REGION}" \
+            --window-start "${FAILURE_WINDOW_START}" --window-end "${FAILURE_WINDOW_END}" \
+            --scheduler-jobs "${scheduler_file}" --audit-entries "${audit_file}" \
+            --audit-status "${audit_status}"
