@@ -25,6 +25,14 @@ def test_config_difference_groups_never_expose_values_or_dynamic_keys():
     assert stage._config_difference_groups(serving, desired) == ["other_spec", "primary_env", "service_account"]
 
 
+def test_container_difference_categories_keep_private_details_closed():
+    serving = {"containers": [{"name": "private-placeholder", "resources": {"limits": {"memory": "1Gi"}}, "unknown-private-key": "private-value"}]}
+    desired = {"containers": [{"ports": [{"containerPort": 8080}]}]}
+    assert stage._config_difference_groups(serving, desired) == [
+        "primary_name", "primary_other", "primary_ports", "primary_resources"
+    ]
+
+
 def _target(selector: str = "synthetic-account-placeholder") -> dict:
     return {
         "platform_id": "firstrade",
