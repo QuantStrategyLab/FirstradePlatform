@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
-from time import time
+from time import monotonic, time
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -34,6 +34,15 @@ class FirstradeMfaRequired(FirstradePlatformError):
 
 class FirstradeSafetyError(FirstradePlatformError):
     """Raised when an order violates local safety controls."""
+
+
+def _auth_adapter_has_retries_disabled(adapter: Any) -> bool:
+    retry = getattr(adapter, "max_retries", None)
+    if retry is None or getattr(retry, "total", None) != 0:
+        return False
+    return all(getattr(retry, field, None) in (None, False, 0) for field in (
+        "connect", "read", "redirect", "status", "other"
+    ))
 
 
 @dataclass(frozen=True)
@@ -235,8 +244,10 @@ class FirstradeBrokerClient:
         self.session: Any | None = None
         self.account_data: Any | None = None
         self.session_reused = False
+        self._auth_only_deadline: float | None = None
 
-    def connect(self) -> "FirstradeBrokerClient":
+    def connect(self, *, defer_session_cache: bool = False) -> "FirstradeBrokerClient":
+        self._auth_only_deadline = None
         self.credentials.require_login_fields()
         session_factory = self._session_factory
         account_data_factory = self._account_data_factory
@@ -248,11 +259,19 @@ class FirstradeBrokerClient:
 
         cookie_dir = Path(self.credentials.cookie_dir)
         cookie_dir.mkdir(parents=True, exist_ok=True)
-        session = self._build_session(session_factory, cookie_dir)
+        session = self._build_session(
+            session_factory,
+            cookie_dir,
+            save_session=False if defer_session_cache else None,
+        )
+        if defer_session_cache:
+            self.session = session
+            self._configure_auth_only_transport(session)
         if self.credentials.reuse_session and self._try_cached_session(
             session,
             account_data_factory=account_data_factory,
             cookie_dir=cookie_dir,
+            save_cache=not defer_session_cache,
         ):
             return self
 
@@ -266,8 +285,61 @@ class FirstradeBrokerClient:
         self.session = session
         self.account_data = account_data_factory(session)
         self.session_reused = False
-        self._save_session_cache(cookie_dir)
+        if not defer_session_cache:
+            self._save_session_cache(cookie_dir)
         return self
+
+    def _configure_auth_only_transport(self, session: Any) -> None:
+        """Bound the login-capable transport used only by the target-bound refresh route."""
+        from firstrade import urls
+
+        transport = session.session
+        transport.trust_env = False
+        original_request = transport.request
+        allowed_get = {"/", urlsplit(urls.user_info()).path, urlsplit(urls.account_list()).path}
+        allowed_post = {urlsplit(urls.login()).path, urlsplit(urls.verify_pin()).path}
+        if self.credentials.mfa_code and (self.credentials.email or self.credentials.phone):
+            allowed_post.add(urlsplit(urls.request_code()).path)
+        adapters = getattr(transport, "adapters", {})
+        if any(
+            not _auth_adapter_has_retries_disabled(adapter)
+            for adapter in getattr(adapters, "values", lambda: [])()
+        ):
+            raise FirstradeSafetyError("Firstrade auth retry policy is not disabled.")
+        deadline = monotonic() + 50.0
+        self._auth_only_deadline = deadline
+        calls = 0
+
+        def auth_only_request(method: str, url: str, **kwargs: Any) -> Any:
+            nonlocal calls
+            parsed = urlsplit(url)
+            normalized_method = str(method).lower()
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc != "api3x.firstrade.com"
+                or parsed.query
+                or parsed.fragment
+                or (normalized_method == "get" and parsed.path not in allowed_get)
+                or (normalized_method == "post" and parsed.path not in allowed_post)
+                or normalized_method not in {"get", "post"}
+            ):
+                raise FirstradeSafetyError("Firstrade auth request denied.")
+            remaining = deadline - monotonic()
+            if remaining <= 0 or calls >= 6:
+                raise FirstradeSafetyError("Firstrade auth request budget exhausted.")
+            calls += 1
+            per_request = max(0.1, remaining / 2)
+            timeout = (min(2.0, per_request), min(6.0, per_request))
+            request_kwargs = dict(kwargs)
+            request_kwargs.update(timeout=timeout, allow_redirects=False)
+            response = original_request(method, url, **request_kwargs)
+            if monotonic() >= deadline:
+                raise FirstradeSafetyError("Firstrade auth request budget exhausted.")
+            if 300 <= int(getattr(response, "status_code", 0)) < 400:
+                raise FirstradeSafetyError("Firstrade auth redirect denied.")
+            return response
+
+        transport.request = auth_only_request
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
         """Reuse cached authentication for account reads; never log in or change the cache."""
@@ -325,8 +397,14 @@ class FirstradeBrokerClient:
         if session is not None:
             session.session.close()
 
-    def _build_session(self, session_factory: Callable[..., Any], cookie_dir: Path) -> Any:
-        return session_factory(
+    def _build_session(
+        self,
+        session_factory: Callable[..., Any],
+        cookie_dir: Path,
+        *,
+        save_session: bool | None = None,
+    ) -> Any:
+        kwargs = dict(
             username=self.credentials.username,
             password=self.credentials.password,
             pin=self.credentials.pin,
@@ -336,6 +414,9 @@ class FirstradeBrokerClient:
             profile_path=str(cookie_dir),
             debug=self.credentials.debug,
         )
+        if save_session is not None:
+            kwargs["save_session"] = save_session
+        return session_factory(**kwargs)
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
         return cookie_dir / f"ft_session_{self._session_cache_identity()}.json"
@@ -382,6 +463,7 @@ class FirstradeBrokerClient:
         *,
         account_data_factory: Callable[[Any], Any],
         cookie_dir: Path,
+        save_cache: bool = True,
     ) -> bool:
         payload = self._load_session_cache(cookie_dir)
         if not payload:
@@ -403,20 +485,88 @@ class FirstradeBrokerClient:
                     session.session.cookies.update(cookies)
             account_data = account_data_factory(session)
         except Exception:
-            try:
-                self._session_cache_path(cookie_dir).unlink()
-            except OSError:
-                pass
+            if save_cache:
+                try:
+                    self._session_cache_path(cookie_dir).unlink()
+                except OSError:
+                    pass
             return False
         self.session = session
         self.account_data = account_data
         self.session_reused = True
-        self._save_session_cache(cookie_dir)
+        if save_cache:
+            self._save_session_cache(cookie_dir)
         return True
+
+    def persist_session_cache_and_verify(self) -> str:
+        """Persist the connected session and return a fixed persistence outcome."""
+        if (
+            self.session is None
+            or not self.credentials.reuse_session
+            or not self.credentials.persist_session_cache
+            or not self.credentials.gcs_state_bucket.strip()
+        ):
+            return "cache_persist_failed"
+        store = self._session_state_store()
+        if store is None:
+            return "cache_persist_failed"
+        payload = self._session_cache_payload()
+        if (
+            payload is None
+            or not isinstance(payload.get("access-token"), str)
+            or not payload["access-token"].strip()
+        ):
+            return "cache_persist_failed"
+        if self._auth_only_deadline_expired():
+            return "cache_persist_failed"
+        try:
+            self._session_cache_path(Path(self.credentials.cookie_dir)).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+            self._session_cache_path(Path(self.credentials.cookie_dir)).write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            store.write_json(self._session_state_key(), payload)
+        except Exception:
+            return "cache_persist_failed"
+        try:
+            readback = store.read_json(self._session_state_key())
+        except Exception:
+            return "cache_readback_failed"
+        if not self._is_valid_session_cache_payload(readback) or not all(
+            readback.get(key) == payload.get(key)
+            for key in ("access-token", "ftat", "sid", "cookies", "saved_at")
+        ):
+            return "cache_readback_failed"
+        return "ok"
+
+    def _auth_only_deadline_expired(self) -> bool:
+        deadline = self._auth_only_deadline
+        return deadline is not None and monotonic() >= deadline
 
     def _save_session_cache(self, cookie_dir: Path) -> None:
         if not self.credentials.reuse_session or self.session is None:
             return
+        payload = self._session_cache_payload()
+        if payload is None:
+            return
+        try:
+            self._session_cache_path(cookie_dir).write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+        except OSError:
+            pass
+        store = self._session_state_store()
+        if store is None:
+            return
+        try:
+            store.write_json(self._session_state_key(), payload)
+        except Exception:
+            return
+
+    def _session_cache_payload(self) -> dict[str, Any] | None:
+        if self.session is None:
+            return None
         session_obj = getattr(self.session, "session", None)
         headers = getattr(session_obj, "headers", {}) or {}
         cookies = {}
@@ -433,18 +583,8 @@ class FirstradeBrokerClient:
             "saved_at": time(),
         }
         if not payload["ftat"] or not payload["sid"]:
-            return
-        try:
-            self._session_cache_path(cookie_dir).write_text(json.dumps(payload), encoding="utf-8")
-        except OSError:
-            pass
-        store = self._session_state_store()
-        if store is None:
-            return
-        try:
-            store.write_json(self._session_state_key(), payload)
-        except Exception:
-            return
+            return None
+        return payload
 
     def _session_state_store(self) -> GcsStateStore | None:
         if self._session_cache_store is not None:

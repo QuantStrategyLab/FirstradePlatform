@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import application.firstrade_client as firstrade_client_module
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -19,7 +20,17 @@ class FakeSession:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.login_two_code = None
-        self.session = SimpleNamespace(headers={})
+        self.request_calls = []
+        self.session = SimpleNamespace(
+            headers={}, request=self.request, adapters={}, trust_env=True, close=self.close
+        )
+
+    def request(self, method, url, **kwargs):
+        self.request_calls.append((method, url, kwargs))
+        return SimpleNamespace(status_code=200)
+
+    def close(self):
+        self.closed = True
 
     def login(self):
         self.session.headers["ftat"] = "fake-ftat"
@@ -315,6 +326,320 @@ def test_client_reuses_persisted_session_cache_when_local_cache_is_missing(tmp_p
     assert second_client.session_reused is True
     assert ReusableFakeSession.login_calls == 1
     assert store.writes == 2
+
+
+def test_deferred_session_cache_waits_for_caller_and_disables_sdk_cookie_save(tmp_path):
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=FakeSession,
+        account_data_factory=FakeAccountData,
+        session_cache_store=store,
+    )
+
+    client.connect(defer_session_cache=True)
+
+    assert client.session.kwargs["save_session"] is False
+    assert client.session.kwargs["debug"] is False
+    assert client._session_state_key() not in store.payloads
+    assert store.writes == 0
+
+
+def test_deferred_session_cache_auth_failure_is_single_attempt_and_writes_nothing(tmp_path):
+    class FailedLogin(FakeSession):
+        login_calls = 0
+
+        def login(self):
+            type(self).login_calls += 1
+            raise RuntimeError("synthetic login failure")
+
+    FailedLogin.login_calls = 0
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=FailedLogin,
+        account_data_factory=FakeAccountData,
+        session_cache_store=store,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic login failure"):
+        client.connect(defer_session_cache=True)
+
+    assert FailedLogin.login_calls == 1
+    assert store.writes == 0
+    client.close()
+
+
+def test_deferred_session_cache_without_existing_mfa_stops_before_verify_or_cache(tmp_path):
+    class MfaLogin(FakeSession):
+        login_calls = 0
+        verify_calls = 0
+
+        def login(self):
+            type(self).login_calls += 1
+            return True
+
+        def login_two(self, _code):
+            type(self).verify_calls += 1
+
+    MfaLogin.login_calls = 0
+    MfaLogin.verify_calls = 0
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=MfaLogin,
+        account_data_factory=FakeAccountData,
+        session_cache_store=store,
+    )
+
+    with pytest.raises(FirstradePlatformError, match="MFA"):
+        client.connect(defer_session_cache=True)
+
+    assert MfaLogin.login_calls == 1
+    assert MfaLogin.verify_calls == 0
+    assert store.writes == 0
+    client.close()
+
+
+def test_auth_only_transport_is_allowlisted_bounded_and_never_follows_redirects():
+    credentials = FirstradeCredentials(username="user", password="pass")
+    session = FakeSession()
+    client = FirstradeBrokerClient(credentials, session_factory=FakeSession)
+    client._configure_auth_only_transport(session)
+
+    session.session.request("get", "https://api3x.firstrade.com/")
+    assert session.request_calls[0][2]["allow_redirects"] is False
+    assert 0 < session.request_calls[0][2]["timeout"][0] <= 2
+    assert 0 < session.request_calls[0][2]["timeout"][1] <= 6
+    assert session.session.trust_env is False
+
+    with pytest.raises(FirstradeSafetyError):
+        session.session.request("post", "https://api3x.firstrade.com/sess/request_code")
+    with pytest.raises(FirstradeSafetyError):
+        session.session.request("get", "https://api3x.firstrade.com/private/balances")
+    assert len(session.request_calls) == 1
+
+
+def test_auth_only_transport_rejects_configured_request_retries():
+    credentials = FirstradeCredentials(username="user", password="pass")
+    session = FakeSession()
+    session.session.adapters = {
+        "https://": SimpleNamespace(
+            max_retries=SimpleNamespace(total=0, connect=1, read=False, redirect=None, status=None)
+        )
+    }
+
+    with pytest.raises(FirstradeSafetyError):
+        FirstradeBrokerClient(credentials)._configure_auth_only_transport(session)
+
+    assert session.request_calls == []
+
+
+def test_auth_only_transport_has_six_call_ceiling_and_rejects_redirect_response():
+    session = FakeSession()
+    FirstradeBrokerClient(FirstradeCredentials(username="user", password="pass"))._configure_auth_only_transport(
+        session
+    )
+    for _ in range(6):
+        session.session.request("get", "https://api3x.firstrade.com/")
+    with pytest.raises(FirstradeSafetyError, match="budget exhausted"):
+        session.session.request("get", "https://api3x.firstrade.com/")
+    assert len(session.request_calls) == 6
+
+    redirect_session = FakeSession()
+    redirect_session.request = lambda *_args, **_kwargs: SimpleNamespace(status_code=302)
+    redirect_session.session.request = redirect_session.request
+    FirstradeBrokerClient(
+        FirstradeCredentials(username="user", password="pass")
+    )._configure_auth_only_transport(redirect_session)
+    with pytest.raises(FirstradeSafetyError, match="redirect denied"):
+        redirect_session.session.request("get", "https://api3x.firstrade.com/")
+
+
+def test_auth_only_transport_rejects_response_returned_after_shared_deadline(monkeypatch):
+    times = iter((0.0, 1.0, 51.0))
+    monkeypatch.setattr(firstrade_client_module, "monotonic", lambda: next(times))
+    session = FakeSession()
+    client = FirstradeBrokerClient(FirstradeCredentials(username="user", password="pass"))
+    client._configure_auth_only_transport(session)
+
+    with pytest.raises(FirstradeSafetyError, match="budget exhausted"):
+        session.session.request("get", "https://api3x.firstrade.com/")
+
+    assert len(session.request_calls) == 1
+
+
+def test_auth_only_transport_allows_request_code_only_with_existing_mfa_material():
+    credentials = FirstradeCredentials(
+        username="user", password="pass", email="a***@b***.com", mfa_code="synthetic-code"
+    )
+    session = FakeSession()
+    FirstradeBrokerClient(credentials)._configure_auth_only_transport(session)
+
+    session.session.request(
+        "post",
+        "https://api3x.firstrade.com/sess/request_code",
+        data={"synthetic": "protected-material-placeholder"},
+    )
+
+    assert len(session.request_calls) == 1
+    assert session.request_calls[0][2]["allow_redirects"] is False
+    assert session.request_calls[0][2]["data"] == {"synthetic": "protected-material-placeholder"}
+
+
+def test_explicit_session_cache_persistence_requires_fresh_exact_gcs_readback(tmp_path):
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(credentials, session_cache_store=store)
+    client.session = SimpleNamespace(
+        session=SimpleNamespace(
+            headers={
+                "access-token": "synthetic-access",
+                "ftat": "synthetic-ftat",
+                "sid": "synthetic-sid",
+            },
+            cookies=SimpleNamespace(get_dict=lambda: {"synthetic-cookie": "synthetic-value"}),
+        )
+    )
+
+    assert client.persist_session_cache_and_verify() == "ok"
+    assert store.writes == 1
+    saved = store.payloads[client._session_state_key()]
+    assert client._is_valid_session_cache_payload(saved)
+
+
+def test_auth_only_cache_persistence_expired_after_identity_check_writes_nothing(
+    tmp_path, monkeypatch
+):
+    store = FakeStateStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path / "cookies"),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(credentials, session_cache_store=store)
+    client.session = SimpleNamespace(
+        session=SimpleNamespace(
+            headers={
+                "access-token": "synthetic-access",
+                "ftat": "synthetic-ftat",
+                "sid": "synthetic-sid",
+            },
+            cookies=SimpleNamespace(get_dict=lambda: {"synthetic-cookie": "synthetic-value"}),
+        )
+    )
+    # The caller reaches persistence only after matching the native account identity.
+    client._auth_only_deadline = 10.0
+    monkeypatch.setattr(firstrade_client_module, "monotonic", lambda: 11.0)
+
+    assert client.persist_session_cache_and_verify() == "cache_persist_failed"
+    assert store.writes == 0
+    assert not (tmp_path / "cookies").exists()
+
+
+def test_explicit_session_cache_persistence_fails_without_configured_gcs_bucket(tmp_path):
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+    )
+    client = FirstradeBrokerClient(credentials)
+    client.session = SimpleNamespace(
+        session=SimpleNamespace(
+            headers={"ftat": "synthetic-ftat", "sid": "synthetic-sid"},
+            cookies=SimpleNamespace(get_dict=lambda: {}),
+        )
+    )
+    assert client.persist_session_cache_and_verify() == "cache_persist_failed"
+
+
+def test_explicit_session_cache_persistence_reports_gcs_write_failure(tmp_path):
+    store = FakeStateStore()
+    store.write_json = lambda *_args: (_ for _ in ()).throw(OSError("private-store-error"))
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(credentials, session_cache_store=store)
+    client.session = SimpleNamespace(
+        session=SimpleNamespace(
+            headers={"ftat": "synthetic-ftat", "sid": "synthetic-sid"},
+            cookies=SimpleNamespace(get_dict=lambda: {}),
+        )
+    )
+
+    assert client.persist_session_cache_and_verify() == "cache_persist_failed"
+
+
+def test_explicit_session_cache_readback_must_match_this_refresh_saved_at(tmp_path):
+    class StaleReadbackStore(FakeStateStore):
+        def write_json(self, key, payload):
+            self.writes += 1
+            self.payloads.setdefault(key, dict(payload, saved_at=payload["saved_at"] - 1))
+            return True
+
+    store = StaleReadbackStore()
+    credentials = FirstradeCredentials(
+        username="user",
+        password="pass",
+        cookie_dir=str(tmp_path),
+        reuse_session=True,
+        persist_session_cache=True,
+        gcs_state_bucket="synthetic-bucket",
+    )
+    client = FirstradeBrokerClient(credentials, session_cache_store=store)
+    client.session = SimpleNamespace(
+        session=SimpleNamespace(
+            headers={
+                "access-token": "synthetic-access",
+                "ftat": "synthetic-ftat",
+                "sid": "synthetic-sid",
+            },
+            cookies=SimpleNamespace(get_dict=lambda: {}),
+        )
+    )
+
+    assert client.persist_session_cache_and_verify() == "cache_readback_failed"
 
 
 @pytest.mark.parametrize(

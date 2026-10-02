@@ -52,6 +52,7 @@ from application.broker_reconciliation import (
 from application.session_check_service import (
     run_cached_balance_field_diagnostic,
     run_session_check,
+    run_target_bound_account_session_refresh,
 )
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
@@ -87,6 +88,21 @@ READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = _build_read_only_reconciliation
 
 _REDACTED = "<redacted>"
 _CACHED_BALANCE_DIAGNOSTIC_CORRELATION_RE = re.compile(r"^[0-9a-f]{32}$")
+_ACCOUNT_SESSION_REFRESH_CORRELATION_RE = re.compile(r"^[0-9a-f]{32}$")
+_ACCOUNT_SESSION_REFRESH_STATUSES = frozenset(
+    {
+        "runtime_target_invalid",
+        "configured_account_conflict",
+        "credentials_unavailable",
+        "session_persistence_not_enabled",
+        "mfa_required",
+        "session_authentication_failed",
+        "runtime_target_account_mismatch",
+        "session_cache_persist_failed",
+        "session_cache_readback_failed",
+        "ok",
+    }
+)
 _CACHED_BALANCE_DIAGNOSTIC_STATUSES = frozenset(
     {
         "ok",
@@ -220,6 +236,53 @@ def _log_cached_balance_diagnostic(result: object, correlation_id: str | None) -
         "event": "firstrade_cached_balance_field_diagnostic",
         "diagnostic": _cached_balance_diagnostic_log_projection(result),
     }
+    if correlation_id is not None:
+        event["correlation_id"] = correlation_id
+    print(json.dumps(event, ensure_ascii=True, separators=(",", ":")), flush=True)
+
+
+def _account_session_refresh_request() -> tuple[str | None, bool]:
+    raw_body = request.get_data(cache=True)
+    if not raw_body:
+        return None, True
+    if len(raw_body) > 256 or not request.is_json:
+        return None, False
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) - {"correlation_id"}:
+        return None, False
+    if "correlation_id" not in body:
+        return None, True
+    correlation_id = body["correlation_id"]
+    if (
+        not isinstance(correlation_id, str)
+        or not _ACCOUNT_SESSION_REFRESH_CORRELATION_RE.fullmatch(correlation_id)
+    ):
+        return None, False
+    return correlation_id, True
+
+
+def _account_session_refresh_projection(result: object) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        result = {}
+    status = result.get("status")
+    status_is_valid = isinstance(status, str) and status in _ACCOUNT_SESSION_REFRESH_STATUSES
+    payload: dict[str, Any] = {
+        "status": status if status_is_valid else "session_authentication_failed"
+    }
+    for key in (
+        "runtime_target_valid",
+        "credentials_available",
+        "session_connected",
+        "account_match",
+        "cache_persisted",
+        "cache_readback_fresh",
+    ):
+        payload[key] = status_is_valid and result.get(key) is True
+    return payload
+
+
+def _log_account_session_refresh(payload: dict[str, Any], correlation_id: str | None) -> None:
+    event = {"event": "firstrade_account_session_refresh", **payload}
     if correlation_id is not None:
         event["correlation_id"] = correlation_id
     print(json.dumps(event, ensure_ascii=True, separators=(",", ":")), flush=True)
@@ -1015,6 +1078,32 @@ def account_balance_diagnostic():
         result = {"status": "cached_read_only_unavailable"}
     _log_cached_balance_diagnostic(result, correlation_id)
     return jsonify(result), 200 if result.get("status") == "ok" else 503
+
+
+@app.post("/account-session-refresh")
+def account_session_refresh():
+    if not _flag("FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP"):
+        return jsonify({"status": "blocked", "reason": "session_refresh_disabled"}), 403
+    correlation_id, valid_request = _account_session_refresh_request()
+    if not valid_request:
+        return jsonify({"status": "blocked", "reason": "invalid_request"}), 400
+    try:
+        if not (os.getenv("QSL_RUNTIME_TARGET_JSON") or os.getenv("RUNTIME_TARGET_JSON")):
+            runtime_target = None
+        else:
+            runtime_target = resolve_runtime_target_from_env(
+                env=os.environ,
+                expected_platform_id=FIRSTRADE_PLATFORM,
+            )
+    except Exception:
+        runtime_target = None
+    try:
+        result = run_target_bound_account_session_refresh(runtime_target=runtime_target)
+    except Exception:
+        result = {"status": "session_authentication_failed"}
+    payload = _account_session_refresh_projection(result)
+    _log_account_session_refresh(payload, correlation_id)
+    return jsonify(payload), 200 if payload["status"] == "ok" else 503
 
 
 @app.post("/probe")

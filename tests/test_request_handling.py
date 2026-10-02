@@ -84,6 +84,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/paper-command-consumer": ["POST"],
         "/reconcile": ["POST"],
         "/account-balance-diagnostic": ["POST"],
+        "/account-session-refresh": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["POST"],
         "/static/<path:filename>": ["GET"],
@@ -840,3 +841,137 @@ def test_cached_balance_diagnostic_rejects_missing_runtime_target_even_with_lega
         "status": "runtime_target_invalid",
         "cached_session_fresh": False,
     }
+
+
+def test_account_session_refresh_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP", raising=False)
+    monkeypatch.setattr(
+        main,
+        "resolve_runtime_target_from_env",
+        lambda **_kwargs: pytest.fail("disabled auth refresh must not resolve credentials"),
+    )
+    monkeypatch.setattr(
+        main,
+        "run_target_bound_account_session_refresh",
+        lambda **_kwargs: pytest.fail("disabled auth refresh must not authenticate"),
+    )
+
+    response = main.app.test_client().post("/account-session-refresh")
+
+    assert response.status_code == 403
+    assert response.get_json() == {
+        "status": "blocked",
+        "reason": "session_refresh_disabled",
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"correlation_id": "A" * 32},
+        {"correlation_id": "short"},
+        {"correlation_id": "a" * 32, "unexpected": "private"},
+    ],
+)
+def test_account_session_refresh_rejects_non_closed_request(monkeypatch, body):
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP", "true")
+    calls = []
+    monkeypatch.setattr(
+        main,
+        "run_target_bound_account_session_refresh",
+        lambda **_kwargs: calls.append(True),
+    )
+
+    response = main.app.test_client().post("/account-session-refresh", json=body)
+
+    assert response.status_code == 400
+    assert response.get_json() == {"status": "blocked", "reason": "invalid_request"}
+    assert calls == []
+
+
+def test_account_session_refresh_resolves_target_and_emits_only_closed_event(monkeypatch, capsys):
+    runtime_target = object()
+    observed = {}
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP", "true")
+    monkeypatch.setattr(main, "resolve_runtime_target_from_env", lambda **_kwargs: runtime_target)
+
+    def refresh(*, runtime_target):
+        observed["runtime_target"] = runtime_target
+        return {
+            "status": "ok",
+            "runtime_target_valid": True,
+            "credentials_available": True,
+            "session_connected": True,
+            "account_match": True,
+            "cache_persisted": True,
+            "cache_readback_fresh": True,
+            "account": "PRIVATE_ACCOUNT",
+            "token": "PRIVATE_TOKEN",
+            "exception": "PRIVATE_EXCEPTION",
+        }
+
+    monkeypatch.setattr(main, "run_target_bound_account_session_refresh", refresh)
+    monkeypatch.setattr(
+        main,
+        "run_strategy_cycle",
+        lambda **_kwargs: pytest.fail("session refresh must not run a strategy"),
+    )
+    monkeypatch.setattr(
+        main,
+        "_notify_runtime_error",
+        lambda *_args: pytest.fail("session refresh must not notify"),
+    )
+
+    response = main.app.test_client().post(
+        "/account-session-refresh", json={"correlation_id": "c" * 32}
+    )
+
+    expected = {
+        "status": "ok",
+        "runtime_target_valid": True,
+        "credentials_available": True,
+        "session_connected": True,
+        "account_match": True,
+        "cache_persisted": True,
+        "cache_readback_fresh": True,
+    }
+    assert response.status_code == 200
+    assert response.get_json() == expected
+    assert observed["runtime_target"] is runtime_target
+    log_text = capsys.readouterr().out
+    event = json.loads(log_text)
+    assert event == {
+        "event": "firstrade_account_session_refresh",
+        "correlation_id": "c" * 32,
+        **expected,
+    }
+    assert "PRIVATE_" not in log_text
+
+
+def test_account_session_refresh_fails_closed_and_sanitizes_unknown_service_output(monkeypatch, capsys):
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP", "true")
+    monkeypatch.setattr(main, "resolve_runtime_target_from_env", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        main,
+        "run_target_bound_account_session_refresh",
+        lambda **_kwargs: {
+            "status": "PRIVATE_STATUS",
+            "account_match": True,
+            "account": "PRIVATE_ACCOUNT",
+            "exception": "PRIVATE_EXCEPTION",
+        },
+    )
+
+    response = main.app.test_client().post("/account-session-refresh")
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "status": "session_authentication_failed",
+        "runtime_target_valid": False,
+        "credentials_available": False,
+        "session_connected": False,
+        "account_match": False,
+        "cache_persisted": False,
+        "cache_readback_fresh": False,
+    }
+    assert "PRIVATE_" not in capsys.readouterr().out

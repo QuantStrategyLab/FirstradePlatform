@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import pytest
 
-from application.firstrade_client import FirstradeCredentials
+from application.firstrade_client import FirstradeCredentials, FirstradeMfaRequired
 from application.session_check_service import (
     build_account_funds_snapshot,
     run_cached_balance_field_diagnostic,
     run_session_check,
+    run_target_bound_account_session_refresh,
 )
 
 
@@ -134,6 +136,244 @@ class DiagnosticClient:
 
 def _env(values):
     return lambda name, default=None: values.get(name, default)
+
+
+class AuthRefreshClient:
+    def __init__(self, _credentials, *, live_trading_enabled=False, accounts=None, auth_error=None, cache_status="ok"):
+        assert live_trading_enabled is False
+        self.accounts = accounts if accounts is not None else ["synthetic-account-placeholder"]
+        self.auth_error = auth_error
+        self.cache_status = cache_status
+        self.calls = []
+
+    def connect(self, *, defer_session_cache=False):
+        self.calls.append(("connect", defer_session_cache))
+        if self.auth_error:
+            raise self.auth_error
+        return self
+
+    def account_numbers(self):
+        self.calls.append(("account_numbers",))
+        return self.accounts
+
+    def select_account(self, expected):
+        self.calls.append(("select_account", expected))
+        return expected
+
+    def persist_session_cache_and_verify(self):
+        self.calls.append(("persist_session_cache_and_verify",))
+        return self.cache_status
+
+    def get_balances(self, *_args):
+        raise AssertionError("auth-only refresh must not read balances")
+
+    def get_positions(self, *_args):
+        raise AssertionError("auth-only refresh must not read positions")
+
+    def close(self):
+        self.calls.append(("close",))
+
+
+def _refresh_credentials(**kwargs):
+    values = {
+        "username": "synthetic-user",
+        "password": "synthetic-password",
+        "reuse_session": True,
+        "persist_session_cache": True,
+        "gcs_state_bucket": "synthetic-cache-bucket",
+    }
+    values.update(kwargs)
+    return FirstradeCredentials(**values)
+
+
+def test_target_bound_session_refresh_checks_target_before_constructing_client():
+    from types import SimpleNamespace
+
+    constructions = []
+    runtime_target = SimpleNamespace(account_selector=("first", "second"))
+    result = run_target_bound_account_session_refresh(
+        runtime_target=runtime_target,
+        credentials=_refresh_credentials(),
+        client_factory=lambda *_args, **_kwargs: constructions.append(True),
+    )
+    assert result["status"] == "runtime_target_invalid"
+    assert constructions == []
+
+
+def test_target_bound_session_refresh_rejects_legacy_account_conflict_before_credentials():
+    from types import SimpleNamespace
+
+    env_reads = []
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("expected-placeholder",)),
+        env_reader=lambda name, default=None: env_reads.append(name) or "other-placeholder",
+        client_factory=lambda *_args, **_kwargs: pytest.fail("client must not be constructed"),
+    )
+    assert result["status"] == "configured_account_conflict"
+    assert env_reads == ["FIRSTRADE_ACCOUNT"]
+
+
+def test_target_bound_session_refresh_saves_only_after_exact_native_identity():
+    from types import SimpleNamespace
+
+    client = None
+
+    def factory(credentials, **kwargs):
+        nonlocal client
+        assert credentials.debug is False
+        assert kwargs["live_trading_enabled"] is False
+        client = AuthRefreshClient(credentials, **kwargs)
+        return client
+
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(debug=True),
+        client_factory=factory,
+        env_reader=_env({}),
+    )
+    assert result == {
+        "status": "ok",
+        "runtime_target_valid": True,
+        "credentials_available": True,
+        "session_connected": True,
+        "account_match": True,
+        "cache_persisted": True,
+        "cache_readback_fresh": True,
+    }
+    assert client.calls == [
+        ("connect", True),
+        ("account_numbers",),
+        ("select_account", "synthetic-account-placeholder"),
+        ("persist_session_cache_and_verify",),
+        ("close",),
+    ]
+
+
+@pytest.mark.parametrize(
+    "accounts",
+    [
+        ["synthetic-other-placeholder"],
+        ["synthetic-account-placeholder", "synthetic-account-placeholder"],
+        ["synthetic-account-placeholder", "synthetic-other-placeholder"],
+        [],
+    ],
+)
+def test_target_bound_session_refresh_mismatch_never_persists_cache(accounts):
+    from types import SimpleNamespace
+
+    client = None
+
+    def factory(credentials, **kwargs):
+        nonlocal client
+        client = AuthRefreshClient(
+            credentials, accounts=accounts, **kwargs
+        )
+        return client
+
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(),
+        client_factory=factory,
+        env_reader=_env({}),
+    )
+    assert result["status"] == "runtime_target_account_mismatch"
+    assert result["account_match"] is False
+    assert not any(call[0] == "persist_session_cache_and_verify" for call in client.calls)
+    assert client.calls[-1] == ("close",)
+
+
+@pytest.mark.parametrize(
+    "error,expected_status",
+    [
+        (RuntimeError("synthetic private auth error"), "session_authentication_failed"),
+        (
+            FirstradeMfaRequired("synthetic mfa detail"),
+            "mfa_required",
+        ),
+    ],
+)
+def test_target_bound_session_refresh_auth_failure_is_not_retried_or_persisted(error, expected_status):
+    from types import SimpleNamespace
+
+    client = None
+
+    def factory(credentials, **kwargs):
+        nonlocal client
+        client = AuthRefreshClient(credentials, auth_error=error, **kwargs)
+        return client
+
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(),
+        client_factory=factory,
+        env_reader=_env({}),
+    )
+    assert result["status"] == expected_status
+    assert client.calls == [("connect", True), ("close",)]
+    assert "synthetic private auth error" not in str(result)
+    assert "synthetic mfa detail" not in str(result)
+
+
+@pytest.mark.parametrize(
+    "cache_status,expected_status,readback_fresh",
+    [
+        ("cache_persist_failed", "session_cache_persist_failed", False),
+        ("cache_readback_failed", "session_cache_readback_failed", False),
+    ],
+)
+def test_target_bound_session_refresh_does_not_report_unverified_cache_as_success(
+    cache_status, expected_status, readback_fresh
+):
+    from types import SimpleNamespace
+
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(),
+        client_factory=lambda credentials, **kwargs: AuthRefreshClient(
+            credentials, cache_status=cache_status, **kwargs
+        ),
+        env_reader=_env({}),
+    )
+    assert result["status"] == expected_status
+    assert result["cache_readback_fresh"] is readback_fresh
+    assert result["account_match"] is True
+
+
+def test_target_bound_session_refresh_requires_existing_durable_cache_configuration():
+    from types import SimpleNamespace
+
+    clients = []
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(persist_session_cache=False),
+        client_factory=lambda *_args, **_kwargs: clients.append(True),
+        env_reader=_env({}),
+    )
+    assert result["status"] == "session_persistence_not_enabled"
+    assert clients == []
+
+
+def test_target_bound_session_refresh_does_not_request_new_otp_without_existing_code():
+    from types import SimpleNamespace
+
+    observed = {}
+
+    def factory(credentials, **kwargs):
+        observed["email"] = credentials.email
+        observed["phone"] = credentials.phone
+        return AuthRefreshClient(
+            credentials, auth_error=FirstradeMfaRequired("synthetic challenge"), **kwargs
+        )
+
+    result = run_target_bound_account_session_refresh(
+        runtime_target=SimpleNamespace(account_selector=("synthetic-account-placeholder",)),
+        credentials=_refresh_credentials(email="private@example.invalid", phone="5550100"),
+        client_factory=factory,
+        env_reader=_env({}),
+    )
+
+    assert result["status"] == "mfa_required"
+    assert observed == {"email": "", "phone": ""}
 
 
 def test_cached_balance_field_diagnostic_uses_exact_runtime_target_and_returns_schema_only():

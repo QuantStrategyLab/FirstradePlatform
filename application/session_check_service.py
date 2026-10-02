@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +18,7 @@ from application.account_payload_utils import (
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeMfaRequired,
     is_live_trading_enabled,
     mask_account_id,
 )
@@ -575,6 +576,143 @@ def run_cached_balance_field_diagnostic(
                     close()
                 except Exception:
                     pass
+
+
+_ACCOUNT_SESSION_REFRESH_STATUSES = frozenset(
+    {
+        "runtime_target_invalid",
+        "configured_account_conflict",
+        "credentials_unavailable",
+        "session_persistence_not_enabled",
+        "mfa_required",
+        "session_authentication_failed",
+        "runtime_target_account_mismatch",
+        "session_cache_persist_failed",
+        "session_cache_readback_failed",
+        "ok",
+    }
+)
+
+
+def run_target_bound_account_session_refresh(
+    *,
+    runtime_target: object,
+    credentials: FirstradeCredentials | None = None,
+    client_factory: Callable[..., FirstradeBrokerClient] = FirstradeBrokerClient,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+) -> dict[str, Any]:
+    """Authenticate once for the exact RuntimeTarget, then persist only after native identity match."""
+    selectors = getattr(runtime_target, "account_selector", None)
+    if (
+        not isinstance(selectors, (tuple, list))
+        or len(selectors) != 1
+        or not isinstance(selectors[0], str)
+        or not selectors[0].strip()
+    ):
+        return _account_session_refresh_result("runtime_target_invalid")
+    expected_account = selectors[0].strip()
+    configured_account = (env_reader("FIRSTRADE_ACCOUNT", "") or "").strip()
+    if configured_account and configured_account != expected_account:
+        return _account_session_refresh_result("configured_account_conflict")
+
+    try:
+        resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
+        resolved_credentials.require_login_fields()
+    except Exception:
+        return _account_session_refresh_result("credentials_unavailable")
+    if (
+        not resolved_credentials.reuse_session
+        or not resolved_credentials.persist_session_cache
+        or not resolved_credentials.gcs_state_bucket.strip()
+    ):
+        return _account_session_refresh_result("session_persistence_not_enabled")
+
+    client = None
+    try:
+        client = client_factory(
+            replace(
+                resolved_credentials,
+                debug=False,
+                email=resolved_credentials.email if resolved_credentials.mfa_code else "",
+                phone=resolved_credentials.phone if resolved_credentials.mfa_code else "",
+            ),
+            live_trading_enabled=False,
+        )
+        try:
+            client.connect(defer_session_cache=True)
+        except FirstradeMfaRequired:
+            return _account_session_refresh_result("mfa_required")
+        except Exception:
+            return _account_session_refresh_result("session_authentication_failed")
+
+        try:
+            account_numbers = client.account_numbers()
+            if (
+                not isinstance(account_numbers, (tuple, list))
+                or len(account_numbers) != 1
+                or account_numbers[0] != expected_account
+            ):
+                return _account_session_refresh_result(
+                    "runtime_target_account_mismatch", session_connected=True
+                )
+            if client.select_account(expected_account) != expected_account:
+                return _account_session_refresh_result(
+                    "runtime_target_account_mismatch", session_connected=True
+                )
+        except Exception:
+            return _account_session_refresh_result(
+                "runtime_target_account_mismatch", session_connected=True
+            )
+
+        try:
+            cache_status = client.persist_session_cache_and_verify()
+        except Exception:
+            cache_status = "cache_persist_failed"
+        if cache_status not in {"ok", "cache_persist_failed", "cache_readback_failed"}:
+            cache_status = "cache_persist_failed"
+        external_cache_status = {
+            "cache_persist_failed": "session_cache_persist_failed",
+            "cache_readback_failed": "session_cache_readback_failed",
+        }.get(cache_status, cache_status)
+        return _account_session_refresh_result(
+            external_cache_status,
+            session_connected=True,
+            account_match=True,
+            cache_persisted=cache_status in {"ok", "cache_readback_failed"},
+            cache_readback_fresh=cache_status == "ok",
+        )
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+
+def _account_session_refresh_result(
+    status: str,
+    *,
+    session_connected: bool = False,
+    account_match: bool = False,
+    cache_persisted: bool = False,
+    cache_readback_fresh: bool = False,
+) -> dict[str, Any]:
+    if status not in _ACCOUNT_SESSION_REFRESH_STATUSES:
+        status = "session_authentication_failed"
+    return {
+        "status": status,
+        "runtime_target_valid": status != "runtime_target_invalid",
+        "credentials_available": status not in {
+            "runtime_target_invalid",
+            "configured_account_conflict",
+            "credentials_unavailable",
+        },
+        "session_connected": session_connected,
+        "account_match": account_match,
+        "cache_persisted": cache_persisted,
+        "cache_readback_fresh": cache_readback_fresh,
+    }
 
 
 def persist_funds_snapshot(
