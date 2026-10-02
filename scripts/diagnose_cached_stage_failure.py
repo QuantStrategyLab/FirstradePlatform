@@ -27,6 +27,10 @@ REASONS = (
     "environment",
     "network",
     "quota",
+    "traffic_tag_length",
+    "traffic_tag_format",
+    "traffic_tag_conflict",
+    "traffic_tag_url_disabled",
 )
 _REASON_PATTERNS = {
     "act_as": re.compile(r"iam\.serviceaccounts\.actas|actas|service account user", re.I),
@@ -47,6 +51,10 @@ _REASON_PATTERNS = {
     "environment": re.compile(r"environment variable|environment configuration|env var", re.I),
     "network": re.compile(r"\bvpc\b|network|subnet|connector", re.I),
     "quota": re.compile(r"quota|resource[_ ]exhausted|limit exceeded", re.I),
+    "traffic_tag_length": re.compile(r"traffic[^\n]*tags?[^\n]*(length|longer|shorter|characters|too long|at most|at least)", re.I),
+    "traffic_tag_format": re.compile(r"traffic[^\n]*tags?[^\n]*(format|lowercase|dns|regex|valid)", re.I),
+    "traffic_tag_conflict": re.compile(r"traffic[^\n]*tags?[^\n]*(reserved|already|duplicate|unique)", re.I),
+    "traffic_tag_url_disabled": re.compile(r"traffic[^\n]*tags?[^\n]*(url[^\n]*disabled|disabled[^\n]*url|unsupported|not supported)", re.I),
 }
 _KNOWN_RPC_STATUS_CODES = frozenset(range(17))
 _AUDIT_MESSAGE_TERMS = (
@@ -381,6 +389,7 @@ def summarize(
         "service_readable": service_ok,
         "target_matches": target_matches,
         "diagnostic_tag_budget_ok": tag_budget_ok,
+        "service_name_length": len(expected_service) if target_matches else None,
         "failure_subcategory": "combined_traffic_tag_service_name_length" if combined_tag_name_error else "none",
         "combined_traffic_tag_service_name_length_error_observed": combined_tag_name_error,
         "service_ready": _ready(service),
