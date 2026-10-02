@@ -89,6 +89,7 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         "service_readable": True,
         "target_matches": True,
         "diagnostic_tag_budget_ok": True,
+        "service_name_length": len(PRIVATE_SERVICE),
         "failure_subcategory": "none",
         "combined_traffic_tag_service_name_length_error_observed": False,
         "service_ready": True,
@@ -150,13 +151,25 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         (
             "traffic[].tag: traffic tag [TAG] and service name [SERVICE] together are too long. "
             "Combined traffic tag and service name cannot exceed 46 characters.",
-            ["invalid_name"],
+            ["invalid_name", "traffic_tag_length"],
         ),
         ("opaque upstream diagnostic", ["unknown"]),
     ],
 )
 def test_error_text_is_reduced_to_fixed_reason(message, expected):
     assert diagnostic._classify([message]) == expected
+
+
+@pytest.mark.parametrize(("message", "reason"), [
+    ("Traffic tag [PRIVATE_TAG] should be at most one character long", "traffic_tag_length"),
+    ("Traffic tag [PRIVATE_TAG] must have a valid DNS format", "traffic_tag_format"),
+    ("Traffic tag [PRIVATE_TAG] is reserved", "traffic_tag_conflict"),
+    ("Traffic tags are not supported when the URL is disabled", "traffic_tag_url_disabled"),
+])
+def test_traffic_tag_rejections_remain_closed(message, reason):
+    summary = diagnostic._classify([message])
+    assert summary == [reason]
+    assert "PRIVATE_TAG" not in json.dumps(summary)
 
 
 def test_missing_logging_permission_is_reported_without_guessing_failure_category():
@@ -199,7 +212,7 @@ def test_combined_traffic_tag_length_is_closed_subcategory_and_budget_stays_priv
         audit_entries=audit,
         audit_status="ok",
     )
-    assert summary["failure_categories"] == ["invalid_name"]
+    assert summary["failure_categories"] == ["invalid_name", "traffic_tag_length"]
     assert summary["failure_subcategory"] == "combined_traffic_tag_service_name_length"
     assert summary["combined_traffic_tag_service_name_length_error_observed"] is True
     assert summary["diagnostic_tag_budget_ok"] is True
