@@ -103,10 +103,26 @@ def _config_difference_groups(serving: dict[str, Any], desired: dict[str, Any]) 
         if old.get("env", []) != new.get("env", []):
             groups.append("primary_env" if index == 0 else "sidecar_env")
         ignored = {"env", "image"} if index == 0 else {"env"}
-        if {k: v for k, v in old.items() if k not in ignored} != {
-            k: v for k, v in new.items() if k not in ignored
+        prefix = "primary" if index == 0 else "sidecar"
+        known_fields = {
+            "name": "name",
+            "command": "command",
+            "args": "args",
+            "resources": "resources",
+            "ports": "ports",
+            "volumeMounts": "volume_mounts",
+            "startupProbe": "startup_probe",
+            "livenessProbe": "liveness_probe",
+            "workingDir": "working_dir",
+        }
+        for key, label in known_fields.items():
+            if old.get(key) != new.get(key):
+                groups.append(f"{prefix}_{label}")
+        excluded = ignored | set(known_fields)
+        if {k: v for k, v in old.items() if k not in excluded} != {
+            k: v for k, v in new.items() if k not in excluded
         }:
-            groups.append("primary_container" if index == 0 else "sidecar_container")
+            groups.append(f"{prefix}_other")
     ignored_spec = {"serviceAccountName", "containerConcurrency", "timeoutSeconds", "volumes", "containers"}
     if {k: v for k, v in serving.items() if k not in ignored_spec} != {
         k: v for k, v in desired.items() if k not in ignored_spec
