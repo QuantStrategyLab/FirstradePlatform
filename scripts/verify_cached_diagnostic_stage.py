@@ -85,6 +85,36 @@ def _config_spec_hash(spec: dict[str, Any]) -> str:
     return _canonical_hash(normalized)
 
 
+def _config_difference_groups(serving: dict[str, Any], desired: dict[str, Any]) -> list[str]:
+    """Report only fixed configuration categories, never field values or names."""
+    groups = []
+    for key, label in (
+        ("serviceAccountName", "service_account"),
+        ("containerConcurrency", "concurrency"),
+        ("timeoutSeconds", "timeout"),
+        ("volumes", "volumes"),
+    ):
+        if serving.get(key) != desired.get(key):
+            groups.append(label)
+    left, right = serving.get("containers", []), desired.get("containers", [])
+    if len(left) != len(right):
+        groups.append("container_count")
+    for index, (old, new) in enumerate(zip(left, right)):
+        if old.get("env", []) != new.get("env", []):
+            groups.append("primary_env" if index == 0 else "sidecar_env")
+        ignored = {"env", "image"} if index == 0 else {"env"}
+        if {k: v for k, v in old.items() if k not in ignored} != {
+            k: v for k, v in new.items() if k not in ignored
+        }:
+            groups.append("primary_container" if index == 0 else "sidecar_container")
+    ignored_spec = {"serviceAccountName", "containerConcurrency", "timeoutSeconds", "volumes", "containers"}
+    if {k: v for k, v in serving.items() if k not in ignored_spec} != {
+        k: v for k, v in desired.items() if k not in ignored_spec
+    }:
+        groups.append("other_spec")
+    return sorted(set(groups))
+
+
 def _desired_traffic_rows(service: dict[str, Any], *, allow_diagnostic_tag: bool) -> list[dict[str, Any]]:
     active, _ = _active_traffic(service)
     active_revision = active[0]["revisionName"]
@@ -334,7 +364,8 @@ def _validate_serving_revision(
     if not isinstance(service_template_spec, dict):
         raise ValueError("service_template_spec_missing")
     if _config_spec_hash(revision_spec) != _config_spec_hash(service_template_spec):
-        raise ValueError("active_revision_service_config_mismatch")
+        groups = ",".join(_config_difference_groups(revision_spec, service_template_spec))
+        raise ValueError(f"active_revision_service_config_mismatch:{groups}")
 
 
 def _traffic_hash(rows: list[dict[str, Any]]) -> str:
