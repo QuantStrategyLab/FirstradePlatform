@@ -67,8 +67,8 @@ jobs:
       GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
       GCP_ARTIFACT_REGISTRY_HOSTNAME: us-central1-docker.pkg.dev
       GCP_ARTIFACT_REGISTRY_REPOSITORY: cloud-run-source-deploy
-      CACHED_DIAGNOSTIC_SOURCE_SHA: c4727934730bcb6431e9e7dd4310fb8c9bc30182
-      EXISTING_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+      CACHED_DIAGNOSTIC_SOURCE_SHA: 78f976c3a23fa58a543a6dc695f5c43b26f2b125
+      EXISTING_DIAGNOSTIC_SOURCE_SHA: c4727934730bcb6431e9e7dd4310fb8c9bc30182
       EXPECTED_SERVING_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
       CACHED_DIAGNOSTIC_TAG: cbd
     steps:
@@ -135,7 +135,7 @@ jobs:
       - name: Checkout fixed cached-diagnostic candidate
         uses: actions/checkout@v6
         with:
-          ref: c4727934730bcb6431e9e7dd4310fb8c9bc30182
+          ref: 78f976c3a23fa58a543a6dc695f5c43b26f2b125
           path: cached-diagnostic-source
 
       - name: Verify fixed candidate source
@@ -148,6 +148,10 @@ jobs:
           fi
           if ! grep -Fq 'FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP=true' Dockerfile; then
             echo "The fixed candidate image is missing its diagnostic-only gate default." >&2
+            exit 1
+          fi
+          if ! grep -Fq 'FIRSTRADE_ACCOUNT_SESSION_REFRESH_ON_HTTP=true' Dockerfile; then
+            echo "The fixed candidate image is missing its target-bound session refresh gate." >&2
             exit 1
           fi
 
@@ -171,7 +175,7 @@ jobs:
           SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION || vars.CLOUD_RUN_REGION }}
           EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
           EXPECTED_SOURCE_SHA: e0043ca860a36c1790ddbb866cb848e298a3d3c7
-          EXISTING_DIAGNOSTIC_SOURCE_SHA: 3317c0282ca5e70a55b97084572e5013a8eeae3f
+          EXISTING_DIAGNOSTIC_SOURCE_SHA: c4727934730bcb6431e9e7dd4310fb8c9bc30182
         run: |
           set -euo pipefail
           image_repo="${GCP_ARTIFACT_REGISTRY_HOSTNAME}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REGISTRY_REPOSITORY}/firstradeplatform/${CLOUD_RUN_SERVICE}"
