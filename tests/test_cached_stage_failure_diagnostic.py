@@ -101,6 +101,7 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         "latest_created_revision_ready": False,
         "latest_revision_error_categories": ["image"],
         "latest_revision_error_status_codes": [],
+        "traffic_tag_length_details": {"character_limits": [], "minimum_requirement": False, "maximum_requirement": False},
         "audit_error_message_terms": {
             "container": False,
             "name": False,
@@ -169,6 +170,17 @@ def test_error_text_is_reduced_to_fixed_reason(message, expected):
 def test_traffic_tag_rejections_remain_closed(message, reason):
     summary = diagnostic._classify([message])
     assert summary == [reason]
+    assert "PRIVATE_TAG" not in json.dumps(summary)
+
+
+def test_tag_limit_details_only_expose_small_explicit_character_limits():
+    summary = diagnostic._tag_length_details([
+        "Traffic tag [PRIVATE_TAG] must be at least 3 characters long",
+        "Traffic tag [PRIVATE_TAG] must be at most 63 characters long",
+        "Traffic tag [PRIVATE_TAG] has 12345678 characters",
+        "Other error requires 8 characters",
+    ])
+    assert summary == {"character_limits": [3, 63], "minimum_requirement": True, "maximum_requirement": True}
     assert "PRIVATE_TAG" not in json.dumps(summary)
 
 

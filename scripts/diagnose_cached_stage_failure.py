@@ -310,6 +310,17 @@ def _audit_message_terms(texts: list[str], *, available: bool) -> dict[str, bool
     return {term: bool(_AUDIT_MESSAGE_TERM_PATTERNS[term].search(joined)) for term in _AUDIT_MESSAGE_TERMS}
 
 
+def _tag_length_details(texts: list[str]) -> dict[str, Any]:
+    messages = [text for text in texts if _REASON_PATTERNS["traffic_tag_length"].search(text)]
+    text = "\n".join(messages)
+    limits = sorted({int(value) for value in re.findall(r"\b([0-9]{1,2})\s+characters?\b", text, re.I) if 0 < int(value) <= 63})
+    return {
+        "character_limits": limits,
+        "minimum_requirement": bool(re.search(r"at least|minimum|too short|shorter", text, re.I)),
+        "maximum_requirement": bool(re.search(r"at most|maximum|too long|longer|exceed", text, re.I)),
+    }
+
+
 def summarize(
     *,
     service: Any,
@@ -406,6 +417,7 @@ def summarize(
             audit_texts,
             available=audit_status == "ok" and audit_entries_count is not None,
         ),
+        "traffic_tag_length_details": _tag_length_details(audit_texts) if audit_status == "ok" else None,
         **_control_summary(policy, jobs),
         "audit_query_status": audit_status,
         "audit_entry_count": audit_entries_count if audit_status == "ok" else None,
