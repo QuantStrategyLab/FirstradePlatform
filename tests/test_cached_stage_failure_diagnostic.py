@@ -99,6 +99,22 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         "revision_list_readable": True,
         "latest_created_revision_ready": False,
         "latest_revision_error_categories": ["image"],
+        "latest_revision_error_status_codes": [],
+        "audit_error_message_terms": {
+            "container": False,
+            "name": False,
+            "image": True,
+            "traffic": False,
+            "tag": False,
+            "revision": False,
+            "env": False,
+            "secret": True,
+            "update_mask": False,
+            "port": False,
+            "vpc": False,
+            "quota": False,
+            "immutable": False,
+        },
         "iam_policy_readable": True,
         "iam_binding_count": 1,
         "scheduler_readable": True,
@@ -108,6 +124,7 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         "audit_entry_count": 1,
         "audit_error_count": 1,
         "audit_error_categories": ["image"],
+        "audit_error_status_codes": [13],
         "failure_source": "audit",
         "failure_categories": ["image"],
     }
@@ -126,6 +143,10 @@ def test_summary_exposes_only_closed_statuses_counts_and_categories():
         ("container failed to listen on the port", ["port"]),
         ("startup probe failed", ["startup"]),
         ("secret version was not found", ["missing_secret"]),
+        ("updateMask contains a private field", ["update_mask"]),
+        ("environment variable is invalid", ["environment"]),
+        ("VPC connector could not be resolved", ["network"]),
+        ("RESOURCE_EXHAUSTED: quota exceeded", ["quota"]),
         (
             "traffic[].tag: traffic tag [TAG] and service name [SERVICE] together are too long. "
             "Combined traffic tag and service name cannot exceed 46 characters.",
@@ -183,6 +204,107 @@ def test_combined_traffic_tag_length_is_closed_subcategory_and_budget_stays_priv
     assert summary["combined_traffic_tag_service_name_length_error_observed"] is True
     assert summary["diagnostic_tag_budget_ok"] is True
     assert PRIVATE_SERVICE not in json.dumps(summary)
+
+
+def test_status_codes_and_message_terms_are_numeric_and_closed():
+    message = (
+        "permission denied: updateMask for VPC connector private-vpc "
+        "failed on immutable revision private-revision-placeholder"
+    )
+    service, revisions, policy, jobs, audit = _evidence(message)
+    revisions[0]["status"]["conditions"][0]["code"] = 14
+    audit[0]["protoPayload"]["status"]["code"] = 7
+    summary = diagnostic.summarize(
+        service=service,
+        revisions=revisions,
+        expected_service=PRIVATE_SERVICE,
+        expected_project=PRIVATE_PROJECT,
+        expected_region=PRIVATE_REGION,
+        audit_window_start=WINDOW_START,
+        audit_window_end=WINDOW_END,
+        policy=policy,
+        jobs=jobs,
+        audit_entries=audit,
+        audit_status="ok",
+    )
+    assert summary["latest_revision_error_status_codes"] == [14]
+    assert summary["audit_error_status_codes"] == [7]
+    assert summary["failure_categories"] == ["permission", "update_mask", "network"]
+    assert summary["audit_error_message_terms"] == {
+        "container": False,
+        "name": False,
+        "image": False,
+        "traffic": False,
+        "tag": False,
+        "revision": True,
+        "env": False,
+        "secret": False,
+        "update_mask": True,
+        "port": False,
+        "vpc": True,
+        "quota": False,
+        "immutable": True,
+    }
+    serialized = json.dumps(summary)
+    for private_value in (
+        PRIVATE_SERVICE,
+        PRIVATE_NAME,
+        PRIVATE_MESSAGE,
+        "private-vpc",
+        "private-revision-placeholder",
+        "updateMask for VPC connector private-vpc",
+    ):
+        assert private_value not in serialized
+
+
+@pytest.mark.parametrize(
+    ("message", "present"),
+    [
+        ("multiple containers are unsupported on private-revision-placeholder", {"container", "revision"}),
+        ("revision private-revision-placeholder is immutable", {"revision", "immutable"}),
+        ("traffic target references tag private-tag on revision private-revision-placeholder", {"traffic", "tag", "revision"}),
+        ("cannot update container name or image private-image-reference", {"container", "name", "image"}),
+    ],
+)
+def test_audit_message_terms_are_closed_and_private_values_are_not_returned(message, present):
+    service, revisions, policy, jobs, audit = _evidence(message)
+    summary = diagnostic.summarize(
+        service=service,
+        revisions=revisions,
+        expected_service=PRIVATE_SERVICE,
+        expected_project=PRIVATE_PROJECT,
+        expected_region=PRIVATE_REGION,
+        audit_window_start=WINDOW_START,
+        audit_window_end=WINDOW_END,
+        policy=policy,
+        jobs=jobs,
+        audit_entries=audit,
+        audit_status="ok",
+    )
+    terms = summary["audit_error_message_terms"]
+    assert {term for term, value in terms.items() if value} == present
+    assert all(type(value) is bool for value in terms.values())
+    for private_value in (PRIVATE_SERVICE, PRIVATE_NAME, PRIVATE_MESSAGE, "private-image-reference", "private-tag"):
+        assert private_value not in json.dumps(summary)
+
+
+def test_audit_message_terms_ignore_events_outside_target():
+    service, revisions, policy, jobs, audit = _evidence()
+    summary = diagnostic.summarize(
+        service=service,
+        revisions=revisions,
+        expected_service="different-service-placeholder",
+        expected_project=PRIVATE_PROJECT,
+        expected_region=PRIVATE_REGION,
+        audit_window_start=WINDOW_START,
+        audit_window_end=WINDOW_END,
+        policy=policy,
+        jobs=jobs,
+        audit_entries=audit,
+        audit_status="ok",
+    )
+    assert summary["target_matches"] is False
+    assert not any(summary["audit_error_message_terms"].values())
 
 
 def test_tag_budget_false_is_reported_as_boolean_without_service_name():

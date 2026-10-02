@@ -23,6 +23,10 @@ REASONS = (
     "port",
     "startup",
     "missing_secret",
+    "update_mask",
+    "environment",
+    "network",
+    "quota",
 )
 _REASON_PATTERNS = {
     "act_as": re.compile(r"iam\.serviceaccounts\.actas|actas|service account user", re.I),
@@ -39,6 +43,41 @@ _REASON_PATTERNS = {
     "port": re.compile(r"port[^\n]*(listen|start|bind|set)|listen on the port", re.I),
     "startup": re.compile(r"startup probe|container failed to start|startup[^\n]*failed", re.I),
     "permission": re.compile(r"permission denied|permission_denied|not authorized|forbidden|\b403\b", re.I),
+    "update_mask": re.compile(r"update[ _-]?mask|field mask", re.I),
+    "environment": re.compile(r"environment variable|environment configuration|env var", re.I),
+    "network": re.compile(r"\bvpc\b|network|subnet|connector", re.I),
+    "quota": re.compile(r"quota|resource[_ ]exhausted|limit exceeded", re.I),
+}
+_KNOWN_RPC_STATUS_CODES = frozenset(range(17))
+_AUDIT_MESSAGE_TERMS = (
+    "container",
+    "name",
+    "image",
+    "traffic",
+    "tag",
+    "revision",
+    "env",
+    "secret",
+    "update_mask",
+    "port",
+    "vpc",
+    "quota",
+    "immutable",
+)
+_AUDIT_MESSAGE_TERM_PATTERNS = {
+    "container": re.compile(r"\bcontainers?\b", re.I),
+    "name": re.compile(r"\bname\b", re.I),
+    "image": re.compile(r"\bimages?\b", re.I),
+    "traffic": re.compile(r"\btraffic\b", re.I),
+    "tag": re.compile(r"\btags?\b", re.I),
+    "revision": re.compile(r"\brevisions?\b", re.I),
+    "env": re.compile(r"\benv(?:ironment)?\b", re.I),
+    "secret": re.compile(r"\bsecret(?:keyref)?\b", re.I),
+    "update_mask": _REASON_PATTERNS["update_mask"],
+    "port": re.compile(r"\bports?\b", re.I),
+    "vpc": re.compile(r"\bvpc\b", re.I),
+    "quota": _REASON_PATTERNS["quota"],
+    "immutable": re.compile(r"\bimmutab(?:le|ility)\b", re.I),
 }
 _COMBINED_TAG_NAME_LIMIT = re.compile(
     r"traffic[^\n]*tag[^\n]*too long|combined traffic tag and service name cannot exceed 46",
@@ -116,6 +155,24 @@ def _condition_error_texts(resource: Any) -> list[str]:
     return texts
 
 
+def _condition_error_status_codes(resource: Any) -> list[int]:
+    status = resource.get("status") if isinstance(resource, dict) else None
+    conditions = status.get("conditions") if isinstance(status, dict) else None
+    if not isinstance(conditions, list):
+        return []
+    codes = set()
+    for condition in conditions:
+        if not isinstance(condition, dict):
+            continue
+        state = condition.get("state", condition.get("status"))
+        if state not in ("CONDITION_FAILED", "False", False):
+            continue
+        code = condition.get("code")
+        if isinstance(code, int) and not isinstance(code, bool) and code in _KNOWN_RPC_STATUS_CODES:
+            codes.add(code)
+    return sorted(codes)
+
+
 def _audit_identity_matches(
     entry: dict[str, Any], *, project: str, region: str, service: str
 ) -> bool:
@@ -149,20 +206,20 @@ def _audit_error_texts(
     service: str,
     window_start: str,
     window_end: str,
-) -> tuple[int | None, int | None, list[str]]:
+) -> tuple[int | None, int | None, list[str], list[int] | None]:
     if not isinstance(entries, list):
-        return None, None, []
+        return None, None, [], None
     try:
         start_time = datetime.fromisoformat(window_start.replace("Z", "+00:00"))
         end_time = datetime.fromisoformat(window_end.replace("Z", "+00:00"))
     except (TypeError, ValueError):
-        return None, None, []
+        return None, None, [], None
     if (
         start_time.tzinfo is None
         or end_time.tzinfo is None
         or end_time < start_time
     ):
-        return None, None, []
+        return None, None, [], None
     failed = []
     matching_count = 0
     for entry in entries:
@@ -199,7 +256,11 @@ def _audit_error_texts(
     texts = [message for _, message in failed if message]
     if any(code == 7 for code, _ in failed):
         texts.append("permission_denied")
-    return matching_count, len(failed), texts
+    status_codes = sorted({
+        code for code, _ in failed
+        if isinstance(code, int) and not isinstance(code, bool) and code in _KNOWN_RPC_STATUS_CODES
+    })
+    return matching_count, len(failed), texts, status_codes
 
 
 def _control_summary(policy: Any, jobs: Any) -> dict[str, Any]:
@@ -232,6 +293,13 @@ def _control_summary(policy: Any, jobs: Any) -> dict[str, Any]:
         "scheduler_job_count": job_count,
         "scheduler_state_counts": states,
     }
+
+
+def _audit_message_terms(texts: list[str], *, available: bool) -> dict[str, bool | None]:
+    if not available:
+        return {term: None for term in _AUDIT_MESSAGE_TERMS}
+    joined = "\n".join(texts)
+    return {term: bool(_AUDIT_MESSAGE_TERM_PATTERNS[term].search(joined)) for term in _AUDIT_MESSAGE_TERMS}
 
 
 def summarize(
@@ -277,7 +345,7 @@ def summarize(
         if latest_ready is True
         else ["unknown"]
     )
-    audit_entries_count, audit_error_count, audit_texts = _audit_error_texts(
+    audit_entries_count, audit_error_count, audit_texts, audit_status_codes = _audit_error_texts(
         audit_entries,
         project=expected_project,
         region=expected_region,
@@ -301,6 +369,7 @@ def summarize(
         failure_texts = []
     combined_tag_name_error = _has_combined_tag_name_limit(failure_texts)
     target_matches = bool(isinstance(metadata, dict) and metadata.get("name") == expected_service)
+    revision_status_codes = _condition_error_status_codes(latest)
     tag_budget_ok = bool(
         target_matches
         and isinstance(metadata, dict)
@@ -323,11 +392,17 @@ def summarize(
         and all(isinstance(item, dict) for item in revisions),
         "latest_created_revision_ready": latest_ready,
         "latest_revision_error_categories": revision_categories,
+        "latest_revision_error_status_codes": revision_status_codes,
+        "audit_error_message_terms": _audit_message_terms(
+            audit_texts,
+            available=audit_status == "ok" and audit_entries_count is not None,
+        ),
         **_control_summary(policy, jobs),
         "audit_query_status": audit_status,
         "audit_entry_count": audit_entries_count if audit_status == "ok" else None,
         "audit_error_count": audit_error_count if audit_status == "ok" else None,
         "audit_error_categories": audit_categories,
+        "audit_error_status_codes": audit_status_codes if audit_status == "ok" else None,
         "failure_source": failure_source,
         "failure_categories": failure_categories,
     }
