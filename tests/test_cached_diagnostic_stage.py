@@ -12,6 +12,19 @@ EXPECTED_SERVICE = "firstrade-service-placeholder"
 EXPECTED_SOURCE = "e0043ca860a36c1790ddbb866cb848e298a3d3c7"
 
 
+def test_config_difference_groups_never_expose_values_or_dynamic_keys():
+    serving = {
+        "serviceAccountName": "private-placeholder@example.invalid",
+        "containers": [{"image": "old", "env": [{"name": "PRIVATE_PLACEHOLDER", "value": "private-value"}]}],
+        "private-dynamic-key": "private-value",
+    }
+    desired = {
+        "serviceAccountName": "other-placeholder@example.invalid",
+        "containers": [{"image": "new", "env": []}],
+    }
+    assert stage._config_difference_groups(serving, desired) == ["other_spec", "primary_env", "service_account"]
+
+
 def _target(selector: str = "synthetic-account-placeholder") -> dict:
     return {
         "platform_id": "firstrade",
