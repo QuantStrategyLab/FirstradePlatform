@@ -238,6 +238,48 @@ def test_sync_cloud_run_env_workflow_syncs_scheduler_from_sync_plan():
     )
 
 
+def test_cached_balance_diagnostic_stage_is_opt_in_and_separate_from_deploy_and_sync():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    stage_start = workflow.index("  stage-cached-balance-diagnostic:")
+    deploy_start = workflow.index("  deploy-cloud-run:", stage_start)
+    stage_job = workflow[stage_start:deploy_start]
+
+    assert "stage_cached_balance_diagnostic:" in workflow
+    assert "default: false\n        type: boolean" in workflow[workflow.index("stage_cached_balance_diagnostic:") :]
+    assert "inputs.stage_cached_balance_diagnostic == true" in stage_job
+    assert "inputs.stage_cached_balance_diagnostic != true" in workflow[deploy_start:]
+    assert "inputs.allow_configuration_sync" in stage_job
+    assert "inputs.allow_traffic_promotion" in stage_job
+    assert "inputs.allow_cleanup" in stage_job
+    assert "3317c0282ca5e70a55b97084572e5013a8eeae3f" in stage_job
+    assert "e0043ca860a36c1790ddbb866cb848e298a3d3c7" in stage_job
+    assert "verify_cached_diagnostic_stage.py capture" in stage_job
+    assert "verify_cached_diagnostic_stage.py verify" in stage_job
+    assert "verify_cached_diagnostic_stage.py active-revision" in stage_job
+    assert "verify_cached_diagnostic_stage.py scheduler-hash" in stage_job
+    assert "--no-traffic --tag=\"${CACHED_DIAGNOSTIC_TAG}\"" in stage_job
+    assert "--ingress=" not in stage_job
+    assert "--service-account=" not in stage_job
+    assert "--set-env-vars" not in stage_job
+    assert "add-iam-policy-binding" not in stage_job
+    assert "jobs update" not in stage_job
+    assert "jobs run" not in stage_job
+    assert "/probe" not in stage_job
+    assert "/run" not in stage_job
+    assert "FIRSTRADE_USERNAME" not in stage_job
+    assert "FIRSTRADE_PASSWORD" not in stage_job
+
+
+def test_cached_balance_stage_image_gate_is_defaulted_only_in_fixed_candidate():
+    repo_root = Path(__file__).resolve().parents[1]
+    workflow = (repo_root / ".github/workflows/sync-cloud-run-env.yml").read_text(encoding="utf-8")
+    dockerfile = (repo_root / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP=true" in workflow
+    assert "FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP=true" not in dockerfile
+
+
 def test_sync_cloud_run_env_workflow_hardens_deploy_runtime_boundary():
     workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
