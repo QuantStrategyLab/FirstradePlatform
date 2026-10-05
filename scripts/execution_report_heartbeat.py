@@ -159,7 +159,8 @@ def _heartbeat_skip_reason_for_schedule(since: dt.datetime, now: dt.datetime) ->
     scheduler = _runtime_target_scheduler()
     cron = str(scheduler.get("main_time") or "").strip()
     fields = cron.split()
-    if len(fields) != 5:
+    # Restricted DOM and DOW use OR; DOM alone cannot prove the schedule is idle.
+    if len(fields) != 5 or fields[4] != "*":
         return None
     expected_days = _parse_day_of_month_field(fields[2])
     if not expected_days:
@@ -167,9 +168,8 @@ def _heartbeat_skip_reason_for_schedule(since: dt.datetime, now: dt.datetime) ->
     timezone_name = str(scheduler.get("timezone") or "UTC").strip() or "UTC"
     try:
         timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        timezone = dt.timezone.utc
-        timezone_name = "UTC"
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
     local_since_date = since.astimezone(timezone).date()
     local_now_date = now.astimezone(timezone).date()
     cursor = local_since_date
