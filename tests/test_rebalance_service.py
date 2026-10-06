@@ -406,14 +406,9 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert dry_run is True
     assert explicit_live_ack is False
     assert observed["client"].select_account_calls == [None]
-    assert result["notification_sent"] is True
-    assert "🔔 【Rebalance Instruction】" in messages[0]
-    assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
-    assert "🆔 Account: 12345678" not in messages[0]
-    assert "📌 Strategy Account" not in messages[0]
-    assert "Target changes: AAA +50.00 USD" not in messages[0]
-    assert "🧾 Execution details" not in messages[0]
-    assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 @pytest.mark.parametrize(
@@ -795,11 +790,9 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
     assert result["skipped_orders"] == [
         {"symbol": "AAA", "reason": "below_trade_threshold", "delta_value": 0.0}
     ]
-    assert result["notification_sent"] is True
-    assert len(messages) == 1
-    assert "Heartbeat" in messages[0]
-    assert "Total assets: $0.00" in messages[0]
-    assert "Available cash: $0.00" not in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
@@ -896,7 +889,9 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     assert observed_alerts[0][1]["state_settings"] is not None
     assert result["strategy_plugin_alert_email_deliveries"][0]["status"] == "sent"
     assert result["strategy_plugin_alert_sms_deliveries"][0]["status"] == "sent"
-    assert "🧩 Plugin:" not in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypatch):
@@ -1234,12 +1229,23 @@ def test_run_strategy_cycle_retries_live_funding_block_after_cash_arrives(monkey
 
 def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(monkeypatch):
     store = FakeStateStore()
+    store.payloads["strategy-runs/____5678/tqqq_growth_income/2026_05/latest.json"] = {
+        "stage": "FUNDING_BLOCKED", "as_of": "2026-05-01T01:02:03+00:00",
+        "dry_run_only": False,
+    }
+    messages = []
+    monkeypatch.setattr(
+        "application.rebalance_service._utcnow",
+        lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
+    )
     settings = _runtime_settings_with_persistence(
         dry_run_only=False,
         live_trading_enabled=True,
         live_order_ack=True,
         persist_strategy_runs=True,
-        max_order_notional_usd=1000.0,
+        # A configured cap classifies a zero share as buy_quantity_zero.
+        # No cap reaches the actual insufficient-cash funding branch instead.
+        max_order_notional_usd=None,
     )
 
     class PartialRuntime(FakeStrategyRuntime):
@@ -1276,6 +1282,7 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
         credentials=FirstradeCredentials(username="user", password="pass"),
         client_factory=PartialClient,
         state_store=store,
+        notification_sender=messages.append,
         env_reader=lambda _name, default=None: default,
     )
 
@@ -1289,6 +1296,15 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
     assert result["strategy_run_stage"] == "PENDING_RECONCILIATION"
     assert latest_payload["stage"] == "PENDING_RECONCILIATION"
     assert latest_payload["broker_submission_done"] is True
+    assert len(result["submitted_orders"]) == result["orders_pending_count"] == 1
+    assert result["funding_blocked"] is True
+    assert [item["reason"] for item in result["execution_blocking_skips"]] == [
+        "insufficient_cash_for_whole_share"
+    ]
+    assert result["notification_suppressed_by_policy"] is True
+    assert result["notification_suppressed_reason"] == "repeat_funding_blocked"
+    assert result["notification_sent"] is True
+    assert len(messages) == 1
 
 
 def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template():
@@ -1578,3 +1594,130 @@ def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
     )
 
     assert "⚠️ Execution blocked; retryable within window: NVDA (quote unavailable)" in message
+
+
+@pytest.mark.parametrize("result", [
+    {"ok": True, "dry_run_only": False, "submitted_orders": []},
+    {"ok": True, "dry_run_only": True, "submitted_orders": []},
+    {"ok": True, "dry_run_only": True, "submitted_orders": [{"status": "dry_run"}]},
+    {"ok": True, "dry_run_only": True, "action_done": True, "submitted_orders": [{"status": "preview"}]},
+])
+def test_cycle_notification_quiets_only_verified_success_and_dry_run_preview(result):
+    from application.rebalance_service import _should_publish_cycle_notification
+
+    assert not _should_publish_cycle_notification(result)
+
+
+@pytest.mark.parametrize("change", [
+    {"ok": False},
+    {"error": "synthetic_error"},
+    {"execution_blocked": True},
+    {"execution_blocking_skips": [{"reason": "broker_rejected"}]},
+    {"execution_status": "pending_reconciliation"},
+    {"execution_status": "unknown"},
+    {"orders_pending_count": 1},
+    {"strategy_run_persistence_error": "synthetic_error"},
+    {"strategy_plugin_error": "synthetic_error"},
+    {"strategy_plugin_alert_error": "synthetic_error"},
+    {"strategy_plugin_alert_failed_count": 1},
+    {"strategy_plugin_alert_telegram_failed_count": 1},
+    {"pending_reconciliation": True},
+])
+def test_cycle_notification_preserves_zero_order_attention(change):
+    from application.rebalance_service import _should_publish_cycle_notification
+
+    result = {"ok": True, "dry_run_only": False, "submitted_orders": [], **change}
+    before = json.loads(json.dumps(result))
+    assert _should_publish_cycle_notification(result)
+    assert result == before
+
+
+def test_cycle_notification_preserves_real_submission_and_existing_repeat_funding_policy():
+    from application.rebalance_service import _should_publish_cycle_notification
+
+    assert _should_publish_cycle_notification({
+        "ok": True, "dry_run_only": False,
+        "submitted_orders": [{"status": "submitted"}],
+    })
+    assert _should_publish_cycle_notification({
+        "ok": True, "dry_run_only": False,
+        "submitted_orders": [{"status": "filled"}],
+        "notification_suppressed_by_policy": True,
+        "notification_suppressed_reason": "repeat_funding_blocked",
+    })
+    assert not _should_publish_cycle_notification({
+        "ok": False, "error": "funding_blocked", "dry_run_only": False,
+        "submitted_orders": [], "notification_suppressed_by_policy": True,
+        "notification_suppressed_reason": "repeat_funding_blocked",
+    })
+
+
+@pytest.mark.parametrize("attention", [
+    {"strategy_run_persistence_error": "synthetic_error"},
+    {"strategy_plugin_error": "synthetic_error"},
+    {"strategy_plugin_alert_error": "synthetic_error"},
+    {"strategy_plugin_alert_failed_count": 1},
+    {"strategy_plugin_alert_telegram_failed_count": 1},
+    {"notification_error": "delivery_not_acknowledged"},
+    {"pending_reconciliation": True},
+    {"orders_pending_count": 1},
+    {"execution_status": "pending_reconciliation"},
+])
+def test_repeat_funding_suppression_keeps_independent_new_attention(attention):
+    from application.rebalance_service import _should_publish_cycle_notification
+
+    result = {
+        "ok": False, "error": "Strategy execution blocked; see execution_blocking_skips.",
+        "execution_blocked": True, "funding_blocked": True,
+        "execution_blocking_skips": [{"reason": "insufficient_cash_for_whole_share"}],
+        "dry_run_only": False, "submitted_orders": [],
+        "notification_suppressed_by_policy": True,
+        "notification_suppressed_reason": "repeat_funding_blocked", **attention,
+    }
+    assert _should_publish_cycle_notification(result)
+
+
+def test_unrecognized_suppression_policy_keeps_existing_authority():
+    from application.rebalance_service import _should_publish_cycle_notification
+
+    for change in (
+        {"strategy_plugin_error": "synthetic_error"},
+        {"submitted_orders": [{"status": "submitted"}]},
+    ):
+        result = {
+            "ok": True, "dry_run_only": False, "submitted_orders": [],
+            "notification_suppressed_by_policy": True,
+            "notification_suppressed_reason": "other_existing_policy", **change,
+        }
+        assert not _should_publish_cycle_notification(result)
+
+
+def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, monkeypatch):
+    from application.execution_service import ExecutionCycleResult
+    from application.rebalance_service import _should_publish_cycle_notification, persist_strategy_run_state
+
+    run, _client = live_cycle
+    store = FakeStateStore()
+    store.payloads["strategy-runs/____5678/tqqq_growth_income/2026_09/latest.json"] = {
+        "stage": "FUNDING_BLOCKED", "as_of": "2026-09-01T01:02:03+00:00",
+        "dry_run_only": False,
+    }
+    monkeypatch.setattr(
+        "application.rebalance_service.execute_value_target_plan",
+        lambda **_kwargs: ExecutionCycleResult(
+            submitted_orders=(), skipped_orders=({"reason": "insufficient_cash_for_whole_share"},),
+            action_done=False,
+        ),
+    )
+    def fail_final_funding_persistence(*, store, state, now):
+        if state["stage"] == "FUNDING_BLOCKED":
+            raise RuntimeError("synthetic_final_persistence_failure")
+        return persist_strategy_run_state(store=store, state=state, now=now)
+    monkeypatch.setattr("application.rebalance_service.persist_strategy_run_state", fail_final_funding_persistence)
+
+    result = run(store=store)
+    assert result["submitted_orders"] == []
+    assert result["notification_suppressed_reason"] == "repeat_funding_blocked"
+    assert result["strategy_run_persisted"] is False
+    assert "synthetic_final_persistence_failure" in result["strategy_run_persistence_error"]
+    assert _should_publish_cycle_notification(result)
