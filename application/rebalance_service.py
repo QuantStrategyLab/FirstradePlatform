@@ -302,14 +302,37 @@ def _publish_cycle_notification(
 
 
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
-    if result.get("notification_suppressed_by_policy"):
+    suppressed = bool(result.get("notification_suppressed_by_policy"))
+    repeat_funding = result.get("notification_suppressed_reason") == "repeat_funding_blocked"
+    if suppressed and not repeat_funding:
         return False
-    if result.get("submitted_orders"):
+    # Preview orders are evidence, not a real broker submission.
+    if result.get("submitted_orders") and result.get("dry_run_only") is not True:
         return True
+    independent_attention = any(result.get(field) for field in (
+        "pending_reconciliation",
+        "strategy_run_persistence_error", "strategy_plugin_error",
+        "strategy_plugin_alert_error", "notification_error",
+    )) or any(result.get(field) for field in (
+        "orders_pending_count", "strategy_plugin_alert_failed_count",
+        "strategy_plugin_alert_telegram_failed_count",
+        "strategy_plugin_alert_email_failed_count", "strategy_plugin_alert_sms_failed_count",
+        "strategy_plugin_alert_push_failed_count", "strategy_plugin_alert_webhook_failed_count",
+    ))
+    status = str(result.get("execution_status") or "").strip().lower()
+    if status not in {"", "no_op", "no_action", "completed", "executed", "dry_run", "dry_run_completed"}:
+        independent_attention = True
+    if suppressed:
+        # Repeat-funding dedup covers that funding block alone, not a new
+        # independent persistence/plugin/delivery failure or pending outcome.
+        return independent_attention
     if result.get("error") or result.get("ok") is False:
         return True
-    # A completed strategy run without an order is itself a useful heartbeat.
-    return result.get("ok") is True
+    if result.get("execution_blocked") or result.get("execution_blocking_skips"):
+        return True
+    # Healthy zero-order cycles and successful previews retain their report/log
+    # evidence without a separate message. Incomplete outcomes stay visible.
+    return independent_attention or result.get("ok") is not True
 
 
 def load_strategy_plugin_signals(
