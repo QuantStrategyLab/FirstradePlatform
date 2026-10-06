@@ -406,14 +406,9 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
     assert dry_run is True
     assert explicit_live_ack is False
     assert observed["client"].select_account_calls == [None]
-    assert result["notification_sent"] is True
-    assert "🔔 【Rebalance Instruction】" in messages[0]
-    assert "🧭 Strategy: TQQQ Growth Income" in messages[0]
-    assert "🆔 Account: 12345678" not in messages[0]
-    assert "📌 Strategy Account" not in messages[0]
-    assert "Target changes: AAA +50.00 USD" not in messages[0]
-    assert "🧾 Execution details" not in messages[0]
-    assert "🧪 Dry-run limit buy AAA: 2 shares @ $10.05" in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 @pytest.mark.parametrize(
@@ -795,11 +790,9 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
     assert result["skipped_orders"] == [
         {"symbol": "AAA", "reason": "below_trade_threshold", "delta_value": 0.0}
     ]
-    assert result["notification_sent"] is True
-    assert len(messages) == 1
-    assert "Heartbeat" in messages[0]
-    assert "Total assets: $0.00" in messages[0]
-    assert "Available cash: $0.00" not in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
@@ -896,7 +889,9 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     assert observed_alerts[0][1]["state_settings"] is not None
     assert result["strategy_plugin_alert_email_deliveries"][0]["status"] == "sent"
     assert result["strategy_plugin_alert_sms_deliveries"][0]["status"] == "sent"
-    assert "🧩 Plugin:" not in messages[0]
+    assert result["notification_sent"] is False
+    assert result["notification_suppressed"] is True
+    assert messages == []
 
 
 def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypatch):
@@ -1248,7 +1243,9 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
         live_trading_enabled=True,
         live_order_ack=True,
         persist_strategy_runs=True,
-        max_order_notional_usd=1000.0,
+        # A configured cap classifies a zero share as buy_quantity_zero.
+        # No cap reaches the actual insufficient-cash funding branch instead.
+        max_order_notional_usd=None,
     )
 
     class PartialRuntime(FakeStrategyRuntime):
@@ -1300,6 +1297,10 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
     assert latest_payload["stage"] == "PENDING_RECONCILIATION"
     assert latest_payload["broker_submission_done"] is True
     assert len(result["submitted_orders"]) == result["orders_pending_count"] == 1
+    assert result["funding_blocked"] is True
+    assert [item["reason"] for item in result["execution_blocking_skips"]] == [
+        "insufficient_cash_for_whole_share"
+    ]
     assert result["notification_suppressed_by_policy"] is True
     assert result["notification_suppressed_reason"] == "repeat_funding_blocked"
     assert result["notification_sent"] is True
