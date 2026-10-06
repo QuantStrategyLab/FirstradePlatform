@@ -1,13 +1,6 @@
 # FirstradePlatform
 
-
-## QSL architecture role
-
-- **Layer**: `runtime-platform`.
-- **Responsibility**: experimental Firstrade US equity execution runtime.
-- **Owns**: Firstrade-compatible runtime controls, generated orders, notifications.
-- **Consumes**: UsEquityStrategies, UsEquitySnapshotPipelines artifacts, QuantPlatformKit, QuantRuntimeSettings.
-- **Must not**: promote strategies without evidence or store secrets in Git.
+FirstradePlatform is an experimental Firstrade execution runtime inside QuantStrategyLab. It takes strategy and snapshot artifacts published by other QSL repositories and turns them into Firstrade-compatible orders, notifications, and reconciliation output, so a strategy that has already been researched elsewhere can be dry-run, and eventually live-traded, against a real Firstrade account. The underlying Firstrade API client is unofficial and reverse-engineered, so this platform leans on conservative defaults and explicit dry-run gating rather than convenience.
 
 [Chinese README](README.zh-CN.md)
 
@@ -18,6 +11,14 @@
 FirstradePlatform is a QuantStrategyLab experimental Firstrade execution platform. It experiments with Firstrade-compatible US equity runtime execution for shared strategy packages.
 
 It is an execution layer, not a strategy research repository. Strategy logic comes from `UsEquityStrategies`; snapshot and validation artifacts come from `UsEquitySnapshotPipelines` when a profile requires them.
+
+## QSL architecture role
+
+- **Layer**: `runtime-platform`.
+- **Responsibility**: experimental Firstrade US equity execution runtime.
+- **Owns**: Firstrade-compatible runtime controls, generated orders, notifications.
+- **Consumes**: UsEquityStrategies, UsEquitySnapshotPipelines artifacts, QuantPlatformKit, QuantRuntimeSettings.
+- **Must not**: promote strategies without evidence or store secrets in Git.
 
 ## Runtime boundary
 
