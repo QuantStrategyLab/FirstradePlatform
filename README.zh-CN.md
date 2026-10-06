@@ -1,13 +1,6 @@
 # FirstradePlatform
 
-
-## QSL 架构角色
-
-- **层级**：`执行平台`。
-- **职责**：实验性 Firstrade 美股执行运行时。
-- **事实源/归属**：Firstrade-compatible runtime 控制、生成订单、通知。
-- **消费对象**：UsEquityStrategies、UsEquitySnapshotPipelines artifacts、QuantPlatformKit、QuantRuntimeSettings。
-- **禁止事项**：无证据推广策略或把 secrets 写入 Git。
+FirstradePlatform 是 QuantStrategyLab 内部一个实验性的 Firstrade 执行运行时。它读取其他 QSL 仓库发布的策略和 snapshot 产物，转换成 Firstrade 兼容的订单、通知和对账输出，让已经在别处完成研究的策略可以先 dry-run，之后再视情况接入真实 Firstrade 账户做实盘。底层 Firstrade API 客户端本身是非官方的逆向实现，因此这个平台更倾向保守的默认值和明确的 dry-run 限制，而不是追求使用便利。
 
 [English README](README.md)
 
@@ -18,6 +11,14 @@
 FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实验性接入 Firstrade，用于运行共享美股策略包。
 
 它属于执行层，不是策略研究仓库。策略逻辑来自 `UsEquityStrategies`；如果 profile 依赖 snapshot，验证和产物来自 `UsEquitySnapshotPipelines`。
+
+## QSL 架构角色
+
+- **层级**：`执行平台`。
+- **职责**：实验性 Firstrade 美股执行运行时。
+- **事实源/归属**：Firstrade-compatible runtime 控制、生成订单、通知。
+- **消费对象**：UsEquityStrategies、UsEquitySnapshotPipelines artifacts、QuantPlatformKit、QuantRuntimeSettings。
+- **禁止事项**：无证据推广策略或把 secrets 写入 Git。
 
 ## 运行边界
 
