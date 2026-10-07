@@ -276,7 +276,7 @@ def _synthetic_schedule_environment(monkeypatch, *, timezone="America/New_York",
 
 
 def test_dom_and_dow_or_match_cannot_be_labeled_dom_not_due(monkeypatch):
-    from scripts.runtime_heartbeat_policy import cron_matches
+    from quant_platform_kit.common.runtime_heartbeat_policy import cron_matches
     _synthetic_schedule_environment(monkeypatch)
     now = dt.datetime(2026, 10, 5, 14, 31, tzinfo=dt.timezone.utc)
     local_due = dt.datetime(2026, 10, 5, 10, 0, tzinfo=heartbeat.ZoneInfo("America/New_York"))
