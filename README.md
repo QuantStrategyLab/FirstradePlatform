@@ -48,6 +48,28 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 4. Confirm rollback steps and artifact versions.
 5. Enable scheduled or live execution only after the above checks are clear.
 
+## Read-only account facts
+
+`POST /account-facts-sync` is a manual, cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; buying power and positions are not used to calculate assets or cash.
+
+The Cloud Run service must remain IAM-protected. The caller needs `roles/run.invoker` and must send its Google-signed ID token in `X-Serverless-Authorization`; the separate application token goes in `Authorization: Bearer …`. See [Cloud Run service-to-service authentication](https://cloud.google.com/run/docs/authenticating/service-to-service). Neither token is a Firstrade credential.
+
+Configure the following only through protected Cloud Run environment variables and Secret Manager references: `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`, `FIRSTRADE_ACCOUNT_FACTS_SYNC_URL` (exactly `https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync`), `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN` (a dedicated secret), `FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`, `FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`, `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY`, and `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`. The account identity is taken from the single exact selector in the protected runtime target; if `FIRSTRADE_ACCOUNT` is also set, it must match. All values must match the trusted QRS binding and current runtime target. Do not derive or invent a binding ID.
+
+Illustrative synthetic configuration only:
+
+```text
+FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=false
+FIRSTRADE_ACCOUNT_FACTS_TARGET_ID=synthetic-target
+FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY=synthetic-account-key
+FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE=US
+FIRSTRADE_ACCOUNT=synthetic-native-account-id  # optional; if set, must match runtime target
+FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=<Secret-Manager-only>
+```
+
+Keep the sync disabled until the receiver-side account binding and separate sync token are configured and verified. The endpoint returns only a fixed status or error code; it never returns the native account ID.
+
 ## Repository layout
 
 - `tests/`: unit, contract, and regression tests.

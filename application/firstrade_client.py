@@ -235,8 +235,10 @@ class FirstradeBrokerClient:
         self.session: Any | None = None
         self.account_data: Any | None = None
         self.session_reused = False
+        self.read_only_transport_enabled = False
 
     def connect(self) -> "FirstradeBrokerClient":
+        self.read_only_transport_enabled = False
         self.credentials.require_login_fields()
         session_factory = self._session_factory
         account_data_factory = self._account_data_factory
@@ -316,12 +318,14 @@ class FirstradeBrokerClient:
             raise FirstradePlatformError("Firstrade cached session unavailable.") from None
         self.session, self.account_data = session, account_data
         self.session_reused = True
+        self.read_only_transport_enabled = True
         return self
 
     def close(self) -> None:
         session, self.session = self.session, None
         self.account_data = None
         self.session_reused = False
+        self.read_only_transport_enabled = False
         if session is not None:
             session.session.close()
 

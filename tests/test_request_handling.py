@@ -83,6 +83,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/dry-run": ["GET", "POST"],
         "/paper-command-consumer": ["POST"],
         "/reconcile": ["POST"],
+        "/account-facts-sync": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["POST"],
         "/static/<path:filename>": ["GET"],

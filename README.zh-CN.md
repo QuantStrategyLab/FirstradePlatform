@@ -46,6 +46,28 @@ FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实
 4. 确认回滚步骤和 artifact 版本。
 5. 上述检查清楚后，再启用定时任务或 live 执行。
 
+## 只读账户资料
+
+`POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它只发布券商直接返回的净资产，以及存在时的 `cash_balance`；不会用 buying power 或持仓计算资产或现金。
+
+Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`，并把 Google 签名的 ID token 放在 `X-Serverless-Authorization`；独立的应用 token 放在 `Authorization: Bearer …`。参见 [Cloud Run 服务间认证文档](https://cloud.google.com/run/docs/authenticating/service-to-service)。这两种 token 都不是 Firstrade 凭据。
+
+以下配置只能通过受保护的 Cloud Run 环境变量和 Secret Manager 引用配置：`FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`、`FIRSTRADE_ACCOUNT_FACTS_SYNC_URL`（必须精确为 `https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync`）、`FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`（专用 secret）、`FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`、`FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`、`FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY` 和 `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`。账户身份复用受保护 runtime target 中唯一且精确的 selector；若同时设置 `FIRSTRADE_ACCOUNT`，它必须完全匹配。所有值都必须与 QRS 可信绑定及当前 runtime target 一致；不要推导或编造 binding ID。
+
+仅供说明的合成配置：
+
+```text
+FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=false
+FIRSTRADE_ACCOUNT_FACTS_TARGET_ID=synthetic-target
+FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY=synthetic-account-key
+FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE=US
+FIRSTRADE_ACCOUNT=synthetic-native-account-id  # 可选；设置后必须匹配 runtime target
+FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=<仅引用 Secret Manager>
+```
+
+只有在接收端账户绑定和独立同步 token 配置并核验后，才可开启同步。接口只返回固定状态或错误码，不返回原生账户 ID。
+
 ## 仓库结构
 
 - `tests/`：单元测试、契约测试和回归测试。

@@ -246,6 +246,7 @@ def test_client_reuses_cached_session_without_logging_in_again(tmp_path):
         order_factory=FakeOrder,
     ).connect()
     assert first_client.session_reused is False
+    assert first_client.read_only_transport_enabled is False
     assert ReusableFakeSession.login_calls == 1
 
     second_client = FirstradeBrokerClient(
@@ -256,7 +257,17 @@ def test_client_reuses_cached_session_without_logging_in_again(tmp_path):
     ).connect()
 
     assert second_client.session_reused is True
+    assert second_client.read_only_transport_enabled is False
     assert ReusableFakeSession.login_calls == 1
+
+    from application.account_facts_readonly import AccountFactsUnavailable, collect_firstrade_account_facts
+
+    with pytest.raises(AccountFactsUnavailable) as error:
+        collect_firstrade_account_facts(
+            second_client,
+            expected_account="12345678",
+        )
+    assert error.value.reason_code == "readonly_client_unavailable"
 
 
 class FakeStateStore:
@@ -293,6 +304,7 @@ def test_client_reuses_persisted_session_cache_when_local_cache_is_missing(tmp_p
         session_cache_store=store,
     ).connect()
     assert first_client.session_reused is False
+    assert first_client.read_only_transport_enabled is False
     assert ReusableFakeSession.login_calls == 1
     assert store.writes == 1
 
@@ -313,6 +325,7 @@ def test_client_reuses_persisted_session_cache_when_local_cache_is_missing(tmp_p
     ).connect()
 
     assert second_client.session_reused is True
+    assert second_client.read_only_transport_enabled is False
     assert ReusableFakeSession.login_calls == 1
     assert store.writes == 2
 
@@ -395,6 +408,7 @@ def test_read_only_connection_reuses_cache_without_auth_or_writes(tmp_path, monk
     client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
     assert client.connect_read_only() is client
     assert client.session_reused
+    assert client.read_only_transport_enabled is True
     assert client.live_trading_enabled is False
     assert client.session.kwargs["debug"] is False
     assert client.session.kwargs["save_session"] is False
@@ -405,10 +419,16 @@ def test_read_only_connection_reuses_cache_without_auth_or_writes(tmp_path, monk
     assert store.writes == 0
     assert not (tmp_path / "absent").exists()
     assert calls == []
+    from application.account_facts_readonly import collect_firstrade_account_facts
+
+    facts = collect_firstrade_account_facts(client, expected_account="12345678")
+    assert facts["status"] == "available"
+    assert facts["account_selector_status"] == "matched"
     session = client.session
     client.close()
     assert session.closed
     assert client.session is None and client.account_data is None
+    assert client.read_only_transport_enabled is False
 
 
 @pytest.mark.parametrize("saved_at", [None, 0, "bad", float("nan"), float("inf"), 1002, -1, 1])
