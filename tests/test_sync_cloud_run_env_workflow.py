@@ -76,23 +76,26 @@ def test_facts_only_secret_readiness_does_not_require_deploy_secret_reads():
     assert "secretmanager.googleapis.com" not in job
     assert "scripts/account_facts_config_sync.py config" in job
     assert "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}:latest" in job
-    applied = job.split("      - name: Apply only account-facts settings without traffic", 1)[1]
-    gate = next(line.strip() for line in applied.splitlines()
-                if line.strip().startswith("python3 scripts/account_facts_config_sync.py revision "))
-    assert "--expected-sha" in gate and '"${REVISION_JSON}"' in gate
-    args = shlex.split(gate.split(" <", 1)[0])
     expected_sha = "a" * 40
-    command = [sys.executable, *[expected_sha if item == "${EXPECTED_SHA}" else item for item in args[1:]]]
-    for ready, sha, succeeds in (("True", expected_sha, True), ("False", expected_sha, False),
-                                (None, expected_sha, False), ("True", "b" * 40, False)):
-        revision = {
-            "metadata": {"labels": {"commit-sha": sha, "github-run-id": "12345"}},
-            "status": {"conditions": [{"type": "Ready", "status": ready}]},
-        }
-        result = subprocess.run(command, input=json.dumps(revision), capture_output=True, text=True, check=False,
-                                cwd=Path(__file__).resolve().parents[1],
-                                env={"CLOUD_RUN_SERVICE": "synthetic-ft-service"})
-        assert (result.returncode == 0) is succeeds
+    for step_name in ("Verify current revision and protected configuration", "Apply only account-facts settings without traffic"):
+        block = job.split(f"      - name: {step_name}", 1)[1].split("      - name:", 1)[0]
+        assert 'd["status"]["latestCreatedRevisionName"]' in block
+        assert 'gcloud run revisions describe "${latest_revision}"' in block
+        gate = next(line.strip() for line in block.splitlines()
+                    if line.strip().startswith("python3 scripts/account_facts_config_sync.py revision "))
+        assert "--expected-sha" in gate and '"${REVISION_JSON}"' in gate
+        args = shlex.split(gate.split(" <", 1)[0])
+        command = [sys.executable, *[expected_sha if item == "${EXPECTED_SHA}" else item for item in args[1:]]]
+        for ready, sha, succeeds in (("True", expected_sha, True), ("False", expected_sha, False),
+                                    (None, expected_sha, False), ("True", "b" * 40, False)):
+            revision = {
+                "metadata": {"labels": {"commit-sha": sha, "github-run-id": "12345"}},
+                "status": {"conditions": [{"type": "Ready", "status": ready}]},
+            }
+            result = subprocess.run(command, input=json.dumps(revision), capture_output=True, text=True, check=False,
+                                    cwd=Path(__file__).resolve().parents[1],
+                                    env={"CLOUD_RUN_SERVICE": "synthetic-ft-service"})
+            assert (result.returncode == 0) is succeeds
 
 
 def test_sync_cloud_run_env_workflow_uses_sync_plan_script():

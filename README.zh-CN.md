@@ -60,6 +60,8 @@ Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`
 
 现有 `sync-cloud-run-env.yml` 还提供独立且默认关闭的 `sync_account_facts_configuration` 手动输入。它会先核验受保护 runtime target、源码 SHA、批准的分支引用和专用 Secret 引用，再只对当前已就绪 revision 增量更新六个 `FIRSTRADE_ACCOUNT_FACTS_*` 环境值及已有的 token Secret Manager 引用。部署身份不读取 Secret 版本元数据或内容；Cloud Run 使用 runtime 身份检查 Secret 挂载，新 revision 的 Ready 与源码 SHA 检查仍须通过。这些部署检查不表示账户绑定或缓存会话已获验证。此模式不能与广义配置同步、流量提升、清理或诊断 staging 同时使用；它使用 `--no-traffic`，并核对其他配置和当前流量未变化。它不会创建 secret 或 IAM 绑定。成功只表示配置暂存到零流量 revision；服务流量采用和严格余额同步仍需分别完成。
 
+零流量候选的 `latestCreatedRevisionName` 可以与服务的 `latestReadyRevisionName` 不同；服务别名不能代替候选本身的就绪状态。配置同步前后都会读取精确 `latestCreatedRevisionName` 对应的 revision，要求其自身 `Ready=True` 且源码 SHA 匹配。别名不同不会触发流量提升，也不会放宽其他配置或流量读回校验。
+
 仅供说明的合成配置：
 
 ```text

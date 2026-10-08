@@ -141,6 +141,36 @@ def test_only_exact_six_fields_and_secret_reference_change_on_no_traffic_candida
     verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
 
 
+def test_zero_traffic_created_revision_may_differ_from_serving_ready_alias(monkeypatch):
+    desired = _desired(monkeypatch)
+    before = _service(revision_name="firstrade-platform-service-candidate")
+    before["status"]["latestReadyRevisionName"] = "firstrade-platform-service-old"
+    baseline = verify_before(before, SERVICE)
+    after = _service(
+        revision_name="firstrade-platform-service-configured",
+        facts_env=_desired_entries(desired),
+    )
+    after["status"]["latestReadyRevisionName"] = "firstrade-platform-service-old"
+
+    verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
+    assert before["status"]["traffic"] == after["status"]["traffic"]
+
+
+@pytest.mark.parametrize("field", ["latestCreatedRevisionName", "latestReadyRevisionName"])
+@pytest.mark.parametrize("invalid", [None, "", " ", 42])
+def test_zero_traffic_readback_still_requires_both_revision_names(monkeypatch, field, invalid):
+    desired = _desired(monkeypatch)
+    baseline = verify_before(_service(), SERVICE)
+    before = _service()
+    before["status"][field] = invalid
+    with pytest.raises(ConfigSyncError):
+        verify_before(before, SERVICE)
+    after = _service(facts_env=_desired_entries(desired))
+    after["status"][field] = invalid
+    with pytest.raises(ConfigSyncError):
+        verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
+
+
 def test_new_same_project_secret_lookup_alias_is_normalized_without_ignoring_other_mappings(monkeypatch):
     desired = _desired(monkeypatch)
     retained_mapping = _secret_mapping("existing-alert", secret_name="existing-alert-secret")
