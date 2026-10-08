@@ -382,15 +382,52 @@ def test_readback_rejects_non_facts_template_change(monkeypatch):
         verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
 
 
-def test_readback_does_not_ignore_non_client_template_annotations(monkeypatch):
+@pytest.mark.parametrize("retained_labels", [{}, {"commit-sha": EXPECTED_SHA, "github-run-id": "12345"}])
+@pytest.mark.parametrize("before_nonce,after_nonce", [("before", "after"), (None, "after"), ("before", None)])
+def test_generated_template_nonce_does_not_change_protected_configuration(
+    monkeypatch, retained_labels, before_nonce, after_nonce,
+):
+    desired = _desired(monkeypatch)
+    before = _service()
+    after = _service(facts_env=_desired_entries(desired))
+    for service, nonce in ((before, before_nonce), (after, after_nonce)):
+        labels = dict(retained_labels)
+        if nonce is not None:
+            labels["client.knative.dev/nonce"] = nonce
+        if labels:
+            service["spec"]["template"]["metadata"]["labels"] = labels
+
+    baseline = verify_before(before, SERVICE)
+    verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
+
+
+@pytest.mark.parametrize("label", ["commit-sha", "github-run-id", "deployment.example.com/owner", "serving.knative.dev/configurationGeneration"])
+def test_nonce_normalization_preserves_every_other_template_label(monkeypatch, label):
+    desired = _desired(monkeypatch)
+    before = _service()
+    before["spec"]["template"]["metadata"]["labels"] = {
+        "client.knative.dev/nonce": "before", label: "protected-before",
+    }
+    baseline = verify_before(before, SERVICE)
+    after = _service(facts_env=_desired_entries(desired))
+    after["spec"]["template"]["metadata"]["labels"] = {
+        "client.knative.dev/nonce": "after", label: "protected-after",
+    }
+
+    with pytest.raises(ConfigSyncError, match="unrelated_service_configuration_changed"):
+        verify_after(after, SERVICE, desired, SECRET_NAME, baseline)
+
+
+@pytest.mark.parametrize("annotation", ["deployment.example.com/owner", "run.googleapis.com/operation-id"])
+def test_readback_does_not_ignore_non_client_template_annotations(monkeypatch, annotation):
     desired = _desired(monkeypatch)
     baseline = verify_before(
-        _service(template_annotations={"deployment.example.com/owner": "before"}),
+        _service(template_annotations={annotation: "before"}),
         SERVICE,
     )
     after = _service(
         facts_env=_desired_entries(desired),
-        template_annotations={"deployment.example.com/owner": "after"},
+        template_annotations={annotation: "after"},
     )
 
     with pytest.raises(ConfigSyncError, match="unrelated_service_configuration_changed"):

@@ -338,6 +338,13 @@ def _template_digest(service: Mapping[str, Any], ignored_secret_aliases: set[str
         if not isinstance(metadata, dict):
             raise ConfigSyncError("service_shape_invalid")
         metadata.pop("name", None)
+        labels = metadata.get("labels")
+        if labels is not None:
+            if not isinstance(labels, dict):
+                raise ConfigSyncError("service_shape_invalid")
+            labels.pop("client.knative.dev/nonce", None)
+            if not labels:
+                metadata.pop("labels", None)
         annotations = metadata.get("annotations")
         if annotations is not None:
             if not isinstance(annotations, dict):
