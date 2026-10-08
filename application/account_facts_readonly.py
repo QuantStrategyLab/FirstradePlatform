@@ -145,6 +145,7 @@ def collect_firstrade_account_facts(
     client: object,
     *,
     expected_account: str,
+    include_positions: bool = True,
     clock: Callable[[], datetime] = _utcnow,
 ) -> dict[str, Any]:
     """Read one exact provider account through an already cached read-only client.
@@ -166,7 +167,7 @@ def collect_firstrade_account_facts(
         or not callable(getattr(client, "account_numbers", None))
         or not callable(getattr(client, "select_account", None))
         or not callable(getattr(client, "get_balances", None))
-        or not callable(getattr(client, "get_positions", None))
+        or (include_positions and not callable(getattr(client, "get_positions", None)))
     ):
         raise AccountFactsUnavailable("readonly_client_unavailable")
 
@@ -199,10 +200,12 @@ def collect_firstrade_account_facts(
     if not isinstance(balances, Mapping) or not balances or balances.get("error"):
         raise AccountFactsUnavailable("balances_unavailable")
 
-    try:
-        positions_payload = client.get_positions(expected)
-    except Exception:
-        raise AccountFactsUnavailable("positions_unavailable") from None
+    positions_payload = None
+    if include_positions:
+        try:
+            positions_payload = client.get_positions(expected)
+        except Exception:
+            raise AccountFactsUnavailable("positions_unavailable") from None
     try:
         finished_at = _timestamp(clock())
     except AccountFactsUnavailable:
@@ -212,16 +215,17 @@ def collect_firstrade_account_facts(
     try:
         if datetime.fromisoformat(finished_at) < datetime.fromisoformat(started_at):
             raise AccountFactsUnavailable("observation_time_invalid")
-        rows = _position_rows(positions_payload)
+        rows = _position_rows(positions_payload) if include_positions else []
     except AccountFactsUnavailable:
         raise
 
-    positions = []
+    positions = [] if include_positions else None
     missing_identity = 0
     missing_market_value = 0
     missing_currency = 0
     for row in rows:
         fact, identity_missing, value_missing, currency_missing = _position_fact(row)
+        assert positions is not None
         positions.append(fact)
         missing_identity += int(identity_missing)
         missing_market_value += int(value_missing)
@@ -247,17 +251,19 @@ def collect_firstrade_account_facts(
             "buying_power": buying_power,
             "currency": balance_currency,
         },
+        "positions_status": "available" if include_positions else "not_requested",
         "positions": positions,
         "coverage": {
-            "positions_count": len(positions),
-            "positions_missing_market_value": missing_market_value,
-            "positions_missing_identity_fields": missing_identity,
+            "positions_requested": include_positions,
+            "positions_count": len(positions) if positions is not None else None,
+            "positions_missing_market_value": missing_market_value if include_positions else None,
+            "positions_missing_identity_fields": missing_identity if include_positions else None,
             "provider_equity_available": provider_equity is not None,
             "cash_balance_available": cash_balance is not None,
             "available_cash_available": available_cash is not None,
             "buying_power_available": buying_power is not None,
             "balance_currency_available": balance_currency is not None,
-            "positions_missing_currency": missing_currency,
-            "currency_coverage_complete": balance_currency is not None and missing_currency == 0,
+            "positions_missing_currency": missing_currency if include_positions else None,
+            "currency_coverage_complete": include_positions and balance_currency is not None and missing_currency == 0,
         },
     }

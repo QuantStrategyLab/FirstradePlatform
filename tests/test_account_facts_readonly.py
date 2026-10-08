@@ -84,11 +84,13 @@ def test_collects_full_account_facts_with_distinct_balance_semantics_and_times()
             "buying_power": "150",
             "currency": "USD",
         },
+        "positions_status": "available",
         "positions": [
             {"symbol": "SPY", "quantity": "2", "market_value": "900", "currency": None},
             {"symbol": "AAPL", "quantity": "1", "market_value": None, "currency": "USD"},
         ],
         "coverage": {
+            "positions_requested": True,
             "positions_count": 2,
             "positions_missing_market_value": 1,
             "positions_missing_identity_fields": 0,
@@ -111,6 +113,37 @@ def test_collects_full_account_facts_with_distinct_balance_semantics_and_times()
     ]
     assert result["broker_account_id"] == "synthetic-account-a"
     assert not {"account_type", "broker_environment", "account_hash"}.intersection(result)
+
+
+@pytest.mark.parametrize("positions_method", [None, "raises"])
+def test_balance_only_read_does_not_require_or_call_positions(positions_method):
+    client = CachedReadOnlyClient()
+    if positions_method is None:
+        client.get_positions = None
+    else:
+        def fail_if_called(_account):
+            raise RuntimeError("synthetic invalid positions")
+
+        client.get_positions = fail_if_called
+
+    result = collect_firstrade_account_facts(
+        client,
+        expected_account="synthetic-account-a",
+        include_positions=False,
+        clock=lambda: datetime(2026, 10, 8, 12, tzinfo=timezone.utc),
+    )
+
+    assert result["balances"]["provider_equity"] == "1234.5"
+    assert result["balances"]["cash_balance"] == "200.25"
+    assert result["positions_status"] == "not_requested"
+    assert result["positions"] is None
+    assert result["coverage"]["positions_requested"] is False
+    assert result["coverage"]["positions_count"] is None
+    assert result["coverage"]["positions_missing_market_value"] is None
+    assert result["coverage"]["positions_missing_identity_fields"] is None
+    assert result["coverage"]["positions_missing_currency"] is None
+    assert result["coverage"]["currency_coverage_complete"] is False
+    assert ("get_positions", "synthetic-account-a") not in client.calls
 
 
 def test_rejects_missing_or_non_read_only_client_before_provider_reads():

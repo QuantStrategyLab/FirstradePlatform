@@ -17,6 +17,53 @@ def test_sync_cloud_run_env_workflow_requires_manual_dispatch():
     assert "if: github.event_name == 'workflow_dispatch'" in workflow
 
 
+def test_account_facts_configuration_is_an_isolated_zero_traffic_mode():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    input_block = workflow.split("      sync_account_facts_configuration:", 1)[1].split("\n\n", 1)[0]
+    job = workflow.split("  sync-account-facts-configuration:", 1)[1].split(
+        "  stage-cached-balance-diagnostic:", 1
+    )[0]
+    deploy = workflow[workflow.index("  deploy-cloud-run:") :]
+    stage = workflow[
+        workflow.index("  stage-cached-balance-diagnostic:") : workflow.index("  deploy-cloud-run:")
+    ]
+
+    assert "default: false" in input_block
+    assert "inputs.sync_account_facts_configuration == true" in job
+    assert "inputs.sync_account_facts_configuration != true" in deploy
+    assert "inputs.sync_account_facts_configuration != true" in stage
+    assert "ALLOW_CONFIGURATION_SYNC" in job
+    assert "ALLOW_TRAFFIC_PROMOTION" in job
+    assert "ALLOW_CLEANUP" in job
+    assert "STAGE_CACHED_BALANCE_DIAGNOSTIC" in job
+    assert "ENABLE_GITHUB_CLOUD_RUN_DEPLOY" in job
+    assert "inputs.expected_sha" in job and "inputs.approved_ref" in job
+    assert "RUN_REF: ${{ github.ref }}" in job
+    assert '"${RUN_REF}" != "${APPROVED_REF}"' in job
+    assert "git ls-remote --exit-code origin" in job
+    assert "gcloud secrets versions describe latest" in job
+    assert "gcloud run revisions describe" in job
+    assert "--update-env-vars" in job and "--update-secrets" in job and "--no-traffic" in job
+    assert "--set-env-vars" not in job
+    assert "gcloud scheduler" not in job
+    assert "get-iam-policy" not in job and "set-iam-policy" not in job
+    assert "gcloud run services update-traffic" not in job
+    assert "--to-latest" not in job
+    assert "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets." not in job
+    for name in (
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+        "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+    ):
+        assert name in job
+    assert "account-facts configuration readback is unavailable" in job
+    assert "serving adoption remains separate" in job
+
+
 def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
@@ -40,6 +87,25 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "CLOUD_SCHEDULER_PRECHECK_TIME",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+
+    for name in (
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME",
+    ):
+        assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+    for name in (
+        "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+    ):
+        assert f"{name}: ${{{{ secrets.{name} }}}}" in workflow
+    assert (
+        "add_secret_manager_reference_only FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN "
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME"
+    ) in workflow
+    assert "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets." not in workflow
 
     for name in (
         "STRATEGY_PLUGIN_ALERT_CHANNELS",

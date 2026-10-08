@@ -59,6 +59,16 @@ SHARED_TARGET_FALLBACK_ENV = frozenset(
         "EXECUTION_REPORT_GCS_URI",
     }
 )
+FIRSTRADE_ACCOUNT_FACTS_ENV = frozenset(
+    {
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+        "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+    }
+)
 REQUIRED_ENV = ("NOTIFY_LANG",)
 PLATFORM_GENERIC_ENV = (
     "GLOBAL_TELEGRAM_CHAT_ID",
@@ -70,6 +80,12 @@ PLATFORM_GENERIC_ENV = (
     "FIRSTRADE_REUSE_SESSION",
     "FIRSTRADE_SESSION_CACHE_TTL_SECONDS",
     "FIRSTRADE_ENABLE_LIVE_TRADING",
+    "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
+    "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+    "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
+    "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+    "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
+    "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
     "FIRSTRADE_RUN_SMOKE_ON_HTTP",
     "FIRSTRADE_RUN_STRATEGY_ON_HTTP",
     "FIRSTRADE_LIVE_ORDER_ACK",
@@ -431,13 +447,21 @@ def _build_target_plan(
 
     remove_env_vars: list[str] = []
     for name in OPTIONAL_TARGET_ENV:
+        is_current_firstrade_facts_target = (
+            name in FIRSTRADE_ACCOUNT_FACTS_ENV
+            and per_service_mode
+            and service_name == str(env.get("CLOUD_RUN_SERVICE") or "").strip()
+            and str(runtime_target.get("platform_id") or "").strip().lower() == "firstrade"
+        )
         value = _target_env_value(
             target,
             defaults,
             env,
             name,
             per_service_mode=per_service_mode,
-            allow_shared_fallback=name in SHARED_TARGET_FALLBACK_ENV,
+            allow_shared_fallback=(
+                name in SHARED_TARGET_FALLBACK_ENV or is_current_firstrade_facts_target
+            ),
         )
         if value is None and name == "FIRSTRADE_DRY_RUN_ONLY":
             dry_run_value = runtime_target.get("dry_run_only")

@@ -48,11 +48,15 @@ FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实
 
 ## 只读账户资料
 
-`POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它只发布券商直接返回的净资产，以及存在时的 `cash_balance`；不会用 buying power 或持仓计算资产或现金。
+`POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它只发布券商直接返回的净资产，以及存在时的 `cash_balance`；不会读取持仓，因此持仓读取失败或持仓资料不完整不会阻塞余额快照；也不会用 buying power 或持仓计算资产或现金。
 
 Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`，并把 Google 签名的 ID token 放在 `X-Serverless-Authorization`；独立的应用 token 放在 `Authorization: Bearer …`。参见 [Cloud Run 服务间认证文档](https://cloud.google.com/run/docs/authenticating/service-to-service)。这两种 token 都不是 Firstrade 凭据。
 
 以下配置只能通过受保护的 Cloud Run 环境变量和 Secret Manager 引用配置：`FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`、`FIRSTRADE_ACCOUNT_FACTS_SYNC_URL`（必须精确为 `https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync`）、`FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`（专用 secret）、`FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`、`FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`、`FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY` 和 `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`。账户身份复用受保护 runtime target 中唯一且精确的 selector；若同时设置 `FIRSTRADE_ACCOUNT`，它必须完全匹配。所有值都必须与 QRS 可信绑定及当前 runtime target 一致；不要推导或编造 binding ID。
+
+现有手动 Cloud Run 环境同步会从 `CLOUD_RUN_SERVICE_TARGETS_JSON` 中所选 Firstrade target 的 `env` 配置传递六个非 token 项；单服务旧配置路径也可使用匹配的 `FIRSTRADE_ACCOUNT_FACTS_*` 输入。target、binding、account key 和 scope 放在受保护的 GitHub 配置中。受保护的 GitHub variable `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME` 只填写已批准 Secret Manager secret 的名称；workflow 只把这个 Secret Manager 引用映射到 `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`，不会接受 GitHub Actions 传入的明文 token。部署另行审查和采用前，启用开关应保持未设置或 `false`。本次源码修改没有应用 Cloud Run 配置，也不代表部署已采用。
+
+现有 `sync-cloud-run-env.yml` 还提供独立且默认关闭的 `sync_account_facts_configuration` 手动输入。它会先核验受保护 runtime target、源码 SHA、批准的分支引用和 Secret 状态，再只对当前已就绪 revision 增量更新六个 `FIRSTRADE_ACCOUNT_FACTS_*` 环境值及已有的 token Secret Manager 引用。此模式不能与广义配置同步、流量提升、清理或诊断 staging 同时使用；它使用 `--no-traffic`，并核对其他配置和当前流量未变化。它不会创建 secret 或 IAM 绑定。成功只表示配置暂存到零流量 revision；服务流量采用和严格余额同步仍需分别完成。
 
 仅供说明的合成配置：
 
@@ -62,8 +66,10 @@ FIRSTRADE_ACCOUNT_FACTS_TARGET_ID=synthetic-target
 FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY=synthetic-account-key
 FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE=US
+FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME=<已批准的secret名称>
 FIRSTRADE_ACCOUNT=synthetic-native-account-id  # 可选；设置后必须匹配 runtime target
-FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=<仅引用 Secret Manager>
+# FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN 仅由受保护的环境同步 workflow
+# 通过 Secret Manager 引用注入。
 ```
 
 只有在接收端账户绑定和独立同步 token 配置并核验后，才可开启同步。接口只返回固定状态或错误码，不返回原生账户 ID。
