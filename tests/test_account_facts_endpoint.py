@@ -66,7 +66,13 @@ def test_sync_endpoint_reads_once_closes_and_returns_only_safe_ack(monkeypatch):
         "balances": {"currency": "USD", "provider_equity": "100.00", "cash_balance": "50.00"},
         "positions": [{"symbol": "MUST_NOT_BE_SENT"}],
     }
-    monkeypatch.setattr(main, "collect_firstrade_account_facts", lambda *_args, **_kwargs: observation)
+    collector_calls = []
+
+    def collect_balances_only(*_args, **kwargs):
+        collector_calls.append(kwargs)
+        return observation
+
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", collect_balances_only)
     monkeypatch.setattr(
         main,
         "publish_firstrade_account_snapshot",
@@ -83,6 +89,7 @@ def test_sync_endpoint_reads_once_closes_and_returns_only_safe_ack(monkeypatch):
     assert response.status_code == 200
     assert response.get_json() == {"ok": True, "stored": True}
     assert len(client_builds) == 1
+    assert collector_calls == [{"expected_account": "synthetic-native-id", "include_positions": False}]
     assert client.closed is True
     assert len(payloads) == 1
     posted, cfg = payloads[0]

@@ -922,6 +922,7 @@ def account_facts_sync():
         observation = collect_firstrade_account_facts(
             client,
             expected_account=config.account_id,
+            include_positions=False,
         )
         payload = build_firstrade_account_snapshot(
             observation,

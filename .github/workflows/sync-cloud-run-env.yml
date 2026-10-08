@@ -31,6 +31,11 @@ on:
         required: false
         default: false
         type: boolean
+      sync_account_facts_configuration:
+        description: "Apply only the protected Firstrade account-facts configuration to the current revision with zero traffic"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -50,9 +55,177 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  sync-account-facts-configuration:
+    name: Apply account-facts configuration (zero traffic)
+    if: github.event_name == 'workflow_dispatch' && inputs.sync_account_facts_configuration == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENABLE_GITHUB_CLOUD_RUN_DEPLOY: ${{ vars.ENABLE_GITHUB_CLOUD_RUN_DEPLOY }}
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      GCP_PROJECT_ID: firstradequant
+      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME }}
+      FIRSTRADE_ACCOUNT_FACTS_TARGET_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_TARGET_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE }}
+    steps:
+      - name: Validate facts-only dispatch and protected source
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+          RUN_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          ALLOW_CONFIGURATION_SYNC: ${{ inputs.allow_configuration_sync }}
+          ALLOW_TRAFFIC_PROMOTION: ${{ inputs.allow_traffic_promotion }}
+          ALLOW_CLEANUP: ${{ inputs.allow_cleanup }}
+          STAGE_CACHED_BALANCE_DIAGNOSTIC: ${{ inputs.stage_cached_balance_diagnostic }}
+        run: |
+          set -euo pipefail
+          if [ "${ENABLE_GITHUB_CLOUD_RUN_DEPLOY:-}" != "true" ]; then
+            echo "Facts-only configuration sync is disabled." >&2
+            exit 1
+          fi
+          if [ "${ALLOW_CONFIGURATION_SYNC,,}" = "true" ] \
+            || [ "${ALLOW_TRAFFIC_PROMOTION,,}" = "true" ] \
+            || [ "${ALLOW_CLEANUP,,}" = "true" ] \
+            || [ "${STAGE_CACHED_BALANCE_DIAGNOSTIC,,}" = "true" ]; then
+            echo "Facts-only configuration sync cannot be combined with another mode." >&2
+            exit 1
+          fi
+          if ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "${DISPATCH_SHA}" != "${EXPECTED_SHA}" ] \
+            || [ "${RUN_REF}" != "${APPROVED_REF}" ]; then
+            echo "The dispatched workflow source does not match expected_sha." >&2
+            exit 1
+          fi
+          case "${APPROVED_REF}" in refs/heads/*) ;; *) echo "approved_ref must be a branch ref." >&2; exit 1 ;; esac
+          if [ -z "${CLOUD_RUN_REGION:-}" ] || [ -z "${CLOUD_RUN_SERVICE:-}" ]; then
+            echo "The protected Cloud Run target is unavailable." >&2
+            exit 1
+          fi
+
+      - name: Checkout approved workflow source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Validate protected account-facts configuration
+        run: python3 scripts/account_facts_config_sync.py config >/dev/null
+
+      - name: Verify approved source revision
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_REF: ${{ inputs.approved_ref }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          approved_sha="$(git ls-remote --exit-code origin "${APPROVED_REF}" | awk 'NR == 1 { print $1 }')"
+          if [ "${checked_out_sha}" != "${EXPECTED_SHA}" ] || [ "${approved_sha}" != "${EXPECTED_SHA}" ]; then
+            echo "The checked-out workflow and approved ref must match expected_sha." >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+          service_account: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: firstradequant
+          version: ">= 416.0.0"
+
+      - name: Verify current revision and secret reference
+        id: facts_baseline
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          SERVICE_JSON: ${{ runner.temp }}/account-facts-service-before.json
+          REVISION_JSON: ${{ runner.temp }}/account-facts-revision-before.json
+        run: |
+          set -euo pipefail
+          python3 scripts/account_facts_config_sync.py config >/dev/null
+          if ! gcloud secrets versions describe latest \
+            --secret="${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}" \
+            --project="${GCP_PROJECT_ID}" --format='value(state)' \
+            >"${RUNNER_TEMP}/account-facts-secret-state.txt" \
+            2>"${RUNNER_TEMP}/account-facts-secret-read.err"; then
+            echo "The protected account-facts token secret is unavailable." >&2
+            exit 1
+          fi
+          if [ "$(cat "${RUNNER_TEMP}/account-facts-secret-state.txt")" != "ENABLED" ]; then
+            echo "The protected account-facts token secret is not enabled." >&2
+            exit 1
+          fi
+          if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${SERVICE_JSON}" 2>"${RUNNER_TEMP}/account-facts-service-read.err"; then
+            echo "The current Cloud Run service configuration is unavailable." >&2
+            exit 1
+          fi
+          chmod 600 "${SERVICE_JSON}"
+          baseline="$(python3 scripts/account_facts_config_sync.py before --service "${CLOUD_RUN_SERVICE}" <"${SERVICE_JSON}")"
+          latest_revision="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"]["latestCreatedRevisionName"])' <"${SERVICE_JSON}")"
+          if ! gcloud run revisions describe "${latest_revision}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${REVISION_JSON}" 2>"${RUNNER_TEMP}/account-facts-revision-read.err"; then
+            echo "The current Cloud Run revision metadata is unavailable." >&2
+            exit 1
+          fi
+          chmod 600 "${REVISION_JSON}"
+          python3 scripts/account_facts_config_sync.py revision --expected-sha "${EXPECTED_SHA}" <"${REVISION_JSON}" >/dev/null
+          echo "baseline=${baseline}" >>"${GITHUB_OUTPUT}"
+
+      - name: Apply only account-facts settings without traffic
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ACCOUNT_FACTS_BASELINE_JSON: ${{ steps.facts_baseline.outputs.baseline }}
+          SERVICE_JSON: ${{ runner.temp }}/account-facts-service-after.json
+          REVISION_JSON: ${{ runner.temp }}/account-facts-revision-after.json
+        run: |
+          set -euo pipefail
+          env_updates="^|^FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=${FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED}|FIRSTRADE_ACCOUNT_FACTS_SYNC_URL=${FIRSTRADE_ACCOUNT_FACTS_SYNC_URL}|FIRSTRADE_ACCOUNT_FACTS_TARGET_ID=${FIRSTRADE_ACCOUNT_FACTS_TARGET_ID}|FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID=${FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID}|FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY=${FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY}|FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE=${FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE}"
+          secret_updates="^|^FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}:latest"
+          if ! gcloud run services update "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" \
+            --update-env-vars="${env_updates}" --update-secrets="${secret_updates}" \
+            --no-traffic --quiet \
+            >"${RUNNER_TEMP}/account-facts-update.out" 2>"${RUNNER_TEMP}/account-facts-update.err"; then
+            echo "The zero-traffic account-facts configuration update failed." >&2
+            exit 1
+          fi
+          if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${SERVICE_JSON}" 2>"${RUNNER_TEMP}/account-facts-service-after-read.err"; then
+            echo "The account-facts configuration readback is unavailable." >&2
+            exit 1
+          fi
+          chmod 600 "${SERVICE_JSON}"
+          python3 scripts/account_facts_config_sync.py after --service "${CLOUD_RUN_SERVICE}" <"${SERVICE_JSON}" >/dev/null
+          latest_revision="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["status"]["latestCreatedRevisionName"])' <"${SERVICE_JSON}")"
+          if ! gcloud run revisions describe "${latest_revision}" \
+            --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
+            >"${REVISION_JSON}" 2>"${RUNNER_TEMP}/account-facts-revision-after-read.err"; then
+            echo "The updated Cloud Run revision metadata is unavailable." >&2
+            exit 1
+          fi
+          chmod 600 "${REVISION_JSON}"
+          python3 scripts/account_facts_config_sync.py revision --expected-sha "${EXPECTED_SHA}" <"${REVISION_JSON}" >/dev/null
+          echo "Facts-only settings were applied to a zero-traffic revision; serving adoption remains separate." >>"${GITHUB_STEP_SUMMARY}"
+
   stage-cached-balance-diagnostic:
     name: Stage cached-balance diagnostic (no traffic)
-    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic == true
+    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic == true && inputs.sync_account_facts_configuration != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -330,7 +503,7 @@ jobs:
   deploy-cloud-run:
     name: Deploy Cloud Run
     # Production deployment and environment sync require an explicit operator dispatch.
-    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic != true
+    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic != true && inputs.sync_account_facts_configuration != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -360,6 +533,13 @@ jobs:
       FIRSTRADE_MFA_EMAIL_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_EMAIL_SECRET_NAME }}
       FIRSTRADE_MFA_PHONE_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_PHONE_SECRET_NAME }}
       FIRSTRADE_MFA_CODE_SECRET_NAME: ${{ vars.FIRSTRADE_MFA_CODE_SECRET_NAME }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME }}
+      FIRSTRADE_ACCOUNT_FACTS_TARGET_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_TARGET_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE }}
       # This is validated deployment intent, not credential material. Prefer the
       # control-plane variable while retaining a legacy-secret fallback during migration.
       RUNTIME_TARGET_JSON: ${{ vars.RUNTIME_TARGET_JSON || secrets.RUNTIME_TARGET_JSON }}
@@ -981,6 +1161,19 @@ jobs:
             fi
           }
 
+          add_secret_manager_reference_only() {
+            local env_name="$1"
+            local secret_var_name="$2"
+            local secret_name="${!secret_var_name:-}"
+            if [ -n "${secret_name}" ]; then
+              secret_pairs+=("${env_name}=${secret_name}:latest")
+              remove_env_vars+=("${env_name}")
+            else
+              remove_env_vars+=("${env_name}")
+              remove_secret_vars+=("${env_name}")
+            fi
+          }
+
           add_optional_secret TELEGRAM_TOKEN TELEGRAM_TOKEN_SECRET_NAME TELEGRAM_TOKEN
           add_optional_secret STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD
           add_optional_secret STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN_SECRET_NAME STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN
@@ -994,6 +1187,7 @@ jobs:
           add_optional_secret FIRSTRADE_MFA_EMAIL FIRSTRADE_MFA_EMAIL_SECRET_NAME FIRSTRADE_MFA_EMAIL
           add_optional_secret FIRSTRADE_MFA_PHONE FIRSTRADE_MFA_PHONE_SECRET_NAME FIRSTRADE_MFA_PHONE
           add_optional_secret FIRSTRADE_MFA_CODE FIRSTRADE_MFA_CODE_SECRET_NAME FIRSTRADE_MFA_CODE
+          add_secret_manager_reference_only FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME
 
           service_url="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
             --project="${GCP_PROJECT_ID}" \

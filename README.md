@@ -50,11 +50,15 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 
 ## Read-only account facts
 
-`POST /account-facts-sync` is a manual, cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; buying power and positions are not used to calculate assets or cash.
+`POST /account-facts-sync` is a manual, cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; it does not read positions, so a positions read failure or incomplete positions cannot block the balance snapshot. Buying power and positions are not used to calculate assets or cash.
 
 The Cloud Run service must remain IAM-protected. The caller needs `roles/run.invoker` and must send its Google-signed ID token in `X-Serverless-Authorization`; the separate application token goes in `Authorization: Bearer …`. See [Cloud Run service-to-service authentication](https://cloud.google.com/run/docs/authenticating/service-to-service). Neither token is a Firstrade credential.
 
 Configure the following only through protected Cloud Run environment variables and Secret Manager references: `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`, `FIRSTRADE_ACCOUNT_FACTS_SYNC_URL` (exactly `https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync`), `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN` (a dedicated secret), `FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`, `FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`, `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY`, and `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`. The account identity is taken from the single exact selector in the protected runtime target; if `FIRSTRADE_ACCOUNT` is also set, it must match. All values must match the trusted QRS binding and current runtime target. Do not derive or invent a binding ID.
+
+The existing manual Cloud Run environment sync carries the six non-token settings through the selected Firstrade target's `env` configuration in `CLOUD_RUN_SERVICE_TARGETS_JSON`; the legacy single-service path can use matching `FIRSTRADE_ACCOUNT_FACTS_*` inputs. Keep target, binding, account key, and scope in protected GitHub configuration. Set the protected GitHub variable `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME` to the name of the already-approved Secret Manager secret. The workflow maps that Secret Manager reference to `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`; it never accepts a raw token value from GitHub Actions. Keep the enable switch unset or `false` until deployment adoption is separately reviewed. This source change does not apply Cloud Run configuration or establish deployment adoption.
+
+The existing `sync-cloud-run-env.yml` workflow also has a separate, default-off `sync_account_facts_configuration` dispatch input. It applies only the six `FIRSTRADE_ACCOUNT_FACTS_*` environment values and the existing token Secret Manager reference to the currently ready revision, after checking the protected runtime target, source SHA, approved ref, and secret state. It rejects combination with broad configuration sync, traffic promotion, cleanup, and diagnostic staging; it uses incremental updates with `--no-traffic` and verifies that unrelated configuration and active traffic remain unchanged. It does not create a secret or IAM binding. A successful run only stages configuration on a zero-traffic revision; serving adoption and a strict balance sync remain separate steps.
 
 Illustrative synthetic configuration only:
 
@@ -64,8 +68,10 @@ FIRSTRADE_ACCOUNT_FACTS_TARGET_ID=synthetic-target
 FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY=synthetic-account-key
 FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE=US
+FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME=<approved-secret-name>
 FIRSTRADE_ACCOUNT=synthetic-native-account-id  # optional; if set, must match runtime target
-FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=<Secret-Manager-only>
+# FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN is injected only by the existing
+# Secret Manager reference in the protected environment sync workflow.
 ```
 
 Keep the sync disabled until the receiver-side account binding and separate sync token are configured and verified. The endpoint returns only a fixed status or error code; it never returns the native account ID.
