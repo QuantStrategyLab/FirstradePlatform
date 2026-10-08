@@ -146,7 +146,7 @@ jobs:
           project_id: firstradequant
           version: ">= 416.0.0"
 
-      - name: Verify current revision and secret reference
+      - name: Verify current revision and protected configuration
         id: facts_baseline
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
@@ -155,18 +155,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/account_facts_config_sync.py config >/dev/null
-          if ! gcloud secrets versions describe latest \
-            --secret="${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}" \
-            --project="${GCP_PROJECT_ID}" --format='value(state)' \
-            >"${RUNNER_TEMP}/account-facts-secret-state.txt" \
-            2>"${RUNNER_TEMP}/account-facts-secret-read.err"; then
-            echo "The protected account-facts token secret is unavailable." >&2
-            exit 1
-          fi
-          if [ "$(cat "${RUNNER_TEMP}/account-facts-secret-state.txt")" != "ENABLED" ]; then
-            echo "The protected account-facts token secret is not enabled." >&2
-            exit 1
-          fi
+          # Cloud Run validates secret mounting with the runtime identity.
+          # Keep the updated revision Ready/source checks below; the deploy
+          # identity does not need Secret metadata or payload read access.
           if ! gcloud run services describe "${CLOUD_RUN_SERVICE}" \
             --project="${GCP_PROJECT_ID}" --region="${CLOUD_RUN_REGION}" --format=json \
             >"${SERVICE_JSON}" 2>"${RUNNER_TEMP}/account-facts-service-read.err"; then

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -42,7 +43,7 @@ def test_account_facts_configuration_is_an_isolated_zero_traffic_mode():
     assert "RUN_REF: ${{ github.ref }}" in job
     assert '"${RUN_REF}" != "${APPROVED_REF}"' in job
     assert "git ls-remote --exit-code origin" in job
-    assert "gcloud secrets versions describe latest" in job
+    assert "gcloud secrets" not in job
     assert "gcloud run revisions describe" in job
     assert "--update-env-vars" in job and "--update-secrets" in job and "--no-traffic" in job
     assert "--set-env-vars" not in job
@@ -62,6 +63,36 @@ def test_account_facts_configuration_is_an_isolated_zero_traffic_mode():
         assert name in job
     assert "account-facts configuration readback is unavailable" in job
     assert "serving adoption remains separate" in job
+
+
+def test_facts_only_secret_readiness_does_not_require_deploy_secret_reads():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml").read_text()
+    job = workflow.split("  sync-account-facts-configuration:", 1)[1].split(
+        "  stage-cached-balance-diagnostic:", 1
+    )[0]
+    # The deploy identity only supplies a protected reference. Secret access is
+    # enforced by Cloud Run with the runtime identity; no metadata/payload read.
+    assert "gcloud secrets" not in job
+    assert "secretmanager.googleapis.com" not in job
+    assert "scripts/account_facts_config_sync.py config" in job
+    assert "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}:latest" in job
+    applied = job.split("      - name: Apply only account-facts settings without traffic", 1)[1]
+    gate = next(line.strip() for line in applied.splitlines()
+                if line.strip().startswith("python3 scripts/account_facts_config_sync.py revision "))
+    assert "--expected-sha" in gate and '"${REVISION_JSON}"' in gate
+    args = shlex.split(gate.split(" <", 1)[0])
+    expected_sha = "a" * 40
+    command = [sys.executable, *[expected_sha if item == "${EXPECTED_SHA}" else item for item in args[1:]]]
+    for ready, sha, succeeds in (("True", expected_sha, True), ("False", expected_sha, False),
+                                (None, expected_sha, False), ("True", "b" * 40, False)):
+        revision = {
+            "metadata": {"labels": {"commit-sha": sha, "github-run-id": "12345"}},
+            "status": {"conditions": [{"type": "Ready", "status": ready}]},
+        }
+        result = subprocess.run(command, input=json.dumps(revision), capture_output=True, text=True, check=False,
+                                cwd=Path(__file__).resolve().parents[1],
+                                env={"CLOUD_RUN_SERVICE": "synthetic-ft-service"})
+        assert (result.returncode == 0) is succeeds
 
 
 def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
