@@ -79,6 +79,17 @@ def test_inspects_only_exact_project_region_service_and_serving_revision() -> No
         "selector_source": "literal",
         "selector_nonempty": True,
         "effective_selector_source": "first_trade_account_literal",
+        "account_data_configuration": {
+            "sync_enabled": False,
+            "approved_destination_configured": False,
+            "binding_settings_configured": False,
+            "sync_token_source": "absent",
+            "session_reuse_enabled": False,
+            "session_cache_persistence_enabled": False,
+            "session_cache_bucket_configured": False,
+            "account_binding_validity": "not_checked",
+            "cached_session_validity": "not_checked",
+        },
     }
     assert urls == [
         f"{readiness.API_ROOT}/{PROJECT}",
@@ -86,6 +97,72 @@ def test_inspects_only_exact_project_region_service_and_serving_revision() -> No
         f"{readiness.API_ROOT}/{PROJECT}",
     ]
     assert all(url.startswith("https://run.googleapis.com/v2/projects/firstradequant/") for url in urls)
+
+
+def test_serving_facts_settings_are_redacted_and_do_not_prove_session_or_identity() -> None:
+    env = [
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", "value": "true"},
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": readiness.ACCOUNT_FACTS_DESTINATION},
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "valueSource": {"secretKeyRef": {"secret": SENTINEL, "version": "latest"}}},
+        {"name": "FIRSTRADE_REUSE_SESSION", "value": " true "},
+        {"name": "FIRSTRADE_PERSIST_SESSION_CACHE", "value": "true"},
+        {"name": "FIRSTRADE_GCS_STATE_BUCKET", "value": SENTINEL},
+        *[{"name": name, "value": SENTINEL} for name in (
+            "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID", "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+            "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY", "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+        )],
+    ]
+    request, urls = _runner(revision=_revision(env=env))
+    result = readiness.inspect_readiness("firstrade-platform", "us-central1", "token", request_json=request)
+    settings = result["account_data_configuration"]
+    assert settings == {
+        "sync_enabled": True, "approved_destination_configured": True,
+        "binding_settings_configured": True, "sync_token_source": "secret_reference",
+        "session_reuse_enabled": True, "session_cache_persistence_enabled": True,
+        "session_cache_bucket_configured": True, "account_binding_validity": "not_checked",
+        "cached_session_validity": "not_checked",
+    }
+    assert len(urls) == 3
+    assert all("run.googleapis.com/v2/" in url for url in urls)
+    assert SENTINEL not in json.dumps(result)
+    assert readiness.ACCOUNT_FACTS_DESTINATION not in json.dumps(result)
+
+
+@pytest.mark.parametrize("value", ["invalid-flag", None])
+def test_unresolved_or_invalid_flags_do_not_become_enabled(value: str | None) -> None:
+    row = {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", "value": value} if value else {
+        "name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", "valueSource": {"secretKeyRef": {"secret": SENTINEL}},
+    }
+    result = readiness._account_data_configuration(_revision(env=[row]))
+    assert result["sync_enabled"] is None
+    assert SENTINEL not in json.dumps(result)
+
+
+@pytest.mark.parametrize("field", ["FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE"])
+def test_rejects_ambiguous_serving_facts_fields_without_exposing_values(field: str) -> None:
+    row = {"name": field, "value": SENTINEL}
+    with pytest.raises(readiness.DiagnosticFailure) as error:
+        readiness._account_data_configuration(_revision(env=[row, row]))
+    assert error.value.reason == "account_data_configuration_ambiguous"
+    assert SENTINEL not in str(error.value)
+
+
+def test_wrong_destination_and_literal_token_are_detected_without_value_output() -> None:
+    result = readiness._account_data_configuration(_revision(env=[
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": "https://private.invalid/" + SENTINEL},
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "value": SENTINEL},
+    ]))
+    assert result["approved_destination_configured"] is False
+    assert result["sync_token_source"] == "literal"
+    assert SENTINEL not in json.dumps(result)
+
+
+def test_secret_backed_destination_is_unresolved_without_accessing_payload() -> None:
+    result = readiness._account_data_configuration(_revision(env=[
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "valueSource": {"secretKeyRef": {"secret": SENTINEL}}},
+    ]))
+    assert result["approved_destination_configured"] is None
+    assert SENTINEL not in json.dumps(result)
 
 
 @pytest.mark.parametrize(

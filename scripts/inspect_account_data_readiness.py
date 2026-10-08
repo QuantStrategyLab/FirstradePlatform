@@ -21,6 +21,7 @@ REGION_PATH_PATTERN = r"[a-z]+(?:-[a-z0-9]+)+[0-9]"
 REGION_RE = re.compile(REGION_PATH_PATTERN + r"\Z")
 COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 MAX_RESPONSE_BYTES = 2_000_000
+ACCOUNT_FACTS_DESTINATION = "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync"
 
 
 class DiagnosticFailure(Exception):
@@ -291,6 +292,64 @@ def _effective_selector_configuration(
     return direct_configured, f"first_trade_account_{direct_source}"
 
 
+def _account_data_configuration(revision: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe serving settings, without resolving secrets or claiming session health."""
+    containers = revision.get("containers")
+    if not isinstance(containers, list) or len(containers) != 1:
+        raise DiagnosticFailure("revision_container_invalid")
+    env = containers[0].get("env", []) if isinstance(containers[0], Mapping) else None
+    if not isinstance(env, list):
+        raise DiagnosticFailure("revision_environment_invalid")
+
+    def entry(name: str) -> Mapping[str, Any] | None:
+        matches = [row for row in env if isinstance(row, Mapping) and row.get("name") == name]
+        if len(matches) > 1:
+            raise DiagnosticFailure("account_data_configuration_ambiguous")
+        return matches[0] if matches else None
+
+    def source(row: Mapping[str, Any] | None) -> str:
+        if row is None:
+            return "absent"
+        ref = (row.get("valueSource") or {}).get("secretKeyRef") if isinstance(row.get("valueSource"), Mapping) else None
+        if isinstance(ref, Mapping):
+            if "value" in row:
+                raise DiagnosticFailure("account_data_configuration_ambiguous")
+            return "secret_reference" if isinstance(ref.get("secret"), str) and ref["secret"].strip() else "absent"
+        value = row.get("value")
+        return "literal" if isinstance(value, str) and value.strip() else "absent"
+
+    def flag(name: str) -> bool | None:
+        row = entry(name)
+        kind = source(row)
+        if kind == "absent":
+            return False
+        if kind == "secret_reference":
+            return None
+        value = row["value"].strip().lower()
+        return value == "true" if value in {"true", "false"} else None
+
+    destination = entry("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL")
+    destination_kind = source(destination)
+    binding_sources = [source(entry(name)) for name in (
+        "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID", "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY", "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+    )]
+    return {
+        "sync_enabled": flag("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED"),
+        "approved_destination_configured": (
+            destination.get("value") == ACCOUNT_FACTS_DESTINATION
+            if destination_kind == "literal" else None if destination_kind == "secret_reference" else False
+        ),
+        "binding_settings_configured": all(kind != "absent" for kind in binding_sources),
+        "sync_token_source": source(entry("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN")),
+        "session_reuse_enabled": flag("FIRSTRADE_REUSE_SESSION"),
+        "session_cache_persistence_enabled": flag("FIRSTRADE_PERSIST_SESSION_CACHE"),
+        "session_cache_bucket_configured": source(entry("FIRSTRADE_GCS_STATE_BUCKET")) != "absent",
+        "account_binding_validity": "not_checked",
+        "cached_session_validity": "not_checked",
+    }
+
+
 def inspect_readiness(
     service_name: str,
     region: str,
@@ -326,6 +385,7 @@ def inspect_readiness(
     selector_nonempty, effective_selector_source = _effective_selector_configuration(
         revision, (selector_configured, selector_source)
     )
+    account_data_configuration = _account_data_configuration(revision)
     after = request_json(service_url, token)
     if after.get("name") != service_path:
         raise DiagnosticFailure("service_identity_mismatch")
@@ -340,6 +400,7 @@ def inspect_readiness(
         "selector_source": selector_source,
         "selector_nonempty": selector_nonempty,
         "effective_selector_source": effective_selector_source,
+        "account_data_configuration": account_data_configuration,
     }
 
 

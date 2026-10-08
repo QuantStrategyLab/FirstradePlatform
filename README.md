@@ -50,6 +50,8 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 
 ## Read-only account facts
 
+The existing Runtime Target Lifecycle manual entry with `metadata_only=true` inspects the actual serving revision. It reports only whether the sync switch, approved destination, binding settings, token reference and cache settings are configured. It does not resolve secrets, read a cache or invoke the broker; binding correctness and cached-session validity remain explicitly unchecked. Configured settings do not prove a successful balance sync.
+
 `POST /account-facts-sync` is a manual, cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; it does not read positions, so a positions read failure or incomplete positions cannot block the balance snapshot. Buying power and positions are not used to calculate assets or cash.
 
 The Cloud Run service must remain IAM-protected. The caller needs `roles/run.invoker` and must send its Google-signed ID token in `X-Serverless-Authorization`; the separate application token goes in `Authorization: Bearer …`. See [Cloud Run service-to-service authentication](https://cloud.google.com/run/docs/authenticating/service-to-service). Neither token is a Firstrade credential.

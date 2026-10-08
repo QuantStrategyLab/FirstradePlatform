@@ -48,6 +48,8 @@ FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实
 
 ## 只读账户资料
 
+现有 Runtime Target Lifecycle 手动入口的 `metadata_only=true` 会核实际接收流量的修订，并只输出同步开关、固定目的地、绑定配置、token 引用与缓存配置是否存在。它不读取 Secret 内容或缓存，不调用券商；绑定准确性及缓存有效性明确标为尚未核验。配置存在不能代表余额已同步。
+
 `POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它只发布券商直接返回的净资产，以及存在时的 `cash_balance`；不会读取持仓，因此持仓读取失败或持仓资料不完整不会阻塞余额快照；也不会用 buying power 或持仓计算资产或现金。
 
 Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`，并把 Google 签名的 ID token 放在 `X-Serverless-Authorization`；独立的应用 token 放在 `Authorization: Bearer …`。参见 [Cloud Run 服务间认证文档](https://cloud.google.com/run/docs/authenticating/service-to-service)。这两种 token 都不是 Firstrade 凭据。
