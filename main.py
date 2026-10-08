@@ -25,6 +25,17 @@ from application.firstrade_client import (
     is_live_trading_enabled,
     mask_account_id,
 )
+from application.account_facts_readonly import (
+    AccountFactsUnavailable,
+    collect_firstrade_account_facts,
+)
+from application.account_facts_publisher import (
+    AccountFactsPublishError,
+    bind_account_facts_runtime_selector,
+    build_firstrade_account_snapshot,
+    load_account_facts_publish_config,
+    publish_firstrade_account_snapshot,
+)
 from application.paper_execution_admission import (
     evaluate_paper_dry_run_admission,
     paper_dry_run_admission_requested,
@@ -78,6 +89,7 @@ def _build_read_only_reconciliation_client():
 
 
 READ_ONLY_BROKER_RECONCILIATION_CLIENT_BUILDER = _build_read_only_reconciliation_client
+READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER = _build_read_only_reconciliation_client
 
 _REDACTED = "<redacted>"
 _TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
@@ -862,6 +874,79 @@ def paper_execution_command_consumer():
 @app.post("/reconcile")
 def reconcile():
     return _handle_reconciliation()
+
+
+@app.post("/account-facts-sync")
+def account_facts_sync():
+    if os.environ.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED") != "true":
+        return jsonify({"ok": False, "error": "disabled"}), 404
+
+    try:
+        config = load_account_facts_publish_config(os.environ, allow_missing_account=True)
+    except AccountFactsPublishError as exc:
+        return jsonify({"ok": False, "error": exc.reason_code}), 503
+
+    authorization = request.headers.get("Authorization", "")
+    if authorization != f"Bearer {config.sync_token}":
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        settings = _runtime_settings()
+        runtime_target = settings.runtime_target
+        if (
+            runtime_target is None
+            or getattr(runtime_target, "platform_id", None) != "firstrade"
+        ):
+            raise AccountFactsPublishError("runtime_target_mismatch")
+        account_selectors = getattr(runtime_target, "account_selector", ())
+        if isinstance(account_selectors, str):
+            account_selectors = (account_selectors,)
+        if not isinstance(account_selectors, (tuple, list)) or len(account_selectors) != 1:
+            raise AccountFactsPublishError("runtime_target_account_selector_invalid")
+        config = bind_account_facts_runtime_selector(config, account_selectors[0])
+        if getattr(runtime_target, "account_scope", None) != config.account_scope:
+            raise AccountFactsPublishError("runtime_target_mismatch")
+    except AccountFactsPublishError as exc:
+        status = 409 if exc.reason_code in {
+            "runtime_target_mismatch",
+            "runtime_target_account_selector_invalid",
+            "account_identity_mismatch",
+        } else 503
+        return jsonify({"ok": False, "error": exc.reason_code}), status
+    except Exception:
+        return jsonify({"ok": False, "error": "runtime_target_unavailable"}), 503
+
+    client = None
+    try:
+        client = READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER()
+        observation = collect_firstrade_account_facts(
+            client,
+            expected_account=config.account_id,
+        )
+        payload = build_firstrade_account_snapshot(
+            observation,
+            config,
+            account_scope=str(runtime_target.account_scope),
+        )
+    except AccountFactsUnavailable as exc:
+        return jsonify({"ok": False, "error": exc.reason_code}), 503
+    except AccountFactsPublishError as exc:
+        return jsonify({"ok": False, "error": exc.reason_code}), 503
+    except Exception:
+        return jsonify({"ok": False, "error": "account_facts_unavailable"}), 503
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    try:
+        publish_firstrade_account_snapshot(payload, config)
+    except AccountFactsPublishError as exc:
+        status = 502 if exc.reason_code.startswith("sync_") else 503
+        return jsonify({"ok": False, "error": exc.reason_code}), status
+    return jsonify({"ok": True, "stored": True}), 200
 
 
 @app.post("/probe")
