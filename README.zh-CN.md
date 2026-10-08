@@ -58,7 +58,7 @@ Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`
 
 现有手动 Cloud Run 环境同步会从 `CLOUD_RUN_SERVICE_TARGETS_JSON` 中所选 Firstrade target 的 `env` 配置传递六个非 token 项；单服务旧配置路径也可使用匹配的 `FIRSTRADE_ACCOUNT_FACTS_*` 输入。target、binding、account key 和 scope 放在受保护的 GitHub 配置中。受保护的 GitHub variable `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME` 只填写已批准 Secret Manager secret 的名称；workflow 只把这个 Secret Manager 引用映射到 `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`，不会接受 GitHub Actions 传入的明文 token。部署另行审查和采用前，启用开关应保持未设置或 `false`。本次源码修改没有应用 Cloud Run 配置，也不代表部署已采用。
 
-现有 `sync-cloud-run-env.yml` 还提供独立且默认关闭的 `sync_account_facts_configuration` 手动输入。它会先核验受保护 runtime target、源码 SHA、批准的分支引用和 Secret 状态，再只对当前已就绪 revision 增量更新六个 `FIRSTRADE_ACCOUNT_FACTS_*` 环境值及已有的 token Secret Manager 引用。此模式不能与广义配置同步、流量提升、清理或诊断 staging 同时使用；它使用 `--no-traffic`，并核对其他配置和当前流量未变化。它不会创建 secret 或 IAM 绑定。成功只表示配置暂存到零流量 revision；服务流量采用和严格余额同步仍需分别完成。
+现有 `sync-cloud-run-env.yml` 还提供独立且默认关闭的 `sync_account_facts_configuration` 手动输入。它会先核验受保护 runtime target、源码 SHA、批准的分支引用和专用 Secret 引用，再只对当前已就绪 revision 增量更新六个 `FIRSTRADE_ACCOUNT_FACTS_*` 环境值及已有的 token Secret Manager 引用。部署身份不读取 Secret 版本元数据或内容；Cloud Run 使用 runtime 身份检查 Secret 挂载，新 revision 的 Ready 与源码 SHA 检查仍须通过。这些部署检查不表示账户绑定或缓存会话已获验证。此模式不能与广义配置同步、流量提升、清理或诊断 staging 同时使用；它使用 `--no-traffic`，并核对其他配置和当前流量未变化。它不会创建 secret 或 IAM 绑定。成功只表示配置暂存到零流量 revision；服务流量采用和严格余额同步仍需分别完成。
 
 仅供说明的合成配置：
 
