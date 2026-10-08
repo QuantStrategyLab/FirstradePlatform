@@ -379,8 +379,13 @@ def _revision_names(service: Mapping[str, Any]) -> tuple[str, str]:
         raise ConfigSyncError("revision_metadata_unavailable")
     latest_created = status.get("latestCreatedRevisionName")
     latest_ready = status.get("latestReadyRevisionName")
-    if not isinstance(latest_created, str) or not latest_created or latest_created != latest_ready:
-        raise ConfigSyncError("latest_revision_not_ready")
+    if any(
+        not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name, re.ASCII) is None
+        for name in (latest_created, latest_ready)
+    ):
+        raise ConfigSyncError("revision_metadata_unavailable")
+    # A zero-traffic candidate can differ from the service's serving alias.
+    # The workflow separately checks this exact created revision's Ready/SHA.
     return latest_created, latest_ready
 
 
