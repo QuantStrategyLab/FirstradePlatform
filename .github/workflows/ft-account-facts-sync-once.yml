@@ -108,7 +108,7 @@ jobs:
             --image="${image}" \
             --service-account="${GCP_RUNTIME_SERVICE_ACCOUNT}" \
             --set-secrets="FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=${secret_name}:latest" \
-            --set-env-vars="AFS_TARGET_URL=${afs_url},AFS_AUDIENCE=${service_url},AFS_SCRIPT_B64=${b64}" \
+            --set-env-vars="^@^AFS_TARGET_URL=${afs_url}@AFS_AUDIENCE=${service_url}@AFS_SCRIPT_B64=${b64}" \
             --command=python3 \
             --args="^|^-c|import os,base64; exec(base64.b64decode(os.environ['AFS_SCRIPT_B64']).decode())" \
             --max-retries=0 \
@@ -119,10 +119,48 @@ jobs:
 
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "Executing ${job_name} at ${started_at}"
+          set +e
           gcloud run jobs execute "${job_name}" \
             --project="${GCP_PROJECT_ID}" \
             --region="${region}" \
             --wait
+          exec_rc=$?
+          set -e
+          echo "execute_exit_code=${exec_rc}"
+          execution="$(
+            gcloud run jobs executions list \
+              --project="${GCP_PROJECT_ID}" \
+              --region="${region}" \
+              --job="${job_name}" \
+              --limit=1 \
+              --format='value(name)'
+          )"
+          echo "execution=${execution}"
+          if [ -n "${execution}" ]; then
+            gcloud run jobs executions describe "${execution}" \
+              --project="${GCP_PROJECT_ID}" \
+              --region="${region}" \
+              --format='yaml(status,metadata.name)' || true
+            # Job container logs
+            filter="resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${job_name}\" AND timestamp>=\"${started_at}\""
+            gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=50 --format=json > /tmp/job-logs.json || true
+            python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/job-logs.json"))
+          print(f"job_log_entries={len(rows)}")
+          for row in rows:
+              text=row.get("textPayload") or ""
+              jp=row.get("jsonPayload") or {}
+              msg=text or jp.get("message") or jp.get("msg") or str(jp)[:300]
+              # never print bearer tokens if somehow logged
+              if "Bearer " in msg:
+                  msg=msg.split("Bearer ")[0]+"Bearer <redacted>"
+              print(row.get("timestamp"), msg[:400])
+          PY
+          fi
+          if [ "${exec_rc}" -ne 0 ]; then
+            exit "${exec_rc}"
+          fi
 
           echo "Job finished; reading Cloud Run request logs"
           filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${svc}\" AND timestamp>=\"${started_at}\" AND httpRequest.requestUrl:\"/account-facts-sync\""
