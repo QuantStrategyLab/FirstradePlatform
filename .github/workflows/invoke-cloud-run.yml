@@ -39,6 +39,7 @@ jobs:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       CLOUD_SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME }}
     steps:
       - name: Validate inputs
         run: |
@@ -167,6 +168,73 @@ jobs:
               --attempt-deadline=600s \
               --quiet
           }
+          ensure_afs_scheduler_job() {
+            local afs_job="$1"
+            local afs_uri="$2"
+            local afs_location="$3"
+            local secret_name="${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME:-}"
+            if [ -z "${secret_name}" ]; then
+              echo "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME is required for /account-facts-sync." >&2
+              exit 1
+            fi
+            # App auth uses Authorization Bearer sync token; Cloud Scheduler then places the
+            # OIDC identity token in X-Serverless-Authorization for Cloud Run IAM.
+            local sync_token
+            sync_token="$(
+              gcloud secrets versions access latest \
+                --project="${GCP_PROJECT_ID}" \
+                --secret="${secret_name}"
+            )"
+            if [ -z "${sync_token}" ]; then
+              echo "Secret ${secret_name} returned an empty sync token." >&2
+              exit 1
+            fi
+            if gcloud scheduler jobs describe "${afs_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${afs_location}" >/dev/null 2>&1; then
+              echo "Updating account-facts-sync scheduler ${afs_job} (OIDC + app Authorization header)."
+              gcloud scheduler jobs update http "${afs_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${afs_location}" \
+                --uri="${afs_uri}" \
+                --http-method=POST \
+                --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+                --oidc-token-audience="${service_url}" \
+                --update-headers="Authorization=Bearer ${sync_token}" \
+                --attempt-deadline=600s \
+                --quiet
+            else
+              echo "Creating account-facts-sync scheduler ${afs_job} (OIDC + app Authorization header)."
+              gcloud scheduler jobs create http "${afs_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${afs_location}" \
+                --uri="${afs_uri}" \
+                --http-method=POST \
+                --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+                --oidc-token-audience="${service_url}" \
+                --headers="Authorization=Bearer ${sync_token}" \
+                --schedule="0 0 1 1 *" \
+                --time-zone="UTC" \
+                --attempt-deadline=600s \
+                --quiet
+            fi
+            unset sync_token
+            # Confirm Authorization header is present without printing its value.
+            header_keys="$(
+              gcloud scheduler jobs describe "${afs_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${afs_location}" \
+                --format=json | python3 -c 'import json,sys; job=json.load(sys.stdin); headers=((job.get("httpTarget") or {}).get("headers") or {}); keys=sorted(k for k in headers if k.lower() != "user-agent"); print(",".join(keys) if keys else "<none>")'
+            )"
+            echo "afs_scheduler_custom_header_keys=${header_keys}"
+            case ",${header_keys}," in
+              *,Authorization,*|*,authorization,*) ;;
+              *)
+                echo "account-facts-sync scheduler is missing the Authorization header after update." >&2
+                exit 1
+                ;;
+            esac
+          }
           if [ "${service_ingress}" = "internal" ]; then
             scheduler_location="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"
             case "${raw_path}" in
@@ -185,11 +253,11 @@ jobs:
                 ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/dry-run" "${scheduler_location}"
                 ;;
               /account-facts-sync)
-                # Reuse the known-working probe scheduler OIDC identity; retarget URI for one run.
-                scheduler_job="${CLOUD_RUN_SERVICE}-probe-scheduler"
+                # Dedicated scheduler: OIDC for Cloud Run IAM (X-Serverless-Authorization) plus
+                # FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN in Authorization for app auth.
+                scheduler_job="${CLOUD_RUN_SERVICE}-account-facts-sync-scheduler"
                 scheduler_expected_path="/account-facts-sync"
-                restore_probe_uri="${service_url}/probe"
-                ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/account-facts-sync" "${scheduler_location}"
+                ensure_afs_scheduler_job "${scheduler_job}" "${service_url}/account-facts-sync" "${scheduler_location}"
                 ;;
               *)
                 echo "Cloud Run service ${CLOUD_RUN_SERVICE} has internal ingress, so GitHub-hosted runners cannot curl ${raw_path} directly." >&2
@@ -357,14 +425,9 @@ jobs:
             )"
 
             if [ "${attempt_seen}" = "true" ]; then
-              if [ -n "${status_code}" ] && [ "${status_code}" != "0" ]; then
-                echo "Cloud Scheduler job ${scheduler_job} failed with status ${status_code}: ${status_message}" >&2
-                exit 1
-              fi
-              echo "Cloud Scheduler job ${scheduler_job} ran at ${last_attempt_time}."
               if [ "${{ steps.service.outputs.path }}" = "/account-facts-sync" ]; then
-                filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\" AND timestamp>=\"${started_at}\" AND (httpRequest.requestUrl:\"/account-facts-sync\" OR textPayload:\"account_facts\" OR textPayload:\"Firstrade\")"
-                gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=30 --format=json > /tmp/afs-logs.json || true
+                filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\" AND timestamp>=\"${started_at}\" AND (httpRequest.requestUrl:\"/account-facts-sync\" OR textPayload:\"account_facts\" OR textPayload:\"Firstrade\" OR textPayload:\"unauthorized\" OR jsonPayload.message:\"account_facts\")"
+                gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=40 --format=json > /tmp/afs-logs.json || true
                 python3 - <<'PY'
           import json
           try:
@@ -376,9 +439,14 @@ jobs:
           for row in rows:
               http = row.get("httpRequest") or {}
               msg = row.get("textPayload") or (row.get("jsonPayload") or {}).get("message") or ""
-              print(row.get("timestamp"), "status=", http.get("status"), "msg=", str(msg)[:300])
+              print(row.get("timestamp"), "status=", http.get("status"), "url=", http.get("requestUrl"), "msg=", str(msg)[:300])
           PY
               fi
+              if [ -n "${status_code}" ] && [ "${status_code}" != "0" ]; then
+                echo "Cloud Scheduler job ${scheduler_job} failed with status ${status_code}: ${status_message}" >&2
+                exit 1
+              fi
+              echo "Cloud Scheduler job ${scheduler_job} ran at ${last_attempt_time}."
               break
             fi
 
