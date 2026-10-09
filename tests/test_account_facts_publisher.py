@@ -116,12 +116,29 @@ def test_rejects_qrs_amounts_outside_exact_decimal_contract(value):
 def test_allows_cash_to_be_absent_without_synthesizing_it():
     data = observation()
     data["balances"]["cash_balance"] = None
+    data["balances"]["available_cash"] = None
 
     payload = build_firstrade_account_snapshot(
         data, load_account_facts_publish_config(config()), account_scope="us"
     )
 
     assert payload["cash"] == []
+
+
+def test_falls_back_to_available_cash_when_cash_balance_absent():
+    data = observation()
+    data["balances"]["cash_balance"] = None
+    data["balances"]["available_cash"] = "240.00"
+
+    payload = build_firstrade_account_snapshot(
+        data, load_account_facts_publish_config(config()), account_scope="us"
+    )
+
+    assert payload["cash"] == [{
+        "currency": "USD",
+        "cash_balance": "240.00",
+        "source_tag": "provider.cash_balance",
+    }]
 
 
 @pytest.mark.parametrize(

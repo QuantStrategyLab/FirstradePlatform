@@ -207,6 +207,10 @@ def build_firstrade_account_snapshot(
         raise AccountFactsPublishError("snapshot_time_invalid")
 
     cash_balance = balances.get("cash_balance")
+    # Use exact available_cash only when cash_balance is absent — still a real
+    # provider cash figure, never synthesized from equity or buying power.
+    if cash_balance is None:
+        cash_balance = balances.get("available_cash")
     cash: list[dict[str, str]] = []
     if cash_balance is not None:
         cash.append({
