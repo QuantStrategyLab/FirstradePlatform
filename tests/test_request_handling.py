@@ -87,6 +87,7 @@ def test_cloud_run_route_contracts_are_registered():
         "/account-facts-sync": ["POST"],
         "/monitor-dispatch": ["GET", "POST"],
         "/probe": ["POST"],
+        "/session-renew": ["POST"],
         "/static/<path:filename>": ["GET"],
     }
 

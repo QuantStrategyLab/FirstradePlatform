@@ -255,7 +255,8 @@ class FirstradeBrokerClient:
         self.session_reused = False
         self.read_only_transport_enabled = False
 
-    def connect(self) -> "FirstradeBrokerClient":
+    def connect(self, *, force_login: bool = False) -> "FirstradeBrokerClient":
+        """Log in (or reuse cache). force_login skips cache reuse but still saves the new cache."""
         self.read_only_transport_enabled = False
         self.credentials.require_login_fields()
         session_factory = self._session_factory
@@ -269,7 +270,7 @@ class FirstradeBrokerClient:
         cookie_dir = Path(self.credentials.cookie_dir)
         cookie_dir.mkdir(parents=True, exist_ok=True)
         session = self._build_session(session_factory, cookie_dir)
-        if self.credentials.reuse_session and self._try_cached_session(
+        if not force_login and self.credentials.reuse_session and self._try_cached_session(
             session,
             account_data_factory=account_data_factory,
             cookie_dir=cookie_dir,

@@ -141,6 +141,7 @@ jobs:
           scheduler_location=""
           scheduler_expected_path=""
           restore_probe_uri=""
+          pause_after_run="false"
           ensure_invoke_bridge_job() {
             local bridge_job="$1"
             local bridge_uri="$2"
@@ -351,6 +352,14 @@ jobs:
                 scheduler_expected_path="/dry-run"
                 ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/dry-run" "${scheduler_location}"
                 ;;
+              /session-renew)
+                # Manual-only forced read-only session renewal. Dedicated bridge job, kept PAUSED
+                # between manual invokes so its placeholder schedule never fires on its own.
+                scheduler_job="${CLOUD_RUN_SERVICE}-session-renew-scheduler"
+                scheduler_expected_path="/session-renew"
+                ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/session-renew" "${scheduler_location}"
+                pause_after_run="true"
+                ;;
               /account-facts-sync)
                 # Dedicated scheduler: OIDC for Cloud Run IAM (X-Serverless-Authorization) plus
                 # FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN in Authorization for app auth.
@@ -360,7 +369,7 @@ jobs:
                 ;;
               *)
                 echo "Cloud Run service ${CLOUD_RUN_SERVICE} has internal ingress, so GitHub-hosted runners cannot curl ${raw_path} directly." >&2
-                echo "Use one of the scheduler-backed paths: /run, /probe, /dry-run, /account-facts-sync." >&2
+                echo "Use one of the scheduler-backed paths: /run, /probe, /dry-run, /account-facts-sync, /session-renew." >&2
                 exit 1
                 ;;
             esac
@@ -419,6 +428,7 @@ jobs:
             echo "scheduler_job=${scheduler_job}"
             echo "scheduler_location=${scheduler_location}"
             echo "restore_probe_uri=${restore_probe_uri}"
+            echo "pause_after_run=${pause_after_run}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Authenticate for service invocation
@@ -446,6 +456,7 @@ jobs:
         if: steps.service.outputs.invoke_method == 'scheduler'
         env:
           RESTORE_PROBE_URI: ${{ steps.service.outputs.restore_probe_uri }}
+          PAUSE_AFTER_RUN: ${{ steps.service.outputs.pause_after_run }}
           SERVICE_URL: ${{ steps.service.outputs.url }}
         run: |
           set -euo pipefail
@@ -455,6 +466,13 @@ jobs:
           scheduler_location="${{ steps.service.outputs.scheduler_location }}"
 
           restore_probe_scheduler() {
+            if [ "${PAUSE_AFTER_RUN:-false}" = "true" ]; then
+              echo "Pausing manual-only bridge job ${scheduler_job}."
+              gcloud scheduler jobs pause "${scheduler_job}" \
+                --project="${GCP_PROJECT_ID}" \
+                --location="${scheduler_location}" \
+                --quiet || echo "::warning::Could not pause ${scheduler_job}; pause it manually."
+            fi
             if [ -z "${RESTORE_PROBE_URI:-}" ]; then
               return 0
             fi
@@ -469,6 +487,12 @@ jobs:
               --quiet || true
           }
           trap restore_probe_scheduler EXIT
+          if [ "${PAUSE_AFTER_RUN:-false}" = "true" ]; then
+            gcloud scheduler jobs resume "${scheduler_job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${scheduler_location}" \
+              --quiet
+          fi
 
           echo "Triggering ${scheduler_job} at ${started_at}."
           gcloud scheduler jobs run "${scheduler_job}" \
