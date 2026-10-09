@@ -1,0 +1,134 @@
+name: FT session renew verify
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-session-renew-verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Read probe logs and session-cache metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
+      FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Describe serving traffic and session-related env flags
+        run: |
+          set -euo pipefail
+          gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+            --region="${CLOUD_RUN_REGION}" --format=json > /tmp/service.json
+          python3 - <<'PY'
+          import json
+          svc=json.load(open("/tmp/service.json"))
+          status=svc.get("status") or {}
+          traffic=status.get("traffic") or []
+          print("latestReadyRevisionName=", status.get("latestReadyRevisionName"))
+          print("latestCreatedRevisionName=", status.get("latestCreatedRevisionName"))
+          for row in traffic:
+              print("traffic=", {k: row.get(k) for k in ("revisionName","percent","tag","latestRevision")})
+          template=((svc.get("spec") or {}).get("template") or {})
+          labels=((template.get("metadata") or {}).get("labels") or {})
+          print("template_commit=", labels.get("commit-sha"))
+          containers=(((template.get("spec") or {}).get("containers") or [{}])[0])
+          wanted={
+            "FIRSTRADE_REUSE_SESSION","FIRSTRADE_PERSIST_SESSION_CACHE",
+            "FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP","FIRSTRADE_SESSION_CHECK_POLICY",
+            "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED","FIRSTRADE_SESSION_CACHE_TTL_SECONDS",
+            "STRATEGY_PROFILE","RUNTIME_TARGET_ENABLED","FIRSTRADE_DRY_RUN_ONLY",
+          }
+          for env in containers.get("env") or []:
+              name=env.get("name")
+              if name in wanted:
+                  if "valueSource" in env:
+                      print(f"env {name}=<secret_or_ref>")
+                  else:
+                      print(f"env {name}={env.get('value')}")
+          PY
+
+      - name: Read Cloud Run logs around latest probe
+        run: |
+          set -euo pipefail
+          filter=$(cat <<EOF
+          resource.type="cloud_run_revision"
+          AND resource.labels.service_name="${CLOUD_RUN_SERVICE}"
+          AND timestamp>="2026-10-09T06:05:00Z"
+          AND (
+            textPayload:"session"
+            OR textPayload:"Session"
+            OR textPayload:"MFA"
+            OR textPayload:"mfa"
+            OR textPayload:"probe"
+            OR textPayload:"Firstrade"
+            OR textPayload:"login"
+            OR textPayload:"cached"
+            OR jsonPayload.message:"session"
+            OR jsonPayload.message:"MFA"
+            OR httpRequest.requestUrl:"/probe"
+          )
+          EOF
+          )
+          gcloud logging read "${filter}" \
+            --project="${GCP_PROJECT_ID}" \
+            --limit=80 \
+            --format=json > /tmp/probe-logs.json
+          python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/probe-logs.json"))
+          print("log_entries=", len(rows))
+          for row in rows:
+              ts=row.get("timestamp")
+              http=row.get("httpRequest") or {}
+              text=row.get("textPayload")
+              jp=row.get("jsonPayload") or {}
+              msg=text or jp.get("message") or jp.get("msg") or ""
+              status=http.get("status")
+              url=http.get("requestUrl")
+              line=f"{ts} status={status} url={url} msg={msg}"
+              # scrub possible account numbers: keep short
+              print(line[:500])
+          PY
+
+      - name: List session-cache object metadata only
+        run: |
+          set -euo pipefail
+          prefix="gs://${FIRSTRADE_GCS_STATE_BUCKET}/${FIRSTRADE_STATE_PREFIX}/sessions/"
+          echo "listing_prefix=${prefix}"
+          # metadata only; do not cat object bodies
+          gcloud storage ls -L "${prefix}**" 2>/tmp/ls.err | sed -E 's/(access-token|refresh|cookie|password|secret)=.*/\1=<redacted>/Ig' || true
+          if [ -s /tmp/ls.err ]; then
+            echo "list_stderr:"
+            cat /tmp/ls.err
+          fi
+          # also session-checks maintenance markers
+          maint="gs://${FIRSTRADE_GCS_STATE_BUCKET}/${FIRSTRADE_STATE_PREFIX}/session-checks/"
+          echo "listing_maintenance=${maint}"
+          gcloud storage ls -L "${maint}**" 2>/tmp/ls2.err | head -100 || true
+          if [ -s /tmp/ls2.err ]; then cat /tmp/ls2.err; fi
