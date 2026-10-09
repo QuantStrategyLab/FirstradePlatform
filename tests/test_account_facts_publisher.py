@@ -73,8 +73,17 @@ def test_builds_fixed_snapshot_with_only_provider_equity_and_cash():
     assert "buying_power" not in repr(payload)
 
 
-@pytest.mark.parametrize("value", [None, "", "usd", "US", "USDX", "USD " ])
-def test_rejects_missing_or_invalid_provider_currency(value):
+def test_defaults_missing_provider_currency_to_usd():
+    data = observation()
+    data["balances"]["currency"] = None
+    payload = build_firstrade_account_snapshot(
+        data, load_account_facts_publish_config(config()), account_scope="us"
+    )
+    assert payload["broker_reported_balances"][0]["currency"] == "USD"
+
+
+@pytest.mark.parametrize("value", ["", "usd", "US", "USDX", "USD "])
+def test_rejects_invalid_provider_currency(value):
     data = observation()
     data["balances"]["currency"] = value
 
