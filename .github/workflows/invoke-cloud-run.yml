@@ -513,7 +513,7 @@ jobs:
 
             if [ "${attempt_seen}" = "true" ]; then
               if [ "${{ steps.service.outputs.path }}" = "/account-facts-sync" ]; then
-                filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\" AND timestamp>=\"${started_at}\" AND (httpRequest.requestUrl:\"/account-facts-sync\" OR textPayload:\"account_facts\" OR textPayload:\"Firstrade\" OR textPayload:\"unauthorized\" OR jsonPayload.message:\"account_facts\")"
+                filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${CLOUD_RUN_SERVICE}\" AND timestamp>=\"${started_at}\" AND (httpRequest.requestUrl:\"/account-facts-sync\" OR textPayload:\"account_facts\" OR textPayload:\"account_facts_sync\" OR textPayload:\"reason=\" OR textPayload:\"exc_type=\" OR textPayload:\"Firstrade\" OR textPayload:\"unauthorized\" OR jsonPayload.message:\"account_facts\")"
                 gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=40 --format=json > /tmp/afs-logs.json || true
                 python3 - <<'PY'
           import json

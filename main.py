@@ -939,10 +939,23 @@ def account_facts_sync():
             account_scope=str(runtime_target.account_scope),
         )
     except AccountFactsUnavailable as exc:
+        app.logger.warning("account_facts_sync collect failed reason=%s", exc.reason_code)
         return jsonify({"ok": False, "error": exc.reason_code}), 503
     except AccountFactsPublishError as exc:
+        app.logger.warning("account_facts_sync build failed reason=%s", exc.reason_code)
         return jsonify({"ok": False, "error": exc.reason_code}), 503
-    except Exception:
+    except FirstradePlatformError as exc:
+        # connect_read_only / cached session failures land here (not AccountFactsUnavailable).
+        app.logger.warning(
+            "account_facts_sync client failed exc_type=%s",
+            type(exc).__name__,
+        )
+        return jsonify({"ok": False, "error": "readonly_client_unavailable"}), 503
+    except Exception as exc:
+        app.logger.warning(
+            "account_facts_sync unavailable exc_type=%s",
+            type(exc).__name__,
+        )
         return jsonify({"ok": False, "error": "account_facts_unavailable"}), 503
     finally:
         if client is not None:
@@ -954,8 +967,10 @@ def account_facts_sync():
     try:
         publish_firstrade_account_snapshot(payload, config)
     except AccountFactsPublishError as exc:
+        app.logger.warning("account_facts_sync publish failed reason=%s", exc.reason_code)
         status = 502 if exc.reason_code.startswith("sync_") else 503
         return jsonify({"ok": False, "error": exc.reason_code}), status
+    app.logger.info("account_facts_sync published ok")
     return jsonify({"ok": True, "stored": True}), 200
 
 
