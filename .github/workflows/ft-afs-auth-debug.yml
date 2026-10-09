@@ -1,0 +1,86 @@
+name: FT AFS auth debug
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-afs-auth-debug
+  cancel-in-progress: false
+
+jobs:
+  debug:
+    name: Inspect AFS scheduler auth and latest 401
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      CLOUD_SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME }}
+    steps:
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+      - name: Describe scheduler + revision secret + recent AFS requests
+        run: |
+          set -euo pipefail
+          loc="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"
+          svc="${CLOUD_RUN_SERVICE}"
+          job="${svc}-account-facts-sync-scheduler"
+          secret_name="${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}"
+          token_len="$(gcloud secrets versions access latest --project="${GCP_PROJECT_ID}" --secret="${secret_name}" | tr -d '\r\n' | wc -c | tr -d ' ')"
+          echo "sm_token_len=${token_len}"
+          gcloud scheduler jobs describe "${job}" --project="${GCP_PROJECT_ID}" --location="${loc}" --format=json > /tmp/job.json
+          python3 - <<'PY'
+          import json
+          job=json.load(open("/tmp/job.json"))
+          ht=job.get("httpTarget") or {}
+          oidc=ht.get("oidcToken") or {}
+          headers=ht.get("headers") or {}
+          auth=headers.get("Authorization") or ""
+          print("uri", ht.get("uri"))
+          print("method", ht.get("httpMethod"))
+          print("oidc_sa", oidc.get("serviceAccountEmail"))
+          print("oidc_aud", oidc.get("audience"))
+          print("header_keys", sorted(headers))
+          print("authorization_len", len(auth))
+          print("authorization_bearer", auth.startswith("Bearer "))
+          print("authorization_token_len", len(auth[7:]) if auth.startswith("Bearer ") else -1)
+          print("status", job.get("status"))
+          print("lastAttempt", job.get("lastAttemptTime"))
+          PY
+          rev="$(gcloud run services describe "${svc}" --region="${CLOUD_RUN_REGION}" --format='value(status.latestReadyRevisionName)')"
+          gcloud run revisions describe "${rev}" --region="${CLOUD_RUN_REGION}" --format=json > /tmp/rev.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open("/tmp/rev.json"))
+          envs=(((data.get("spec") or {}).get("containers") or [{}])[0].get("env") or [])
+          row=next((e for e in envs if e.get("name")=="FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN"), None)
+          print("rev", data.get("metadata",{}).get("name"))
+          print("token_env", json.dumps(row))
+          PY
+          filter='resource.type="cloud_run_revision" AND resource.labels.service_name="'"${svc}"'" AND timestamp>="2026-10-09T07:25:00Z" AND httpRequest.requestUrl:"/account-facts-sync"'
+          gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=10 --format=json > /tmp/logs.json
+          python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/logs.json"))
+          print("log_count", len(rows))
+          for row in rows:
+              http=row.get("httpRequest") or {}
+              print(row.get("timestamp"), "status=", http.get("status"), "size=", http.get("responseSize"), "latency=", http.get("latency"), "ua=", http.get("userAgent"), "protocol=", http.get("protocol"))
+          PY
