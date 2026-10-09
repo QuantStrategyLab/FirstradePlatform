@@ -1,0 +1,115 @@
+name: FT adopt facts revision
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full commit SHA that must label the revision being adopted
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: Deploy Cloud Run-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    name: Adopt zero-traffic facts revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+    steps:
+      - name: Validate source
+        run: |
+          set -euo pipefail
+          if ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha invalid" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Dispatch must be from main (WIF)." >&2
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Adopt latestCreated revision when facts-ready
+        run: |
+          set -euo pipefail
+          service_json="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --region="${CLOUD_RUN_REGION}" --format=json)"
+          revision="$(SERVICE_JSON="${service_json}" python3 - <<'PY'
+          import json, os
+          status=(json.loads(os.environ["SERVICE_JSON"]).get("status") or {})
+          print(status.get("latestCreatedRevisionName") or "")
+          PY
+          )"
+          if [ -z "${revision}" ]; then
+            echo "latestCreatedRevisionName missing" >&2
+            exit 1
+          fi
+          rev_json="$(gcloud run revisions describe "${revision}" --region="${CLOUD_RUN_REGION}" --format=json)"
+          REVISION_JSON="${rev_json}" EXPECTED_SHA="${EXPECTED_SHA}" python3 - <<'PY'
+          import json, os, re, sys
+          rev=json.loads(os.environ["REVISION_JSON"])
+          expected=os.environ["EXPECTED_SHA"]
+          labels=((rev.get("metadata") or {}).get("labels") or {})
+          if labels.get("commit-sha") != expected:
+              print(f"revision_source_mismatch commit={labels.get('commit-sha')}", file=sys.stderr)
+              sys.exit(1)
+          env_rows=((((rev.get("spec") or {}).get("containers") or [{}])[0]).get("env") or [])
+          values={row.get("name"): row for row in env_rows if isinstance(row, dict)}
+          enabled=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED") or {}).get("value")
+          url=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL") or {}).get("value")
+          token=values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN")
+          needed=["FIRSTRADE_ACCOUNT_FACTS_TARGET_ID","FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE"]
+          if enabled != "true":
+              print(f"sync_not_enabled value={enabled!r}", file=sys.stderr); sys.exit(1)
+          if url != "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync":
+              print("sync_url_invalid", file=sys.stderr); sys.exit(1)
+          if not token or not (token.get("valueSource") or {}).get("secretKeyRef"):
+              print("sync_token_missing", file=sys.stderr); sys.exit(1)
+          for name in needed:
+              row=values.get(name) or {}
+              if not row.get("value") and not (row.get("valueSource") or {}).get("secretKeyRef"):
+                  print(f"binding_missing {name}", file=sys.stderr); sys.exit(1)
+          print(f"candidate_ok")
+          PY
+          echo "Adopting revision ${revision} to 100% traffic."
+          gcloud run services update-traffic "${CLOUD_RUN_SERVICE}" \
+            --region="${CLOUD_RUN_REGION}" \
+            --to-revisions="${revision}=100" \
+            --quiet
+          after="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --region="${CLOUD_RUN_REGION}" --format=json)"
+          AFTER_JSON="${after}" EXPECTED_REVISION="${revision}" python3 - <<'PY'
+          import json, os, sys
+          status=(json.loads(os.environ["AFTER_JSON"]).get("status") or {})
+          expected=os.environ["EXPECTED_REVISION"]
+          active=[row for row in (status.get("traffic") or []) if int(row.get("percent") or 0) > 0]
+          if len(active) != 1 or active[0].get("revisionName") != expected or int(active[0].get("percent") or 0) != 100:
+              print(f"traffic_adopt_failed active={active}", file=sys.stderr)
+              sys.exit(1)
+          print(f"traffic_adopted revision={expected} percent=100")
+          PY
