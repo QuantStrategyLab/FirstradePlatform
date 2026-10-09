@@ -71,6 +71,7 @@ from runtime_config_support import (
     PlatformRuntimeSettings,
     _runtime_target_enabled_env,
     load_platform_runtime_settings,
+    resolve_telegram_token,
 )
 from strategy_registry import get_platform_profile_status_matrix
 from strategy_runtime import load_strategy_runtime
@@ -127,12 +128,8 @@ def redact_sensitive_text(value: object) -> str:
 
 
 def _get_telegram_token() -> str:
-    try:
-        from quant_platform_kit.cloud import get_secret_store
-
-        return get_secret_store().get_secret("firstrade-telegram-token", project_id="firstradequant")
-    except Exception:
-        return os.environ.get("TELEGRAM_TOKEN", "")
+    # Injected unified bot first; legacy firstrade-telegram-token only as last fallback.
+    return resolve_telegram_token() or ""
 
 
 def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
