@@ -257,3 +257,46 @@ def test_collection_failure_is_safe_and_client_still_closes(monkeypatch):
     assert response.get_json() == {"ok": False, "error": "balances_unavailable"}
     assert client.closed is True
     assert published == []
+
+
+def test_sync_endpoint_falls_back_to_sole_broker_account_when_selector_unmatched(monkeypatch):
+    _configure(monkeypatch, FIRSTRADE_ACCOUNT="firstrade")
+    monkeypatch.setattr(main, "_runtime_settings", lambda: SimpleNamespace(runtime_target=SimpleNamespace(
+        platform_id="firstrade",
+        account_selector=("firstrade",),
+        account_scope="us",
+    )))
+
+    class SoleAccountClient(FakeClient):
+        def account_numbers(self):
+            return ["synthetic-native-id"]
+
+    client = SoleAccountClient()
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", lambda: client)
+    collector_calls = []
+
+    def collect(_client, *, expected_account, include_positions):
+        collector_calls.append({"expected_account": expected_account, "include_positions": include_positions})
+        return {
+            "status": "available",
+            "platform": "firstrade",
+            "account_selector_status": "matched",
+            "broker_account_id": expected_account,
+            "observed_started_at": "2026-10-08T08:00:00+00:00",
+            "observed_finished_at": "2026-10-08T08:00:03+00:00",
+            "balances": {"currency": "USD", "provider_equity": "100.00", "cash_balance": "50.00"},
+        }
+
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", collect)
+    published = []
+    monkeypatch.setattr(main, "publish_firstrade_account_snapshot", lambda payload, cfg: published.append((payload, cfg)))
+
+    response = main.app.test_client().post(
+        "/account-facts-sync",
+        headers={"Authorization": "Bearer synthetic-facts-token"},
+    )
+    assert response.status_code == 200
+    assert collector_calls == [{"expected_account": "synthetic-native-id", "include_positions": False}]
+    assert published[0][0]["broker_account_id"] == "synthetic-native-id"
+    assert published[0][1].account_id == "synthetic-native-id"
+    assert client.closed is True

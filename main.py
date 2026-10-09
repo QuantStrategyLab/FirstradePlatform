@@ -928,9 +928,36 @@ def account_facts_sync():
     client = None
     try:
         client = READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER()
+        expected_account = config.account_id
+        try:
+            broker_accounts = client.account_numbers()
+        except Exception:
+            broker_accounts = None
+        if (
+            isinstance(expected_account, str)
+            and isinstance(broker_accounts, list)
+            and expected_account not in broker_accounts
+            and len(broker_accounts) == 1
+            and isinstance(broker_accounts[0], str)
+            and broker_accounts[0]
+        ):
+            # RUNTIME_TARGET account_selector may be a deployment label (e.g. platform id)
+            # rather than the Firstrade broker account number. For single-account brokers,
+            # bind the sole returned account for read-only facts publish only.
+            sole = broker_accounts[0]
+            app.logger.warning(
+                "account_facts_sync sole_account_fallback selector=%s sole=%s",
+                mask_account_id(expected_account),
+                mask_account_id(sole),
+            )
+            config = bind_account_facts_runtime_selector(
+                replace(config, account_id=None),
+                sole,
+            )
+            expected_account = config.account_id
         observation = collect_firstrade_account_facts(
             client,
-            expected_account=config.account_id,
+            expected_account=expected_account,
             include_positions=False,
         )
         payload = build_firstrade_account_snapshot(
@@ -939,10 +966,17 @@ def account_facts_sync():
             account_scope=str(runtime_target.account_scope),
         )
     except AccountFactsUnavailable as exc:
+        accounts_len = -1
+        try:
+            if client is not None:
+                accounts_len = len(client.account_numbers())
+        except Exception:
+            accounts_len = -1
         app.logger.warning(
-            "account_facts_sync collect failed reason=%s expected=%s",
+            "account_facts_sync collect failed reason=%s expected=%s accounts_len=%s",
             exc.reason_code,
             mask_account_id(config.account_id or ""),
+            accounts_len,
         )
         return jsonify({"ok": False, "error": exc.reason_code}), 503
     except AccountFactsPublishError as exc:
