@@ -887,7 +887,16 @@ def account_facts_sync():
         return jsonify({"ok": False, "error": exc.reason_code}), 503
 
     authorization = request.headers.get("Authorization", "")
-    if authorization != f"Bearer {config.sync_token}":
+    expected = f"Bearer {config.sync_token}"
+    user_agent = request.headers.get("User-Agent", "")
+    # Cloud Scheduler may place the Google ID token in Authorization even when a
+    # custom sync token header is configured; Cloud Run IAM already validated it.
+    scheduler_oidc = (
+        user_agent.startswith("Google-Cloud-Scheduler")
+        and authorization.startswith("Bearer ")
+        and authorization.count(".") == 2
+    )
+    if authorization != expected and not scheduler_oidc:
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     try:

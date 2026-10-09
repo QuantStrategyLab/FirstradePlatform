@@ -99,6 +99,38 @@ def test_sync_endpoint_reads_once_closes_and_returns_only_safe_ack(monkeypatch):
     assert "synthetic-native-id" not in response.get_data(as_text=True)
 
 
+
+def test_sync_endpoint_accepts_cloud_scheduler_oidc_bearer(monkeypatch):
+    _configure(monkeypatch)
+    client = FakeClient()
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", lambda: client)
+    observation = {
+        "status": "available",
+        "platform": "firstrade",
+        "account_selector_status": "matched",
+        "broker_account_id": "synthetic-native-id",
+        "observed_started_at": "2026-10-08T08:00:00+00:00",
+        "observed_finished_at": "2026-10-08T08:00:03+00:00",
+        "balances": {"currency": "USD", "provider_equity": "100.00", "cash_balance": "50.00"},
+    }
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", lambda *_args, **_kwargs: observation)
+    published = []
+    monkeypatch.setattr(main, "publish_firstrade_account_snapshot", lambda payload, _config: published.append(payload))
+
+    response = main.app.test_client().post(
+        "/account-facts-sync",
+        headers={
+            "Authorization": "Bearer aaa.bbb.ccc",
+            "User-Agent": "Google-Cloud-Scheduler",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "stored": True}
+    assert len(published) == 1
+    assert client.closed is True
+
+
 def test_sync_endpoint_reuses_the_unique_protected_runtime_selector(monkeypatch):
     _configure(monkeypatch)
     monkeypatch.delenv("FIRSTRADE_ACCOUNT", raising=False)
