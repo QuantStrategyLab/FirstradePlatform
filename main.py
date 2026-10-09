@@ -21,6 +21,7 @@ from quant_platform_kit.common.strategy_release import build_runtime_loaded_rece
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeMfaRequired,
     FirstradePlatformError,
     is_live_trading_enabled,
     mask_account_id,
@@ -58,7 +59,7 @@ from application.broker_reconciliation import (
     validate_reconciliation_candidate,
     validate_reconciliation_preconditions,
 )
-from application.session_check_service import run_session_check
+from application.session_check_service import run_forced_session_renewal, run_session_check
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
     append_runtime_report_error,
@@ -1012,6 +1013,25 @@ def account_facts_sync():
 @app.post("/probe")
 def probe():
     return session_check()
+
+
+@app.post("/session-renew")
+def session_renew():
+    """Manual-only read-only session renewal (Cloud Run IAM / internal ingress like /probe).
+
+    Logs in once, persists the session cache, reads balances. Never runs strategy or orders,
+    and never reads or changes the monthly session-check marker.
+    """
+    if not _flag("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"):
+        return jsonify({"ok": False, "error": "session_check_on_http_disabled"}), 403
+    try:
+        return jsonify(run_forced_session_renewal())
+    except FirstradeMfaRequired:
+        app.logger.warning("session_renew mfa_required")
+        return jsonify({"ok": False, "error": "mfa_required"}), 409
+    except FirstradePlatformError as exc:
+        app.logger.warning("session_renew failed exc_type=%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "session_renew_failed"}), 503
 
 
 @app.post("/monitor-dispatch")

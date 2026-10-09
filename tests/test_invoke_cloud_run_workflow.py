@@ -14,3 +14,13 @@ def test_invoke_cloud_run_workflow_ensures_probe_and_dry_run_scheduler_bridges()
     assert 'ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/probe"' in workflow
     assert 'ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/dry-run"' in workflow
     assert '--schedule="0 0 1 1 *"' in workflow
+
+
+def test_invoke_cloud_run_workflow_session_renew_bridge_is_paused_after_run():
+    workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/invoke-cloud-run.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert 'scheduler_job="${CLOUD_RUN_SERVICE}-session-renew-scheduler"' in workflow
+    assert 'ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/session-renew"' in workflow
+    assert 'gcloud scheduler jobs pause "${scheduler_job}"' in workflow
+    assert 'pause_after_run="true"' in workflow

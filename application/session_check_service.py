@@ -18,6 +18,7 @@ from application.account_payload_utils import (
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeSafetyError,
     is_live_trading_enabled,
     mask_account_id,
 )
@@ -457,3 +458,40 @@ def run_session_check(
     if maintenance_state_error:
         result["session_check_maintenance_state_error"] = maintenance_state_error
     return result
+
+
+def run_forced_session_renewal(
+    *,
+    credentials: FirstradeCredentials | None = None,
+    client_factory: Callable[..., FirstradeBrokerClient] = FirstradeBrokerClient,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+) -> dict[str, Any]:
+    """Manual read-only session renewal: one fresh login, persist the session cache, read balances.
+
+    Bypasses (never reads, writes, or deletes) the monthly session-check marker. The client is
+    always built with live trading disabled and only account-read methods are called.
+    """
+
+    resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
+    if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
+        raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
+    client = client_factory(resolved_credentials, live_trading_enabled=False)
+    if getattr(client, "live_trading_enabled", False):
+        raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
+    client.connect(force_login=True)
+    account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+    balances = client.get_balances(account)
+    print(
+        "Firstrade forced session renewal "
+        f"session_reused={bool(getattr(client, 'session_reused', False))} "
+        f"account={mask_account_id(account)} balances_read={bool(balances)}",
+        flush=True,
+    )
+    return {
+        "ok": True,
+        "api_kind": "unofficial-reverse-engineered",
+        "session_renewed": True,
+        "session_reused": bool(getattr(client, "session_reused", False)),
+        "account": mask_account_id(account),
+        "balances_read": bool(balances),
+    }
