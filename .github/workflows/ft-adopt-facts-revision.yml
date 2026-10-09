@@ -81,6 +81,21 @@ jobs:
               sys.exit(1)
           env_rows=((((rev.get("spec") or {}).get("containers") or [{}])[0]).get("env") or [])
           values={row.get("name"): row for row in env_rows if isinstance(row, dict)}
+
+          def has_secret_ref(row):
+              if not isinstance(row, dict):
+                  return False
+              for key in ("valueSource", "valueFrom"):
+                  src=row.get(key)
+                  if isinstance(src, dict) and isinstance(src.get("secretKeyRef"), dict):
+                      secret=src["secretKeyRef"].get("name") or src["secretKeyRef"].get("secret")
+                      if isinstance(secret, str) and secret.strip():
+                          return True
+              return False
+
+          def has_value_or_secret(row):
+              return bool((row or {}).get("value")) or has_secret_ref(row or {})
+
           enabled=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED") or {}).get("value")
           url=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL") or {}).get("value")
           token=values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN")
@@ -89,13 +104,13 @@ jobs:
               print(f"sync_not_enabled value={enabled!r}", file=sys.stderr); sys.exit(1)
           if url != "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync":
               print("sync_url_invalid", file=sys.stderr); sys.exit(1)
-          if not token or not (token.get("valueSource") or {}).get("secretKeyRef"):
-              print("sync_token_missing", file=sys.stderr); sys.exit(1)
+          if not has_secret_ref(token):
+              keys=sorted((token or {}).keys())
+              print(f"sync_token_missing keys={keys}", file=sys.stderr); sys.exit(1)
           for name in needed:
-              row=values.get(name) or {}
-              if not row.get("value") and not (row.get("valueSource") or {}).get("secretKeyRef"):
+              if not has_value_or_secret(values.get(name)):
                   print(f"binding_missing {name}", file=sys.stderr); sys.exit(1)
-          print(f"candidate_ok")
+          print("candidate_ok")
           PY
           echo "Adopting revision ${revision} to 100% traffic."
           gcloud run services update-traffic "${CLOUD_RUN_SERVICE}" \
