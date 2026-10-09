@@ -1,0 +1,121 @@
+name: FT account-facts sync once
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+  GCP_SCHEDULER_SERVICE_ACCOUNT: firstrade-platform-scheduler@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-account-facts-sync-once
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync account facts via probe scheduler bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      CLOUD_SCHEDULER_LOCATION: ${{ vars.CLOUD_SCHEDULER_LOCATION }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Bridge probe scheduler to account-facts-sync, run, restore
+        run: |
+          set -euo pipefail
+          region="${CLOUD_RUN_REGION}"
+          loc="${CLOUD_SCHEDULER_LOCATION:-${CLOUD_RUN_REGION}}"
+          svc="${CLOUD_RUN_SERVICE}"
+          job="${svc}-probe-scheduler"
+          service_url="$(gcloud run services describe "${svc}" --region="${region}" --format='value(status.url)')"
+          probe_uri="${service_url}/probe"
+          afs_uri="${service_url}/account-facts-sync"
+          old_uri="$(gcloud scheduler jobs describe "${job}" --location="${loc}" --format='value(httpTarget.uri)')"
+          echo "service_url=${service_url}"
+          echo "old_uri=${old_uri}"
+          restore() {
+            echo "Restoring scheduler URI to ${probe_uri}"
+            gcloud scheduler jobs update http "${job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${loc}" \
+              --uri="${probe_uri}" \
+              --http-method=POST \
+              --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+              --oidc-token-audience="${service_url}" \
+              --quiet || true
+          }
+          trap restore EXIT
+          if [ "${old_uri}" != "${afs_uri}" ]; then
+            echo "Updating ${job} URI to ${afs_uri}"
+            gcloud scheduler jobs update http "${job}" \
+              --project="${GCP_PROJECT_ID}" \
+              --location="${loc}" \
+              --uri="${afs_uri}" \
+              --http-method=POST \
+              --oidc-service-account-email="${GCP_SCHEDULER_SERVICE_ACCOUNT}" \
+              --oidc-token-audience="${service_url}" \
+              --quiet
+          fi
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Triggering ${job} at ${started_at}"
+          gcloud scheduler jobs run "${job}" --project="${GCP_PROJECT_ID}" --location="${loc}" --quiet
+          deadline=$((SECONDS + 180))
+          while true; do
+            job_json="$(gcloud scheduler jobs describe "${job}" --project="${GCP_PROJECT_ID}" --location="${loc}" --format=json)"
+            last_attempt="$(JOB_JSON="${job_json}" python3 -c 'import json,os; print(json.loads(os.environ["JOB_JSON"]).get("lastAttemptTime") or "")')"
+            status_code="$(JOB_JSON="${job_json}" python3 -c 'import json,os; print((json.loads(os.environ["JOB_JSON"]).get("status") or {}).get("code") or "")')"
+            status_message="$(JOB_JSON="${job_json}" python3 -c 'import json,os; print((json.loads(os.environ["JOB_JSON"]).get("status") or {}).get("message") or "")')"
+            seen="$(STARTED_AT="${started_at}" LAST_ATTEMPT="${last_attempt}" python3 -c 'import os,datetime as dt
+def parse(v):
+  v=(v or "").strip()
+  if not v: return None
+  if v.endswith("Z"): v=v[:-1]+"+00:00"
+  return dt.datetime.fromisoformat(v)
+started=parse(os.environ["STARTED_AT"]); last=parse(os.environ["LAST_ATTEMPT"]);
+print("true" if started and last and last>=started else "false")')"
+            if [ "${seen}" = "true" ]; then
+              if [ -n "${status_code}" ] && [ "${status_code}" != "0" ]; then
+                echo "Scheduler failed status=${status_code} message=${status_message}" >&2
+                exit 1
+              fi
+              echo "Scheduler succeeded at ${last_attempt}"
+              break
+            fi
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "Timed out waiting for scheduler attempt" >&2
+              exit 1
+            fi
+            sleep 8
+          done
+          echo "Fetching Cloud Run logs for /account-facts-sync"
+          filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${svc}\" AND timestamp>=\"${started_at}\" AND (httpRequest.requestUrl:\"/account-facts-sync\" OR textPayload:\"account_facts\" OR textPayload:\"Firstrade\")"
+          gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=30 --format=json > /tmp/afs-logs.json
+          python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/afs-logs.json"))
+          print("log_entries", len(rows))
+          for row in rows:
+              http=row.get("httpRequest") or {}
+              msg=row.get("textPayload") or (row.get("jsonPayload") or {}).get("message") or ""
+              print(row.get("timestamp"), "status=", http.get("status"), "msg=", str(msg)[:300])
+          PY
