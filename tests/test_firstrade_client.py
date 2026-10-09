@@ -536,3 +536,24 @@ def test_read_only_credentials_do_not_read_password_or_mfa(monkeypatch):
     assert credentials.username == "synthetic-user"
     assert credentials.password == credentials.mfa_secret == credentials.mfa_code == ""
     assert reads == ["firstrade-username"]
+
+
+def test_account_numbers_coerces_int_ids_for_selector_match():
+    class IntAccountData(FakeAccountData):
+        account_numbers = [12345678]
+        account_balances = {12345678: "100.00"}
+
+        def get_account_balances(self, account):
+            return {"account": account, "total_value": "100.00"}
+
+    credentials = FirstradeCredentials(username="user", password="pass")
+    client = FirstradeBrokerClient(
+        credentials,
+        session_factory=FakeSession,
+        account_data_factory=IntAccountData,
+        order_factory=FakeOrder,
+    ).connect()
+    assert client.account_numbers() == ["12345678"]
+    assert client.select_account("12345678") == "12345678"
+    balances = client.get_balances("12345678")
+    assert balances["account_list_total_value"] == "100.00"

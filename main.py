@@ -939,7 +939,11 @@ def account_facts_sync():
             account_scope=str(runtime_target.account_scope),
         )
     except AccountFactsUnavailable as exc:
-        app.logger.warning("account_facts_sync collect failed reason=%s", exc.reason_code)
+        app.logger.warning(
+            "account_facts_sync collect failed reason=%s expected=%s",
+            exc.reason_code,
+            mask_account_id(config.account_id or ""),
+        )
         return jsonify({"ok": False, "error": exc.reason_code}), 503
     except AccountFactsPublishError as exc:
         app.logger.warning("account_facts_sync build failed reason=%s", exc.reason_code)

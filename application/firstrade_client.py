@@ -130,6 +130,24 @@ def mask_account_id(account_id: str) -> str:
         return "*" * len(value)
     return f"{'*' * max(0, len(value) - 4)}{value[-4:]}"
 
+def normalize_account_number(value: object) -> str | None:
+    """Coerce Firstrade account identifiers to comparable non-empty strings."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        if not value.is_integer():
+            return None
+        text = str(int(value))
+    elif isinstance(value, str):
+        text = value.strip()
+    else:
+        return None
+    return text or None
+
+
+
 
 def _coerce_positive_float(value: float | None, field: str) -> float | None:
     if value is None:
@@ -472,16 +490,22 @@ class FirstradeBrokerClient:
 
     def account_numbers(self) -> list[str]:
         _, account_data = self.require_connected()
-        return list(getattr(account_data, "account_numbers", []))
+        normalized: list[str] = []
+        for item in list(getattr(account_data, "account_numbers", []) or []):
+            account = normalize_account_number(item)
+            if account is not None:
+                normalized.append(account)
+        return normalized
 
     def select_account(self, requested_account: str | None = None) -> str:
         accounts = self.account_numbers()
         if requested_account:
-            if requested_account not in accounts:
+            wanted = normalize_account_number(requested_account)
+            if wanted is None or wanted not in accounts:
                 raise FirstradePlatformError(
-                    f"Requested account {mask_account_id(requested_account)} was not returned by Firstrade."
+                    f"Requested account {mask_account_id(str(requested_account or ''))} was not returned by Firstrade."
                 )
-            return requested_account
+            return wanted
         if len(accounts) == 1:
             return accounts[0]
         if not accounts:
@@ -504,7 +528,11 @@ class FirstradeBrokerClient:
     def get_balances(self, account: str) -> dict[str, Any]:
         _, account_data = self.require_connected()
         balances = dict(account_data.get_account_balances(account))
-        account_balances = dict(getattr(account_data, "account_balances", {}) or {})
+        account_balances = {
+            key: value
+            for raw_key, value in dict(getattr(account_data, "account_balances", {}) or {}).items()
+            if (key := normalize_account_number(raw_key)) is not None
+        }
         account_list_total_value = account_balances.get(account)
         if account_list_total_value is not None and "account_list_total_value" not in balances:
             balances["account_list_total_value"] = account_list_total_value

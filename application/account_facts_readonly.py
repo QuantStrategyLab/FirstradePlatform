@@ -179,11 +179,13 @@ def collect_firstrade_account_facts(
         raise AccountFactsUnavailable("observation_time_invalid") from None
     try:
         accounts = client.account_numbers()
-        if (
-            not isinstance(accounts, list)
-            or any(not isinstance(account, str) or not account for account in accounts)
-            or accounts.count(expected) != 1
+        if not isinstance(accounts, list) or any(
+            not isinstance(account, str) or not account for account in accounts
         ):
+            raise AccountFactsUnavailable("account_identity_mismatch")
+        if not accounts:
+            raise AccountFactsUnavailable("account_list_empty")
+        if accounts.count(expected) != 1:
             raise AccountFactsUnavailable("account_identity_mismatch")
         selected_account = client.select_account(expected)
         if selected_account != expected:
