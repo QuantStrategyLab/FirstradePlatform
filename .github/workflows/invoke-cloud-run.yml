@@ -199,20 +199,20 @@ jobs:
           project = os.environ["GCP_PROJECT_ID"]
           want = os.environ["SYNC_TOKEN_SECRET_NAME"]
           svc_j = json.loads(subprocess.check_output([
-          "gcloud", "run", "services", "describe", svc,
-          "--project", project, "--region", region, "--format=json",
+              "gcloud", "run", "services", "describe", svc,
+              "--project", project, "--region", region, "--format=json",
           ], text=True))
           rev = (svc_j.get("status") or {}).get("latestReadyRevisionName") or ""
           print(f"serving_revision={rev}")
           data = json.loads(subprocess.check_output([
-          "gcloud", "run", "revisions", "describe", rev,
-          "--project", project, "--region", region, "--format=json",
+              "gcloud", "run", "revisions", "describe", rev,
+              "--project", project, "--region", region, "--format=json",
           ], text=True))
           envs = (((data.get("spec") or {}).get("containers") or [{}])[0].get("env") or [])
           row = next((e for e in envs if e.get("name") == "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN"), None)
           if row is None:
-          print("sync_token_mount=MISSING", file=sys.stderr)
-          sys.exit(1)
+              print("sync_token_mount=MISSING", file=sys.stderr)
+              sys.exit(1)
           vf = row.get("valueFrom") or {}
           vs = row.get("valueSource") or {}
           skr = vf.get("secretKeyRef") or vs.get("secretKeyRef") or {}
@@ -221,11 +221,11 @@ jobs:
           print(f"sync_token_secret_ref={ref or '<none>'}")
           print(f"sync_token_literal_set={bool(row.get('value'))}")
           if ref and ref != want:
-          print(f"secret_ref_mismatch want={want} got={ref}", file=sys.stderr)
-          sys.exit(1)
+              print(f"secret_ref_mismatch want={want} got={ref}", file=sys.stderr)
+              sys.exit(1)
           if not ref and not row.get("value"):
-          print("serving revision has neither secret ref nor literal SYNC_TOKEN", file=sys.stderr)
-          sys.exit(1)
+              print("serving revision has neither secret ref nor literal SYNC_TOKEN", file=sys.stderr)
+              sys.exit(1)
           PY
 
             if gcloud scheduler jobs describe "${afs_job}" \
@@ -253,18 +253,18 @@ jobs:
           url = f"https://cloudscheduler.googleapis.com/v1/{name}"
           payload = json.dumps({"httpTarget": {"headers": {"Authorization": f"Bearer {token}"}}}).encode()
           patch = urllib.request.Request(
-          url + "?updateMask=httpTarget.headers",
-          data=payload,
-          method="PATCH",
-          headers={"Authorization": f"Bearer {access}", "Content-Type": "application/json"},
+              url + "?updateMask=httpTarget.headers",
+              data=payload,
+              method="PATCH",
+              headers={"Authorization": f"Bearer {access}", "Content-Type": "application/json"},
           )
           with urllib.request.urlopen(patch, timeout=60) as resp:
-          updated = json.load(resp)
+              updated = json.load(resp)
           auth = ((updated.get("httpTarget") or {}).get("headers") or {}).get("Authorization") or ""
           print(f"scheduler_authorization_len={len(auth)}")
           print(f"scheduler_authorization_bearer_prefix={str(auth.startswith('Bearer ')).lower()}")
           if not auth.startswith("Bearer ") or len(auth) != len("Bearer ") + len(token):
-          raise SystemExit("scheduler Authorization header length/prefix mismatch after PATCH")
+              raise SystemExit("scheduler Authorization header length/prefix mismatch after PATCH")
           PY
             else
               echo "Creating account-facts-sync scheduler ${afs_job} (OIDC + app Authorization header)."
@@ -291,18 +291,18 @@ jobs:
           url = f"https://cloudscheduler.googleapis.com/v1/{name}"
           payload = json.dumps({"httpTarget": {"headers": {"Authorization": f"Bearer {token}"}}}).encode()
           patch = urllib.request.Request(
-          url + "?updateMask=httpTarget.headers",
-          data=payload,
-          method="PATCH",
-          headers={"Authorization": f"Bearer {access}", "Content-Type": "application/json"},
+              url + "?updateMask=httpTarget.headers",
+              data=payload,
+              method="PATCH",
+              headers={"Authorization": f"Bearer {access}", "Content-Type": "application/json"},
           )
           with urllib.request.urlopen(patch, timeout=60) as resp:
-          updated = json.load(resp)
+              updated = json.load(resp)
           auth = ((updated.get("httpTarget") or {}).get("headers") or {}).get("Authorization") or ""
           print(f"scheduler_authorization_len={len(auth)}")
           print(f"scheduler_authorization_bearer_prefix={str(auth.startswith('Bearer ')).lower()}")
           if not auth.startswith("Bearer ") or len(auth) != len("Bearer ") + len(token):
-          raise SystemExit("scheduler Authorization header length/prefix mismatch after PATCH")
+              raise SystemExit("scheduler Authorization header length/prefix mismatch after PATCH")
           PY
             fi
             unset sync_token
