@@ -119,15 +119,18 @@ jobs:
               account = payload.get("account")
               if isinstance(account, str) and account and account not in accounts:
                   accounts.append(account)
-          if len(accounts) != 1:
-              print(f"status=blocked reason=sole_account_not_unique count={len(accounts)}")
+          print("funds_account_count=", len(accounts),
+                "suffixes=", ",".join(mask(a) for a in accounts))
+          preferred = [a for a in accounts if a.endswith("5979")]
+          if len(preferred) == 1:
+              sole = preferred[0]
+          elif len(accounts) == 1 and accounts[0].endswith("5979"):
+              sole = accounts[0]
+          else:
+              print(f"status=blocked reason=sole_account_not_unique count={len(accounts)} preferred={len(preferred)}")
               sys.exit(1)
-          sole = accounts[0]
           if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", sole):
               print("status=blocked reason=sole_account_invalid")
-              sys.exit(1)
-          if not sole.endswith("5979"):
-              print(f"status=blocked reason=sole_account_suffix_mismatch masked={mask(sole)}")
               sys.exit(1)
           print(f"selector_was={mask(previous_selector)} sole={mask(sole)} target_id={target_id}")
           print(f"previous_source_binding_id={previous_binding}")
