@@ -1,9 +1,9 @@
 name: FT AFS align broker account
 
-# Discover the sole live Firstrade broker account from GCS funds snapshots,
-# patch RUNTIME_TARGET_JSON.account_selector, and emit QRS rotation JSON
-# (artifact) for LongBridge-style binding rotation. Masks account ids in logs.
-# No strategy / trading-mode changes.
+# Discover the sole live Firstrade broker account from GCS funds snapshots and
+# emit rotation + patched RUNTIME_TARGET artifacts for QRS/FT secret updates.
+# Masks account ids in logs. No strategy / trading-mode changes.
+# Does not write GitHub secrets (GITHUB_TOKEN cannot); operator applies artifacts.
 
 on:
   workflow_dispatch:
@@ -28,13 +28,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      secrets: write
     env:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
       FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: google-github-actions/auth@v3
         with:
@@ -43,7 +41,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
-      - name: Discover sole account, patch selector, emit rotation artifact
+      - name: Discover sole account and emit rotation artifacts
         run: |
           set -euo pipefail
           umask 077
@@ -140,7 +138,6 @@ jobs:
           if not service_name or not deployment_selector or not account_scope:
               print("status=blocked reason=runtime_identity_incomplete")
               sys.exit(1)
-          # Match Node JSON.stringify key insertion order from prepare_firstrade_account_facts_binding.mjs
           next_id = hashlib.sha256(json.dumps({
               "platform": "firstrade",
               "service_name": service_name,
@@ -154,30 +151,28 @@ jobs:
           print(f"next_source_binding_id={next_id}")
 
           runtime["account_selector"] = [sole]
-          patched = json.dumps(runtime, separators=(",", ":"))
-          subprocess.run(
-              ["gh", "secret", "set", "RUNTIME_TARGET_JSON", "--repo", "QuantStrategyLab/FirstradePlatform"],
-              input=patched, text=True, check=True,
-          )
-          print("runtime_target_secret=updated")
-
+          out_dir = "/tmp/ft-afs-align"
+          with open(f"{out_dir}/runtime-target.patched.json", "w", encoding="utf-8") as handle:
+              json.dump(runtime, handle, separators=(",", ":"))
           rotation = {
               "target_id": target_id,
               "previous_source_binding_id": previous_binding,
               "next_source_binding_id": next_id,
               "next_broker_account_id": sole,
           }
-          out = "/tmp/ft-afs-align/firstrade-afs-rotation.json"
-          with open(out, "w", encoding="utf-8") as handle:
+          with open(f"{out_dir}/firstrade-afs-rotation.json", "w", encoding="utf-8") as handle:
               json.dump(rotation, handle, separators=(",", ":"))
-          os.chmod(out, 0o600)
+          for name in ("runtime-target.patched.json", "firstrade-afs-rotation.json"):
+              os.chmod(f"{out_dir}/{name}", 0o600)
           print("rotation_artifact=ready")
           print("status=prepared")
           PY
-      - name: Upload rotation artifact
+      - name: Upload rotation artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firstrade-afs-rotation
-          path: /tmp/ft-afs-align/firstrade-afs-rotation.json
+          path: |
+            /tmp/ft-afs-align/firstrade-afs-rotation.json
+            /tmp/ft-afs-align/runtime-target.patched.json
           if-no-files-found: error
           retention-days: 1
