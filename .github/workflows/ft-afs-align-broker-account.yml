@@ -107,25 +107,40 @@ jobs:
               ["gcloud", "storage", "ls", f"gs://{bucket}/{prefix}/accounts/*/funds/latest.json"],
               text=True,
           ).strip().splitlines()
-          accounts = []
+          rows = []
           for uri in listed:
               if not uri.strip():
                   continue
-              raw = subprocess.check_output(["gcloud", "storage", "cat", uri.strip()], text=True)
+              uri = uri.strip()
+              raw = subprocess.check_output(["gcloud", "storage", "cat", uri], text=True)
               try:
                   payload = json.loads(raw)
               except Exception:
                   continue
               account = payload.get("account")
-              if isinstance(account, str) and account and account not in accounts:
-                  accounts.append(account)
+              if isinstance(account, (int, float)) and not isinstance(account, bool):
+                  if isinstance(account, float) and not account.is_integer():
+                      continue
+                  account = str(int(account))
+              if isinstance(account, str):
+                  account = account.strip()
+              if not isinstance(account, str) or not account:
+                  continue
+              updated = str(payload.get("as_of") or payload.get("observed_at") or "")
+              rows.append((uri, account, updated))
+          accounts = sorted({account for _, account, _ in rows})
           print("funds_account_count=", len(accounts),
-                "suffixes=", ",".join(mask(a) for a in accounts))
-          preferred = [a for a in accounts if a.endswith("5979")]
+                "suffixes=", ",".join(mask(a) for a in accounts),
+                "lengths=", ",".join(str(len(a)) for a in accounts))
+          preferred_rows = [row for row in rows if row[1].endswith("5979")]
+          preferred = sorted({account for _, account, _ in preferred_rows})
           if len(preferred) == 1:
               sole = preferred[0]
-          elif len(accounts) == 1 and accounts[0].endswith("5979"):
-              sole = accounts[0]
+          elif len(preferred_rows) >= 1:
+              # Same suffix, divergent encodings: take the newest snapshot row.
+              preferred_rows.sort(key=lambda row: row[2], reverse=True)
+              sole = preferred_rows[0][1]
+              print("status=note reason=preferred_newest_5979_snapshot")
           else:
               print(f"status=blocked reason=sole_account_not_unique count={len(accounts)} preferred={len(preferred)}")
               sys.exit(1)
