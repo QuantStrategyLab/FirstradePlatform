@@ -46,31 +46,56 @@ jobs:
           gcloud run services describe "${CLOUD_RUN_SERVICE}" \
             --region="${CLOUD_RUN_REGION}" --format=json > /tmp/service.json
           python3 - <<'PY'
-          import json
+          import json, subprocess, os
+          region=os.environ["CLOUD_RUN_REGION"]
           svc=json.load(open("/tmp/service.json"))
           status=svc.get("status") or {}
           traffic=status.get("traffic") or []
           print("latestReadyRevisionName=", status.get("latestReadyRevisionName"))
           print("latestCreatedRevisionName=", status.get("latestCreatedRevisionName"))
+          revs=set()
           for row in traffic:
               print("traffic=", {k: row.get(k) for k in ("revisionName","percent","tag","latestRevision")})
-          template=((svc.get("spec") or {}).get("template") or {})
-          labels=((template.get("metadata") or {}).get("labels") or {})
-          print("template_commit=", labels.get("commit-sha"))
-          containers=(((template.get("spec") or {}).get("containers") or [{}])[0])
+              if row.get("revisionName"):
+                  revs.add(row["revisionName"])
+          for name in (status.get("latestReadyRevisionName"), status.get("latestCreatedRevisionName")):
+              if name:
+                  revs.add(name)
           wanted={
             "FIRSTRADE_REUSE_SESSION","FIRSTRADE_PERSIST_SESSION_CACHE",
             "FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP","FIRSTRADE_SESSION_CHECK_POLICY",
-            "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED","FIRSTRADE_SESSION_CACHE_TTL_SECONDS",
+            "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED","FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+            "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID","FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
+            "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
+            "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN","FIRSTRADE_SESSION_CACHE_TTL_SECONDS",
             "STRATEGY_PROFILE","RUNTIME_TARGET_ENABLED","FIRSTRADE_DRY_RUN_ONLY",
           }
-          for env in containers.get("env") or []:
-              name=env.get("name")
-              if name in wanted:
-                  if "valueSource" in env:
-                      print(f"env {name}=<secret_or_ref>")
-                  else:
-                      print(f"env {name}={env.get('value')}")
+          for rev in sorted(revs):
+              raw=subprocess.check_output([
+                "gcloud","run","revisions","describe",rev,
+                "--region",region,"--format=json"
+              ], text=True)
+              data=json.loads(raw)
+              labels=(data.get("metadata") or {}).get("labels") or data.get("labels") or {}
+              # Cloud Run API v1 uses metadata.labels; knative-ish may nest differently
+              if not labels and isinstance(data.get("metadata"), dict):
+                  labels=data["metadata"].get("labels") or {}
+              commit=labels.get("commit-sha") or ((data.get("metadata") or {}).get("annotations") or {}).get("client.knative.dev/user-image","")
+              print(f"revision={rev} commit={commit} ready={((data.get('status') or {}).get('conditions') or [])}")
+              containers=(((data.get("spec") or {}).get("containers") or [{}])[0])
+              present=[]
+              for env in containers.get("env") or []:
+                  name=env.get("name")
+                  if name in wanted:
+                      if env.get("valueSource"):
+                          present.append(f"{name}=<ref>")
+                      else:
+                          val=env.get("value")
+                          if name.endswith("_ID") or name.endswith("_KEY") or name.endswith("_SCOPE") or name.endswith("_TOKEN"):
+                              present.append(f"{name}=<set>" if val else f"{name}=<empty>")
+                          else:
+                              present.append(f"{name}={val}")
+              print("facts_env=", ", ".join(present) if present else "<none>")
           PY
 
       - name: Read Cloud Run logs around latest probe
