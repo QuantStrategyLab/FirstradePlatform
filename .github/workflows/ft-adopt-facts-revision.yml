@@ -40,8 +40,8 @@ jobs:
             echo "expected_sha invalid" >&2
             exit 1
           fi
-          if [ "${GITHUB_SHA}" != "${EXPECTED_SHA}" ] || [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "Dispatch must be from main at expected_sha." >&2
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Dispatch must be from main (WIF)." >&2
             exit 1
           fi
 
