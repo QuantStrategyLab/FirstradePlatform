@@ -1,0 +1,137 @@
+name: FT account-facts sync once
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+  GCP_RUNTIME_SERVICE_ACCOUNT: firstrade-platform-runtime@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-account-facts-sync-once
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync account facts via Cloud Run Job
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Deploy and execute one-shot AFS job
+        run: |
+          set -euo pipefail
+          region="${CLOUD_RUN_REGION}"
+          svc="${CLOUD_RUN_SERVICE}"
+          secret_name="${FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME}"
+          job_name="${svc}-afs-once"
+          if [ -z "${region}" ] || [ -z "${svc}" ] || [ -z "${secret_name}" ]; then
+            echo "CLOUD_RUN_REGION, CLOUD_RUN_SERVICE, and FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME are required." >&2
+            exit 1
+          fi
+
+          service_url="$(gcloud run services describe "${svc}" --project="${GCP_PROJECT_ID}" --region="${region}" --format='value(status.url)')"
+          image="$(gcloud run services describe "${svc}" --project="${GCP_PROJECT_ID}" --region="${region}" --format='value(spec.template.spec.containers[0].image)')"
+          afs_url="${service_url}/account-facts-sync"
+          echo "service_url=${service_url}"
+          echo "image=${image}"
+          echo "job_name=${job_name}"
+          echo "afs_url=${afs_url}"
+          echo "secret_name=${secret_name}"
+
+          # Inline caller: mount sync token as env; fetch OIDC from metadata; dual-header POST.
+          # Avoid printing the sync token.
+          script=$(cat <<'PY'
+          import json, os, urllib.error, urllib.request
+          target = os.environ["AFS_TARGET_URL"]
+          audience = os.environ["AFS_AUDIENCE"]
+          sync = os.environ["FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN"]
+          meta = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=" + audience
+          oidc = urllib.request.urlopen(urllib.request.Request(meta, headers={"Metadata-Flavor": "Google"}), timeout=30).read().decode()
+          req = urllib.request.Request(
+              target,
+              data=b"{}",
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {sync}",
+                  "X-Serverless-Authorization": f"Bearer {oidc}",
+                  "Content-Type": "application/json",
+                  "User-Agent": "ft-afs-once-job",
+              },
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  body = resp.read().decode()
+                  print(f"http_status={resp.status}")
+                  print(f"body={body[:500]}")
+                  payload = json.loads(body) if body else {}
+                  if not payload.get("ok"):
+                      raise SystemExit(f"afs_not_ok={payload!r}")
+          except urllib.error.HTTPError as exc:
+              err_body = exc.read().decode()[:500]
+              print(f"http_status={exc.code}")
+              print(f"body={err_body}")
+              raise
+          PY
+          )
+
+          # Collapse script to a single -c argument without leaking into process list logs via gcloud --args list carefully.
+          SCRIPT_RAW="${script}" python3 -c 'import os,textwrap,pathlib; pathlib.Path("/tmp/afs_once.py").write_text(textwrap.dedent(os.environ["SCRIPT_RAW"]))'
+
+          b64="$(base64 -w0 /tmp/afs_once.py)"
+          # Custom ^|^ delimiter so commas inside the python -c snippet are preserved.
+          gcloud run jobs deploy "${job_name}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${region}" \
+            --image="${image}" \
+            --service-account="${GCP_RUNTIME_SERVICE_ACCOUNT}" \
+            --set-secrets="FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN=${secret_name}:latest" \
+            --set-env-vars="AFS_TARGET_URL=${afs_url},AFS_AUDIENCE=${service_url},AFS_SCRIPT_B64=${b64}" \
+            --command=python3 \
+            --args="^|^-c|import os,base64; exec(base64.b64decode(os.environ['AFS_SCRIPT_B64']).decode())" \
+            --max-retries=0 \
+            --task-timeout=180s \
+            --memory=512Mi \
+            --cpu=1 \
+            --quiet
+
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Executing ${job_name} at ${started_at}"
+          gcloud run jobs execute "${job_name}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${region}" \
+            --wait
+
+          echo "Job finished; reading Cloud Run request logs"
+          filter="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${svc}\" AND timestamp>=\"${started_at}\" AND httpRequest.requestUrl:\"/account-facts-sync\""
+          gcloud logging read "${filter}" --project="${GCP_PROJECT_ID}" --limit=20 --format=json > /tmp/afs-logs.json || true
+          python3 - <<'PY'
+          import json
+          rows = json.load(open("/tmp/afs-logs.json"))
+          print(f"afs_log_entries={len(rows)}")
+          for row in rows:
+              http = row.get("httpRequest") or {}
+              print(row.get("timestamp"), "status=", http.get("status"), "url=", http.get("requestUrl"), "ua=", http.get("userAgent"))
+          PY
