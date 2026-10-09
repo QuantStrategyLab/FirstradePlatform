@@ -294,7 +294,22 @@ def publish_firstrade_account_snapshot(
             )
         except Exception:
             raise AccountFactsPublishError("sync_unavailable") from None
-        if getattr(response, "status_code", None) != 200:
+        status_code = getattr(response, "status_code", None)
+        if status_code != 200:
+            qrs_error = ""
+            try:
+                body = response.json()
+            except Exception:
+                body = None
+            if isinstance(body, dict):
+                err = body.get("error")
+                if isinstance(err, str) and 0 < len(err) <= 96 and err.isascii() and err.replace("_", "").isalnum():
+                    qrs_error = err
+            # Safe diagnostics only: HTTP status + fixed QRS error token (no body dump).
+            print(
+                f"account_facts_sync qrs_reject status={status_code} error={qrs_error or '<none>'}",
+                flush=True,
+            )
             raise AccountFactsPublishError("sync_rejected")
         response_body = getattr(response, "content", None)
         if isinstance(response_body, (bytes, bytearray)) and len(response_body) > 8192:
