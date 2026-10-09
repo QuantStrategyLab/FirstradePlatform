@@ -233,7 +233,13 @@ def collect_firstrade_account_facts(
         missing_market_value += int(value_missing)
         missing_currency += int(currency_missing)
 
-    provider_equity = _exact_balance_value(balances, ("total_equity",))
+    # Firstrade balance payloads commonly use total_value; the client also
+    # mirrors account-list totals as account_list_total_value. Keep exact
+    # keys only (never fuzzy cash substrings).
+    provider_equity = _exact_balance_value(
+        balances,
+        ("total_equity", "total_value", "account_list_total_value"),
+    )
     cash_balance = _exact_balance_value(balances, ("cash_balance",))
     available_cash = _exact_balance_value(balances, ("available_cash",))
     buying_power = _exact_balance_value(balances, ("buying_power",))

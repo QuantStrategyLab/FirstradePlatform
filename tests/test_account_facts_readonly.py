@@ -403,3 +403,20 @@ def test_requires_timezone_aware_monotonic_observation_times():
         )
 
     assert error.value.reason_code == "observation_time_invalid"
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["total_value", "account_list_total_value", "total_equity"],
+)
+def test_accepts_firstrade_total_value_as_provider_equity(field):
+    client = CachedReadOnlyClient()
+    client.balances = {field: "$1,234.50", "currency": "USD"}
+
+    result = collect_firstrade_account_facts(
+        client,
+        expected_account="synthetic-account-a",
+        clock=lambda: datetime(2026, 10, 8, 12, tzinfo=timezone.utc),
+    )
+
+    assert result["balances"]["provider_equity"] == "1234.5"
