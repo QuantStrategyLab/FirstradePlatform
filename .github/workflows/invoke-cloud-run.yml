@@ -409,20 +409,20 @@ jobs:
             echo "restore_probe_uri=${restore_probe_uri}"
           } >> "$GITHUB_OUTPUT"
 
-          - name: Authenticate for service invocation
-          if: steps.service.outputs.invoke_method == 'direct'
-          id: invoke-auth
-          uses: google-github-actions/auth@v3
-          with:
+      - name: Authenticate for service invocation
+        if: steps.service.outputs.invoke_method == 'direct'
+        id: invoke-auth
+        uses: google-github-actions/auth@v3
+        with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
           token_format: id_token
           id_token_audience: ${{ steps.service.outputs.url }}
           id_token_include_email: true
 
-          - name: Invoke service
-          if: steps.service.outputs.invoke_method == 'direct'
-          run: |
+      - name: Invoke service
+        if: steps.service.outputs.invoke_method == 'direct'
+        run: |
           set -euo pipefail
 
           curl --fail-with-body --show-error --silent \
@@ -430,12 +430,12 @@ jobs:
             --header "Authorization: Bearer ${{ steps.invoke-auth.outputs.id_token }}" \
             "${{ steps.service.outputs.url }}${{ steps.service.outputs.path }}"
 
-          - name: Invoke internal service through Cloud Scheduler
-          if: steps.service.outputs.invoke_method == 'scheduler'
-          env:
+      - name: Invoke internal service through Cloud Scheduler
+        if: steps.service.outputs.invoke_method == 'scheduler'
+        env:
           RESTORE_PROBE_URI: ${{ steps.service.outputs.restore_probe_uri }}
           SERVICE_URL: ${{ steps.service.outputs.url }}
-          run: |
+        run: |
           set -euo pipefail
 
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
