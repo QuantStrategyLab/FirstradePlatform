@@ -180,10 +180,10 @@ jobs:
             # App auth uses Authorization Bearer sync token; Cloud Scheduler then places the
             # OIDC identity token in X-Serverless-Authorization for Cloud Run IAM.
             local sync_token
+            # Deploy SA cannot read this secret directly; impersonate the Cloud Run
+            # runtime SA that already has secretAccessor via the mounted secret ref.
             sync_token="$(
-              gcloud secrets versions access latest \
-                --project="${GCP_PROJECT_ID}" \
-                --secret="${secret_name}"
+              gcloud secrets versions access latest                 --project="${GCP_PROJECT_ID}"                 --secret="${secret_name}"                 --impersonate-service-account="firstrade-platform-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
             )"
             if [ -z "${sync_token}" ]; then
               echo "Secret ${secret_name} returned an empty sync token." >&2
