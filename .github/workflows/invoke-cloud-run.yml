@@ -13,6 +13,18 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      path:
+        description: "HTTP path to call"
+        required: false
+        default: "/account-facts-sync"
+        type: string
+      allow_live_execution:
+        description: "Allow calling /run live execution entrypoint"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
