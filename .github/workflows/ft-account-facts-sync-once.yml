@@ -1,13 +1,16 @@
 name: FT account-facts sync once
 
-# Supported path: reuse Invoke Cloud Run → Cloud Scheduler OIDC + app Authorization
-# against /account-facts-sync. The previous Cloud Run Job self-POST path returned
-# gateway HTML 404 (run 37898342496) and is retired.
+# Supported path: dispatch Invoke Cloud Run → Scheduler OIDC + app Authorization
+# against /account-facts-sync. The previous Cloud Run Job self-POST returned
+# gateway HTML 404 (run 37898342496). A workflow_call reusable wrapper hit
+# startup_failure (run 37915762568); same-repo workflow_dispatch is the
+# reliable hand-off.
 
 on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
@@ -16,9 +19,64 @@ concurrency:
 
 jobs:
   sync:
-    name: Sync account facts via Invoke Cloud Run
-    uses: ./.github/workflows/invoke-cloud-run.yml
-    with:
-      path: /account-facts-sync
-      allow_live_execution: false
-    secrets: inherit
+    name: Dispatch Invoke for /account-facts-sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Trigger Invoke Cloud Run
+        id: trigger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "before=${before}" >> "$GITHUB_OUTPUT"
+          gh workflow run "Invoke Cloud Run" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}" \
+            -f path=/account-facts-sync \
+            -f allow_live_execution=false
+          echo "Dispatched Invoke Cloud Run for /account-facts-sync (after ${before})"
+
+      - name: Wait for Invoke result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ steps.trigger.outputs.before }}
+        run: |
+          set -euo pipefail
+          invoke_id=""
+          for _ in $(seq 1 36); do
+            sleep 5
+            mapfile -t rows < <(
+              gh run list \
+                --repo "${GITHUB_REPOSITORY}" \
+                --workflow "Invoke Cloud Run" \
+                --limit 8 \
+                --json databaseId,status,conclusion,createdAt,url,event \
+                --jq '.[] | select(.event=="workflow_dispatch") | [.databaseId, .status, (.conclusion // ""), .createdAt, .url] | @tsv'
+            )
+            for row in "${rows[@]:-}"; do
+              id="$(echo "$row" | cut -f1)"
+              status="$(echo "$row" | cut -f2)"
+              conclusion="$(echo "$row" | cut -f3)"
+              created="$(echo "$row" | cut -f4)"
+              url="$(echo "$row" | cut -f5)"
+              # Prefer runs at/after our dispatch timestamp.
+              if [[ -n "$BEFORE" && "$created" < "$BEFORE" ]]; then
+                continue
+              fi
+              invoke_id="$id"
+              echo "invoke_run id=${id} status=${status} conclusion=${conclusion} created=${created} url=${url}"
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "Invoke succeeded: ${url}"
+                  exit 0
+                fi
+                echo "Invoke finished without success (conclusion=${conclusion}): ${url}" >&2
+                exit 1
+              fi
+              break
+            done
+          done
+          echo "Timed out waiting for Invoke Cloud Run (last_id=${invoke_id:-none})." >&2
+          exit 1
