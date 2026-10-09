@@ -183,9 +183,14 @@ jobs:
                 scheduler_expected_path="/dry-run"
                 ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/dry-run" "${scheduler_location}"
                 ;;
+              /account-facts-sync)
+                scheduler_job="${CLOUD_RUN_SERVICE}-account-facts-sync-scheduler"
+                scheduler_expected_path="/account-facts-sync"
+                ensure_invoke_bridge_job "${scheduler_job}" "${service_url}/account-facts-sync" "${scheduler_location}"
+                ;;
               *)
                 echo "Cloud Run service ${CLOUD_RUN_SERVICE} has internal ingress, so GitHub-hosted runners cannot curl ${raw_path} directly." >&2
-                echo "Use one of the scheduler-backed paths: /run, /probe, /dry-run." >&2
+                echo "Use one of the scheduler-backed paths: /run, /probe, /dry-run, /account-facts-sync." >&2
                 exit 1
                 ;;
             esac
