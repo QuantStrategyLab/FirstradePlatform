@@ -4,7 +4,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Mapping
 
 if TYPE_CHECKING:
     pass
@@ -42,16 +42,48 @@ DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
 IBIT_SMART_DCA_PROFILE = "ibit_smart_dca"
 
 
+FIRSTRADE_SECRET_PROJECT_ID = "firstradequant"
+# Legacy per-platform bot; only used when no unified token is injected.
+LEGACY_TELEGRAM_TOKEN_SECRET_NAME = "firstrade-telegram-token"
+
+
+def _read_secret(secret_name: str) -> str | None:
+    try:
+        from quant_platform_kit.cloud import get_secret_store
+
+        return get_secret_store().get_secret(secret_name, project_id=FIRSTRADE_SECRET_PROJECT_ID)
+    except Exception:
+        return None
+
+
 def _get_credential(secret_name: str, env_var: str) -> str | None:
     val = os.environ.get(env_var)
     if val is not None:
         return val
-    try:
-        from quant_platform_kit.cloud import get_secret_store
+    return _read_secret(secret_name)
 
-        return get_secret_store().get_secret(secret_name, project_id="firstradequant")
-    except Exception:
-        return None
+
+def resolve_telegram_token(
+    env: Mapping[str, str] | None = None,
+    *,
+    secret_reader: Callable[[str], str | None] | None = None,
+) -> str | None:
+    """Resolve the bot token: injected TELEGRAM_TOKEN, then TELEGRAM_TOKEN_SECRET_NAME, then legacy."""
+
+    source = os.environ if env is None else env
+    reader = _read_secret if secret_reader is None else secret_reader
+    direct = str(source.get("TELEGRAM_TOKEN") or "").strip()
+    if direct:
+        return direct
+    configured_name = str(source.get("TELEGRAM_TOKEN_SECRET_NAME") or "").strip()
+    names = [configured_name] if configured_name else []
+    if LEGACY_TELEGRAM_TOKEN_SECRET_NAME not in names:
+        names.append(LEGACY_TELEGRAM_TOKEN_SECRET_NAME)
+    for name in names:
+        value = str(reader(name) or "").strip()
+        if value:
+            return value
+    return None
 
 
 @dataclass(frozen=True)
@@ -187,7 +219,7 @@ def load_platform_runtime_settings(
         strategy_domain=runtime_paths.strategy_domain,
         strategy_metadata=strategy_metadata,
         notify_lang=os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG", "en"),
-        tg_token=_get_credential("firstrade-telegram-token", "TELEGRAM_TOKEN"),
+        tg_token=resolve_telegram_token(),
         tg_chat_id=os.getenv("QSL_GLOBAL_TELEGRAM_CHAT_ID") or os.getenv("GLOBAL_TELEGRAM_CHAT_ID"),
         dry_run_only=dry_run_only,
         runtime_target_enabled=(

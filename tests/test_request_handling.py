@@ -17,6 +17,7 @@ def _assume_market_open_for_http_tests(monkeypatch, request):
     }))
     monkeypatch.setattr(main, "get_project_id", lambda: "test-project")
     monkeypatch.setattr("runtime_config_support._get_credential", lambda *_args: None)
+    monkeypatch.setattr("runtime_config_support._read_secret", lambda *_args: None)
     if request.node.name == "test_run_endpoint_skips_when_market_closed":
         return
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
