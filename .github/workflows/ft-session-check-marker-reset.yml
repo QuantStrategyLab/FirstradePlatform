@@ -1,0 +1,89 @@
+name: FT session-check marker reset
+
+# Ops-only: back up / delete / restore the fixed October 2026 monthly session-check
+# marker so one read-only /probe session renewal can run. No broker call, no trading.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "status | backup_and_delete | restore"
+        required: true
+        type: choice
+        default: status
+        options:
+          - status
+          - backup_and_delete
+          - restore
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-session-check-marker-reset
+  cancel-in-progress: false
+
+jobs:
+  marker:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
+      FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
+      ACTION: ${{ inputs.action }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Apply marker action
+        run: |
+          set -euo pipefail
+          if [ -z "${FIRSTRADE_GCS_STATE_BUCKET}" ]; then
+            echo "state bucket unavailable" >&2
+            exit 1
+          fi
+          base="gs://${FIRSTRADE_GCS_STATE_BUCKET#gs://}/${FIRSTRADE_STATE_PREFIX}/session-checks/auto/ibit_smart_dca/2026_10"
+          marker="${base}/latest.json"
+          backup="${base}/latest.json.bak-20261010"
+          show() {
+            for obj in "${marker}" "${backup}"; do
+              if gcloud storage objects describe "${obj}" --format='value(update_time,size)' >/tmp/d 2>/dev/null; then
+                echo "present ${obj##*/} $(cat /tmp/d)"
+              else
+                echo "absent ${obj##*/}"
+              fi
+            done
+          }
+          case "${ACTION}" in
+            status) ;;
+            backup_and_delete)
+              gcloud storage cp --no-clobber "${marker}" "${backup}"
+              gcloud storage objects describe "${backup}" >/dev/null
+              gcloud storage rm "${marker}"
+              ;;
+            restore)
+              if gcloud storage objects describe "${marker}" >/dev/null 2>&1; then
+                echo "marker already present; restore not needed"
+              else
+                gcloud storage cp "${backup}" "${marker}"
+              fi
+              ;;
+            *) echo "invalid action" >&2; exit 1 ;;
+          esac
+          show
