@@ -104,7 +104,7 @@ jobs:
           filter=$(cat <<EOF
           resource.type="cloud_run_revision"
           AND resource.labels.service_name="${CLOUD_RUN_SERVICE}"
-          AND timestamp>="2026-10-09T06:05:00Z"
+          AND timestamp>="2026-10-09T06:40:00Z"
           AND (
             textPayload:"session"
             OR textPayload:"Session"
@@ -114,6 +114,10 @@ jobs:
             OR textPayload:"Firstrade"
             OR textPayload:"login"
             OR textPayload:"cached"
+            OR textPayload:"account_facts"
+            OR textPayload:"account-facts"
+            OR textPayload:"sync_"
+            OR httpRequest.requestUrl:"/account-facts-sync"
             OR jsonPayload.message:"session"
             OR jsonPayload.message:"MFA"
             OR httpRequest.requestUrl:"/probe"
