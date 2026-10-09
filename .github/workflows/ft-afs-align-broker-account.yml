@@ -1,0 +1,178 @@
+name: FT AFS align broker account
+
+# Discover the sole live Firstrade broker account from GCS funds snapshots and
+# emit rotation + patched RUNTIME_TARGET artifacts for QRS/FT secret updates.
+# Masks account ids in logs. No strategy / trading-mode changes.
+# Does not write GitHub secrets (GITHUB_TOKEN cannot); operator applies artifacts.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: firstradequant
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+
+concurrency:
+  group: ft-afs-align-broker-account
+  cancel-in-progress: false
+
+jobs:
+  align:
+    name: Discover sole account and prepare rotation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
+      FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
+    steps:
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+      - name: Discover sole account and emit rotation artifacts
+        run: |
+          set -euo pipefail
+          umask 077
+          svc="${CLOUD_RUN_SERVICE}"
+          region="${CLOUD_RUN_REGION}"
+          gcloud run services describe "${svc}" --region="${region}" --format=json > /tmp/service.json
+          rev="$(python3 - <<'PY'
+          import json
+          s=json.load(open("/tmp/service.json"))
+          print((s.get("status") or {}).get("latestReadyRevisionName") or "")
+          PY
+          )"
+          test -n "${rev}"
+          gcloud run revisions describe "${rev}" --region="${region}" --format=json > /tmp/rev.json
+          mkdir -p /tmp/ft-afs-align
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess, sys
+
+          def mask(value: str) -> str:
+              value = str(value or "")
+              if len(value) <= 4:
+                  return "*" * len(value)
+              return ("*" * (len(value) - 4)) + value[-4:]
+
+          rev = json.load(open("/tmp/rev.json"))
+          envs = (((rev.get("spec") or {}).get("containers") or [{}])[0].get("env") or [])
+          by_name = {row.get("name"): row for row in envs if isinstance(row, dict)}
+
+          def env_value(name: str) -> str:
+              row = by_name.get(name) or {}
+              if "value" in row and row["value"] is not None:
+                  return str(row["value"])
+              return ""
+
+          runtime_raw = env_value("RUNTIME_TARGET_JSON")
+          if not runtime_raw:
+              print("status=blocked reason=runtime_target_missing")
+              sys.exit(1)
+          try:
+              runtime = json.loads(runtime_raw)
+          except Exception:
+              print("status=blocked reason=runtime_target_invalid")
+              sys.exit(1)
+          if not isinstance(runtime, dict) or runtime.get("platform_id") != "firstrade":
+              print("status=blocked reason=runtime_target_invalid")
+              sys.exit(1)
+          selectors = runtime.get("account_selector")
+          if isinstance(selectors, str):
+              selectors = [selectors]
+          if not isinstance(selectors, list) or len(selectors) != 1 or not isinstance(selectors[0], str):
+              print("status=blocked reason=runtime_selector_invalid")
+              sys.exit(1)
+          previous_selector = selectors[0]
+          previous_binding = env_value("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID")
+          target_id = env_value("FIRSTRADE_ACCOUNT_FACTS_TARGET_ID") or "firstrade-homepage"
+          if not re.fullmatch(r"[a-f0-9]{64}", previous_binding or ""):
+              print("status=blocked reason=previous_binding_missing")
+              sys.exit(1)
+
+          bucket = os.environ["FIRSTRADE_GCS_STATE_BUCKET"]
+          prefix = os.environ["FIRSTRADE_STATE_PREFIX"].rstrip("/")
+          listed = subprocess.check_output(
+              ["gcloud", "storage", "ls", f"gs://{bucket}/{prefix}/accounts/*/funds/latest.json"],
+              text=True,
+          ).strip().splitlines()
+          accounts = []
+          for uri in listed:
+              if not uri.strip():
+                  continue
+              raw = subprocess.check_output(["gcloud", "storage", "cat", uri.strip()], text=True)
+              try:
+                  payload = json.loads(raw)
+              except Exception:
+                  continue
+              account = payload.get("account")
+              if isinstance(account, str) and account and account not in accounts:
+                  accounts.append(account)
+          if len(accounts) != 1:
+              print(f"status=blocked reason=sole_account_not_unique count={len(accounts)}")
+              sys.exit(1)
+          sole = accounts[0]
+          if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", sole):
+              print("status=blocked reason=sole_account_invalid")
+              sys.exit(1)
+          if not sole.endswith("5979"):
+              print(f"status=blocked reason=sole_account_suffix_mismatch masked={mask(sole)}")
+              sys.exit(1)
+          print(f"selector_was={mask(previous_selector)} sole={mask(sole)} target_id={target_id}")
+          print(f"previous_source_binding_id={previous_binding}")
+
+          service_name = str(runtime.get("service_name") or "")
+          deployment_selector = str(runtime.get("deployment_selector") or "")
+          account_scope = str(runtime.get("account_scope") or "")
+          if not service_name or not deployment_selector or not account_scope:
+              print("status=blocked reason=runtime_identity_incomplete")
+              sys.exit(1)
+          next_id = hashlib.sha256(json.dumps({
+              "platform": "firstrade",
+              "service_name": service_name,
+              "deployment_selector": deployment_selector,
+              "account_scope": account_scope,
+              "broker_account_id": sole,
+          }, separators=(",", ":")).encode()).hexdigest()
+          if next_id == previous_binding:
+              print("status=blocked reason=binding_id_unchanged")
+              sys.exit(1)
+          print(f"next_source_binding_id={next_id}")
+
+          runtime["account_selector"] = [sole]
+          out_dir = "/tmp/ft-afs-align"
+          with open(f"{out_dir}/runtime-target.patched.json", "w", encoding="utf-8") as handle:
+              json.dump(runtime, handle, separators=(",", ":"))
+          rotation = {
+              "target_id": target_id,
+              "previous_source_binding_id": previous_binding,
+              "next_source_binding_id": next_id,
+              "next_broker_account_id": sole,
+          }
+          with open(f"{out_dir}/firstrade-afs-rotation.json", "w", encoding="utf-8") as handle:
+              json.dump(rotation, handle, separators=(",", ":"))
+          for name in ("runtime-target.patched.json", "firstrade-afs-rotation.json"):
+              os.chmod(f"{out_dir}/{name}", 0o600)
+          print("rotation_artifact=ready")
+          print("status=prepared")
+          PY
+      - name: Upload rotation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firstrade-afs-rotation
+          path: |
+            /tmp/ft-afs-align/firstrade-afs-rotation.json
+            /tmp/ft-afs-align/runtime-target.patched.json
+          if-no-files-found: error
+          retention-days: 1
