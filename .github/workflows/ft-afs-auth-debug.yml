@@ -84,3 +84,43 @@ jobs:
               http=row.get("httpRequest") or {}
               print(row.get("timestamp"), "status=", http.get("status"), "size=", http.get("responseSize"), "latency=", http.get("latency"), "ua=", http.get("userAgent"), "protocol=", http.get("protocol"))
           PY
+          # App reason codes / exceptions around the latest AFS attempt (no secrets).
+          last_ts="$(python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/logs.json"))
+          print((rows[0].get("timestamp") if rows else "") or "")
+          PY
+          )"
+          if [ -n "${last_ts}" ]; then
+            echo "app_log_window_around=${last_ts}"
+            app_filter='resource.type="cloud_run_revision" AND resource.labels.service_name="'"${svc}"'" AND timestamp>="'"${last_ts}"'"'
+            # Expand: 30s before via python
+            app_filter="$(LAST_TS="${last_ts}" SVC="${svc}" python3 - <<'PY'
+          import datetime as dt, os
+          ts = os.environ["LAST_TS"].replace("Z", "+00:00")
+          when = dt.datetime.fromisoformat(ts)
+          start = (when - dt.timedelta(seconds=30)).isoformat().replace("+00:00", "Z")
+          end = (when + dt.timedelta(seconds=30)).isoformat().replace("+00:00", "Z")
+          svc = os.environ["SVC"]
+          print(
+            f'resource.type="cloud_run_revision" AND resource.labels.service_name="{svc}" '
+            f'AND timestamp>="{start}" AND timestamp<="{end}"'
+          )
+          PY
+            )"
+            gcloud logging read "${app_filter}" --project="${GCP_PROJECT_ID}" --limit=40 --format=json > /tmp/app-logs.json
+            python3 - <<'PY'
+          import json
+          rows=json.load(open("/tmp/app-logs.json"))
+          print("app_log_count", len(rows))
+          for row in rows:
+              http=row.get("httpRequest") or {}
+              sev=row.get("severity")
+              text=row.get("textPayload") or ""
+              jp=row.get("jsonPayload") or {}
+              msg=text or jp.get("message") or jp.get("msg") or ""
+              if not msg and not http:
+                  continue
+              print(row.get("timestamp"), "sev=", sev, "status=", http.get("status"), "msg=", str(msg)[:400])
+          PY
+          fi
