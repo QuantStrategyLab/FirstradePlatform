@@ -1,0 +1,47 @@
+name: Notify Route Check
+
+# Read-only (NOTIFY-01): for each Cloud Run service, report traffic, recent
+# revisions and the Secret Manager secret bound to TELEGRAM_TOKEN; check whether
+# the deploy SA can read those secrets and resolve them to the public bot
+# identity (getMe id/username). Never prints token or chat id; never changes
+# Cloud Run, secrets, IAM, schedulers or trading.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-route-check
+  cancel-in-progress: false
+
+jobs:
+  route-check:
+    name: Telegram route check (read-only)
+    if: github.repository == 'QuantStrategyLab/FirstradePlatform' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: firstradequant
+      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+      SERVICE_NAME_PREFIX: 
+      REVISION_LIMIT: "5"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Authenticate to Google Cloud (deploy SA)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Report Telegram route (no secret values)
+        run: python3 scripts/notify_route_check.py
