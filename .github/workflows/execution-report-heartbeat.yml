@@ -107,7 +107,7 @@ jobs:
         run: uv run --no-sync python scripts/execution_report_heartbeat.py
 
       - name: Publish read-only runtime execution evidence
-        uses: QuantStrategyLab/QuantRuntimeSettings/actions/publish-runtime-execution-evidence@c8f095f35d4efbaec6667dedda7bca033056d209
+        uses: QuantStrategyLab/QuantRuntimeSettings/actions/publish-runtime-execution-evidence@b2ad52399859de0b1824c9839b60b7237c0ee4a8
         with:
           source-id: runtime-reports-firstrade
           report-platform: firstrade
