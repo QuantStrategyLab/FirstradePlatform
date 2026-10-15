@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from quant_platform_kit.common.runtime_config import (
     resolve_bool_value,
     resolve_cash_only_execution_env,
+    resolve_dry_run_env,
     resolve_optional_bool_env,
     resolve_optional_dca_mode_env,
     resolve_optional_float_env,
@@ -184,7 +185,8 @@ def load_platform_runtime_settings(
     *,
     project_id_resolver: Callable[[], str | None],
 ) -> PlatformRuntimeSettings:
-    dry_run_only = resolve_bool_value(os.getenv("FIRSTRADE_DRY_RUN_ONLY", "true"))
+    # Unset or empty means dry-run; only an explicit false enables live orders.
+    dry_run_only = resolve_dry_run_env(os.environ, "FIRSTRADE_DRY_RUN_ONLY")
     account_prefix = os.getenv("ACCOUNT_PREFIX", "FIRSTRADE")
     safe_haven_cash_substitute_threshold_usd = resolve_optional_float_env(
         os.environ,
