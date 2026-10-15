@@ -302,9 +302,24 @@ def _publish_cycle_notification(
 
 
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
+    from notifications.digest_snapshot.digest_routing import daily_digest_enabled
+    if daily_digest_enabled() and (result.get("ok") is False or any(result.get(key) for key in (
+        "error", "errors", "strategy_run_persistence_error", "strategy_plugin_error",
+        "strategy_plugin_alert_error", "pending_reconciliation", "orders_pending_count",
+        "execution_blocked", "execution_blocking_skips", "auth_expired",
+    ))):
+        return True
     suppressed = bool(result.get("notification_suppressed_by_policy"))
     repeat_funding = result.get("notification_suppressed_reason") == "repeat_funding_blocked"
     if suppressed and not repeat_funding:
+        return False
+    from notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
+    notification_evidence = dict(result)
+    if not notification_evidence.get("execution_status") and result.get("ok") is True:
+        notification_evidence["execution_status"] = "completed"
+    if result.get("dry_run_only") is not True and defer_routine_cycle_to_digest(
+        notification_evidence, submitted_order_count=len(result.get("submitted_orders") or ()),
+        submitted_orders=result.get("submitted_orders") or ()):
         return False
     # Preview orders are evidence, not a real broker submission.
     if result.get("submitted_orders") and result.get("dry_run_only") is not True:
@@ -404,8 +419,9 @@ def publish_strategy_plugin_alerts(
     log_message: Callable[..., Any] = print,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ):
+    from notifications.digest_snapshot.digest_routing import immediate_plugin_signals
     return dispatch_strategy_plugin_alerts(
-        signals,
+        immediate_plugin_signals(signals),
         notification_settings=settings,
         translator=translator,
         strategy_label=settings.strategy_profile,
