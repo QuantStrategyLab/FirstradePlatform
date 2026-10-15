@@ -291,6 +291,13 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
         summary["orders_skipped"] = skipped_orders
     if execution_notes:
         summary["execution_notes"] = execution_notes
+    from notifications.digest_snapshot.digest_routing import daily_digest_enabled
+    if daily_digest_enabled():
+        from notifications.digest_snapshot.digest_candidates import cycle_evidence
+        evidence = dict(result)
+        if not evidence.get("execution_status") and result.get("ok") is True:
+            evidence["execution_status"] = "completed"
+        summary["notification_digest"] = cycle_evidence(evidence, submitted_orders, dry_run=dry_run)
     return summary
 
 

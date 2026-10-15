@@ -622,6 +622,8 @@ jobs:
       EXECUTION_REPORT_GCS_URI: ${{ vars.EXECUTION_REPORT_GCS_URI }}
       GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
       NOTIFY_LANG: ${{ vars.NOTIFY_LANG }}
+      QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE }}
+      QSL_DIGEST_ROUTINE_ORDERS: ${{ vars.QSL_DIGEST_ROUTINE_ORDERS }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD: ${{ secrets.STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD }}
       STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN: ${{ secrets.STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN }}
@@ -1070,6 +1072,15 @@ jobs:
           }
 
           env_pairs=("${target_env_pairs[@]}")
+          for notification_key in QSL_ROUTINE_NOTIFICATION_MODE QSL_DIGEST_ROUTINE_ORDERS; do
+            if [ -n "${!notification_key:-}" ]; then
+              case "${notification_key}:${!notification_key}" in
+                QSL_ROUTINE_NOTIFICATION_MODE:immediate|QSL_ROUTINE_NOTIFICATION_MODE:daily_digest|QSL_DIGEST_ROUTINE_ORDERS:true|QSL_DIGEST_ROUTINE_ORDERS:false) ;;
+                *) echo "Invalid notification routing configuration" >&2; exit 2 ;;
+              esac
+              env_pairs+=("${notification_key}=${!notification_key}")
+            fi
+          done
           env_pairs+=("GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}")
           secret_pairs=()
           remove_env_vars=("${target_remove_env_vars[@]}")
