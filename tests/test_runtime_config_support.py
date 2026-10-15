@@ -393,3 +393,15 @@ def test_load_platform_runtime_settings_for_ibit_smart_wires_market_signal_defau
         settings.market_signal_handoff_index_uri
         == "gs://qsl-runtime-logs-shared/platform_handoffs/index.json"
     )
+
+
+def test_dry_run_flag_empty_or_unset_fails_closed(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_JSON", _target_json())
+    monkeypatch.setenv("FIRSTRADE_DRY_RUN_ONLY", "")
+    assert load_platform_runtime_settings(project_id_resolver=lambda: "project-1").dry_run_only is True
+
+    monkeypatch.delenv("FIRSTRADE_DRY_RUN_ONLY", raising=False)
+    assert load_platform_runtime_settings(project_id_resolver=lambda: "project-1").dry_run_only is True
+
+    monkeypatch.setenv("FIRSTRADE_DRY_RUN_ONLY", "false")
+    assert load_platform_runtime_settings(project_id_resolver=lambda: "project-1").dry_run_only is False
