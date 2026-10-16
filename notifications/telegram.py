@@ -1065,9 +1065,6 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     has_rebalance_attempt = bool(submitted or target_diff_lines or has_meaningful_skip)
     strategy_profile = str(result.get("strategy_profile") or "").strip()
     strategy_name = str(result.get("strategy_display_name") or strategy_profile).strip()
-    configured = display_name("strategies", strategy_profile, lang)
-    if configured != strategy_profile:
-        return configured
     strategy_metadata = result.get("strategy_metadata")
     if strategy_metadata is not None:
         from quant_platform_kit.common.notification_localization import (
