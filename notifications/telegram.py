@@ -153,8 +153,8 @@ _DASHBOARD_POSITION_LINE_RE = re.compile(r"^[A-Z][A-Z0-9./-]{0,12}\s*:")
 
 I18N = {
     "zh": {
-        "runtime_failure_title": "⚠️ Firstrade 策略运行失败",
-        "runtime_probe_failure_title": "⚠️ Firstrade 健康检查失败",
+        "runtime_failure_title": "⚠️ {platform} 策略运行失败",
+        "runtime_probe_failure_title": "⚠️ {platform} 健康检查失败",
         "runtime_failure_context": "运行目标：{context}",
         "runtime_failure_result": "本次运行未正常结束，请查看最新执行报告。",
         "runtime_failure_action": "下一步：检查账户会话及最新执行报告。",
@@ -329,8 +329,8 @@ I18N = {
         "skip_symbols_reason": "{symbols}（{reason}）",
     },
     "en": {
-        "runtime_failure_title": "⚠️ Firstrade strategy run failed",
-        "runtime_probe_failure_title": "⚠️ Firstrade health check failed",
+        "runtime_failure_title": "⚠️ {platform} strategy run failed",
+        "runtime_probe_failure_title": "⚠️ {platform} health check failed",
         "runtime_failure_context": "Target: {context}",
         "runtime_failure_result": "The run did not finish successfully; check the latest execution report.",
         "runtime_failure_action": "Next: Check the account session and the latest execution report.",
@@ -524,6 +524,7 @@ def build_translator(lang: str | None) -> Callable[..., str]:
             profile = key.removeprefix("strategy_name_")
             return display_name("strategies", profile, active_lang, fallback=key)
         template = I18N[active_lang].get(key, I18N["en"].get(key, key))
+        template = template.replace("{platform}", display_name("platforms", "firstrade", active_lang))
         if not kwargs:
             return template
         try:
