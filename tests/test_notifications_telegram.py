@@ -50,7 +50,7 @@ def test_compact_heartbeat_keeps_nonzero_holdings_and_result():
 
     assert notification.compact_text == (
         "💓 【心跳检测】\n"
-        "🧭 策略: SOXL/SOXX 半导体趋势收益\n"
+        "🧭 策略: 半导体趋势收益\n"
         "💰 账户总权益: USD 1,234.56\n"
         "💼 持仓\n"
         "- SOXL: $1,134.56 / 1股\n"
@@ -85,7 +85,7 @@ def test_compact_trade_keeps_nonzero_holdings_and_order_result():
 
     assert notification.compact_text == (
         "🔔 【调仓指令】\n"
-        "🧭 策略: SOXL/SOXX 半导体趋势收益\n"
+        "🧭 策略: 半导体趋势收益\n"
         "💰 总资产（策略标的+现金）: $1,234.56\n"
         "💼 持仓\n"
         "- BOXX: $500.00 / 5股\n"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .display_names import display_name
+
 from quant_platform_kit.common.operational_notification_localization import resolve_operational_notification_locale
 
 import math
@@ -151,8 +153,8 @@ _DASHBOARD_POSITION_LINE_RE = re.compile(r"^[A-Z][A-Z0-9./-]{0,12}\s*:")
 
 I18N = {
     "zh": {
-        "runtime_failure_title": "⚠️ Firstrade 策略运行失败",
-        "runtime_probe_failure_title": "⚠️ Firstrade 健康检查失败",
+        "runtime_failure_title": "⚠️ {platform} 策略运行失败",
+        "runtime_probe_failure_title": "⚠️ {platform} 健康检查失败",
         "runtime_failure_context": "运行目标：{context}",
         "runtime_failure_result": "本次运行未正常结束，请查看最新执行报告。",
         "runtime_failure_action": "下一步：检查账户会话及最新执行报告。",
@@ -313,15 +315,6 @@ I18N = {
         "blend_gate_volatility_threshold_detail_fixed": "固定阈值 {threshold}",
         "small_account_warning_note": "小账户提示：净值 {portfolio_equity} 低于建议 {min_recommended_equity}；{reason}",
         "small_account_warning_reason_integer_shares_min_position_value_may_prevent_backtest_replication": "整数股和最小仓位限制可能导致实盘无法完全复现回测",
-        "strategy_name_tqqq_growth_income": "TQQQ 增长收益",
-        "strategy_name_soxl_soxx_trend_income": "SOXL/SOXX 半导体趋势收益",
-        "strategy_name_global_etf_rotation": "全球 ETF 轮动",
-        "strategy_name_global_etf_confidence_vol_gate": "全球 ETF 置信波动门控",
-        "strategy_name_tech_communication_pullback_enhancement": "科技通信回调增强",
-        "strategy_name_qqq_tech_enhancement": "科技通信回调增强",
-        "strategy_name_russell_top50_leader_rotation": "罗素 Top50 领涨轮动",
-        "strategy_name_nasdaq_sp500_smart_dca": "纳指100 / 标普500 智能定投",
-        "strategy_name_ibit_smart_dca": "IBIT 比特币 ETF 智能定投",
         "skip_reason_below_trade_threshold": "低于调仓阈值",
         "skip_reason_quote_unavailable": "无法获取报价",
         "skip_reason_sell_quantity_zero": "整数股不足 1 股，无需下单",
@@ -336,8 +329,8 @@ I18N = {
         "skip_symbols_reason": "{symbols}（{reason}）",
     },
     "en": {
-        "runtime_failure_title": "⚠️ Firstrade strategy run failed",
-        "runtime_probe_failure_title": "⚠️ Firstrade health check failed",
+        "runtime_failure_title": "⚠️ {platform} strategy run failed",
+        "runtime_probe_failure_title": "⚠️ {platform} health check failed",
         "runtime_failure_context": "Target: {context}",
         "runtime_failure_result": "The run did not finish successfully; check the latest execution report.",
         "runtime_failure_action": "Next: Check the account session and the latest execution report.",
@@ -498,15 +491,6 @@ I18N = {
         "blend_gate_volatility_threshold_detail_fixed": "fixed threshold {threshold}",
         "small_account_warning_note": "small account warning: portfolio equity {portfolio_equity} is below recommended {min_recommended_equity}; {reason}",
         "small_account_warning_reason_integer_shares_min_position_value_may_prevent_backtest_replication": "integer-share minimum position sizing may prevent backtest replication",
-        "strategy_name_tqqq_growth_income": "TQQQ Growth Income",
-        "strategy_name_soxl_soxx_trend_income": "SOXL/SOXX Semiconductor Trend Income",
-        "strategy_name_global_etf_rotation": "Global ETF Rotation",
-        "strategy_name_global_etf_confidence_vol_gate": "Global ETF Confidence Vol Gate",
-        "strategy_name_tech_communication_pullback_enhancement": "Tech/Communication Pullback Enhancement",
-        "strategy_name_qqq_tech_enhancement": "Tech/Communication Pullback Enhancement",
-        "strategy_name_russell_top50_leader_rotation": "Russell Top50 Leader Rotation",
-        "strategy_name_nasdaq_sp500_smart_dca": "Nasdaq 100 / S&P 500 Smart DCA",
-        "strategy_name_ibit_smart_dca": "IBIT Smart DCA",
         "skip_reason_below_trade_threshold": "below trade threshold",
         "skip_reason_quote_unavailable": "quote unavailable",
         "skip_reason_sell_quantity_zero": "whole-share quantity rounds to 0; no order needed",
@@ -536,7 +520,11 @@ def build_translator(lang: str | None) -> Callable[..., str]:
     active_lang = resolve_operational_notification_locale(lang)
 
     def translate(key: str, **kwargs) -> str:
+        if key.startswith("strategy_name_"):
+            profile = key.removeprefix("strategy_name_")
+            return display_name("strategies", profile, active_lang, fallback=key)
         template = I18N[active_lang].get(key, I18N["en"].get(key, key))
+        template = template.replace("{platform}", display_name("platforms", "firstrade", active_lang))
         if not kwargs:
             return template
         try:
@@ -544,6 +532,7 @@ def build_translator(lang: str | None) -> Callable[..., str]:
         except (IndexError, KeyError, ValueError):
             return template
 
+    translate.notification_locale = active_lang
     return translate
 
 
@@ -559,6 +548,9 @@ def build_strategy_display_name(lang: str, translate_fn):
         fallback_name: str | None = None,
         metadata=None,
     ) -> str:
+        configured = display_name("strategies", profile, lang)
+        if configured != profile:
+            return configured
         if metadata is not None:
             from quant_platform_kit.common.notification_localization import (
                 resolve_strategy_display_name,
@@ -1079,9 +1071,9 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
         from quant_platform_kit.common.notification_localization import (
             resolve_strategy_display_name,
         )
-        strategy_name = resolve_strategy_display_name(
+        strategy_name = display_name("strategies", strategy_metadata.canonical_profile, lang, fallback=resolve_strategy_display_name(
             lang, strategy_metadata, translator=translator,
-        )
+        ))
     else:
         translated_strategy_name = translator(f"strategy_name_{strategy_profile}") if strategy_profile else ""
         if translated_strategy_name and translated_strategy_name != f"strategy_name_{strategy_profile}":
@@ -1201,6 +1193,9 @@ def _compact_cycle_total_assets_line(
 def _compact_strategy_name(result: Mapping[str, Any], *, lang: str, translator) -> str:
     strategy_profile = str(result.get("strategy_profile") or "").strip()
     strategy_name = str(result.get("strategy_display_name") or strategy_profile).strip()
+    configured = display_name("strategies", strategy_profile, lang)
+    if configured != strategy_profile:
+        return configured
     strategy_metadata = result.get("strategy_metadata")
     if strategy_metadata is not None:
         from quant_platform_kit.common.notification_localization import resolve_strategy_display_name
