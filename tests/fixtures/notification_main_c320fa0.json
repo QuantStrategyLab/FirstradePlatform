@@ -1,0 +1,2806 @@
+{
+  "immediate": {
+    "main:zh:no_action": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓"
+        ],
+        [
+          "send",
+          "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "no_action",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓",
+        "compact_text": "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+      }
+    },
+    "main:zh:filled": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "🔔 【调仓指令】\n🧭 策略: Example\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n🧾 执行明细\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+        ],
+        [
+          "send",
+          "🔔 【调仓指令】\n🧭 策略: Example\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 1,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "filled",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "quantity": 1,
+            "status": "filled"
+          }
+        ],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "🔔 【调仓指令】\n🧭 策略: Example\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n🧾 执行明细\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）",
+        "compact_text": "🔔 【调仓指令】\n🧭 策略: Example\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+      }
+    },
+    "main:zh:error": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓"
+        ],
+        [
+          "send",
+          "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "error",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {
+              "error": "synthetic_failure"
+            }
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": false,
+        "execution_status": "error",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "error": "synthetic_failure",
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓",
+        "compact_text": "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+      }
+    },
+    "heartbeat:zh:no_action:False": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ]
+      ]
+    },
+    "heartbeat:zh:no_action:True": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n状态：正常\n已收到合格执行回执：status=ok, 2026-10-16T23:00:00+00:00"
+        ]
+      ]
+    },
+    "heartbeat:zh:blocked:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 最近 1 份执行回执均不符合要求\n- 最近 1 份执行回执均不符合要求\n最近检查的回执（原文）：\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\n技术详情（原文）：\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:zh:blocked:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 最近 1 份执行回执均不符合要求\n- 最近 1 份执行回执均不符合要求\n最近检查的回执（原文）：\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\n技术详情（原文）：\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:zh:missing:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 过去 36 小时内没有新的执行回执"
+        ]
+      ]
+    },
+    "heartbeat:zh:missing:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 过去 36 小时内没有新的执行回执"
+        ]
+      ]
+    },
+    "runtime_error:zh": {
+      "result": true,
+      "sends": [
+        "⚠️ Firstrade 策略运行失败\n🧭 策略: Example\n运行目标：US\n本次运行未正常结束，请查看最新执行报告。\n下一步：检查账户会话及最新执行报告。"
+      ]
+    },
+    "main:en:no_action": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed"
+        ],
+        [
+          "send",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "no_action",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed",
+        "compact_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+      }
+    },
+    "main:en:filled": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n🧾 Execution details\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "send",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 1,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "filled",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "quantity": 1,
+            "status": "filled"
+          }
+        ],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n🧾 Execution details\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)",
+        "compact_text": "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+      }
+    },
+    "main:en:error": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed"
+        ],
+        [
+          "send",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "error",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false
+            },
+            "diagnostics": {
+              "error": "synthetic_failure"
+            }
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": false,
+        "execution_status": "error",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "error": "synthetic_failure",
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed",
+        "compact_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+      }
+    },
+    "heartbeat:en:no_action:False": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ]
+      ]
+    },
+    "heartbeat:en:no_action:True": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nStatus: normal\nAn acceptable execution report was received: status=ok, 2026-10-16T23:00:00+00:00"
+        ]
+      ]
+    },
+    "heartbeat:en:blocked:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- None of the most recent 1 execution reports was acceptable\n- None of the most recent 1 execution reports was acceptable\nRecent reports (original):\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\nTechnical details (original):\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:en:blocked:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- None of the most recent 1 execution reports was acceptable\n- None of the most recent 1 execution reports was acceptable\nRecent reports (original):\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\nTechnical details (original):\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:en:missing:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- No new execution report in the last 36 hours"
+        ]
+      ]
+    },
+    "heartbeat:en:missing:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- No new execution report in the last 36 hours"
+        ]
+      ]
+    },
+    "runtime_error:en": {
+      "result": true,
+      "sends": [
+        "⚠️ Firstrade strategy run failed\n🧭 Strategy: Example\nTarget: US\nThe run did not finish successfully; check the latest execution report.\nNext: Check the account session and the latest execution report."
+      ]
+    },
+    "broker_cycle": {
+      "calls": [
+        [
+          "broker",
+          "connect",
+          [
+            [],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "select_account",
+          [
+            [
+              null
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_balances",
+          [
+            [
+              "synthetic-selector"
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_positions",
+          [
+            [
+              "synthetic-selector"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "read_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "read_json",
+          [
+            [
+              "strategy-runs/claims/______________ctor/tqqq_growth_income/2026_10.json"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json",
+              {
+                "stage": "ORDERS_PLANNED",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [],
+                "skipped_orders": [],
+                "execution_notes": [],
+                "action_done": false,
+                "broker_submission_done": false,
+                "execution_status": "",
+                "orders_pending_count": 0
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/history/2026/10/16/20261016T230000Z-ORDERS_PLANNED.json",
+              {
+                "stage": "ORDERS_PLANNED",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [],
+                "skipped_orders": [],
+                "execution_notes": [],
+                "action_done": false,
+                "broker_submission_done": false,
+                "execution_status": "",
+                "orders_pending_count": 0
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_quote",
+          [
+            [
+              "synthetic-selector",
+              "AAA"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "create_json",
+          [
+            [
+              "strategy-runs/claims/______________ctor/tqqq_growth_income/2026_10.json",
+              {
+                "stage": "PENDING_SUBMISSION",
+                "submission_claim_boundary": "pre_broker_request_v2",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "run_period": "2026-10",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "no_order_submitted": true
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "place_stock_order",
+          [
+            [
+              "StockOrderRequest(account='synthetic-selector', symbol='AAA', side='buy', quantity=2, notional_usd=None, price_type='limit', duration='day', limit_price=10.05, stop_price=None, max_notional_usd=25.0)"
+            ],
+            {
+              "dry_run": false,
+              "explicit_live_ack": true
+            }
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json",
+              {
+                "stage": "PENDING_RECONCILIATION",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [
+                  {
+                    "symbol": "AAA",
+                    "side": "buy",
+                    "quantity": 2.0,
+                    "order_type": "limit",
+                    "limit_price": 10.05,
+                    "status": "submitted",
+                    "broker_order_id": "OID-1",
+                    "raw_payload": {
+                      "preview": false,
+                      "symbol": "AAA",
+                      "quantity": 2,
+                      "price_type": "limit",
+                      "statusCode": 200,
+                      "result": {
+                        "order_id": "OID-1"
+                      }
+                    }
+                  }
+                ],
+                "skipped_orders": [],
+                "execution_notes": [
+                  {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "AAA",
+                    "target_value": 50.0,
+                    "projected_value": 20.1,
+                    "target_weight": 0.05,
+                    "projected_weight": 0.0201,
+                    "drift_weight": -0.029900000000000003,
+                    "drift_value": -29.9,
+                    "projected_quantity": 2.0
+                  }
+                ],
+                "action_done": false,
+                "broker_submission_done": true,
+                "execution_status": "pending_reconciliation",
+                "orders_pending_count": 1
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/history/2026/10/16/20261016T230000Z-PENDING_RECONCILIATION.json",
+              {
+                "stage": "PENDING_RECONCILIATION",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [
+                  {
+                    "symbol": "AAA",
+                    "side": "buy",
+                    "quantity": 2.0,
+                    "order_type": "limit",
+                    "limit_price": 10.05,
+                    "status": "submitted",
+                    "broker_order_id": "OID-1",
+                    "raw_payload": {
+                      "preview": false,
+                      "symbol": "AAA",
+                      "quantity": 2,
+                      "price_type": "limit",
+                      "statusCode": 200,
+                      "result": {
+                        "order_id": "OID-1"
+                      }
+                    }
+                  }
+                ],
+                "skipped_orders": [],
+                "execution_notes": [
+                  {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "AAA",
+                    "target_value": 50.0,
+                    "projected_value": 20.1,
+                    "target_weight": 0.05,
+                    "projected_weight": 0.0201,
+                    "drift_weight": -0.029900000000000003,
+                    "drift_value": -29.9,
+                    "projected_quantity": 2.0
+                  }
+                ],
+                "action_done": false,
+                "broker_submission_done": true,
+                "execution_status": "pending_reconciliation",
+                "orders_pending_count": 1
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "send",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: NASDAQ Growth Income\n💰 Total assets: $1,000.00\n📈 Submitted limit buy AAA: 2 shares @ $10.05 (ID: OID-1) (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "receipt"
+        ],
+        [
+          "finalize"
+        ],
+        [
+          "report_persist"
+        ]
+      ],
+      "outcome": {
+        "ok": true,
+        "execution_status": "pending_reconciliation",
+        "orders_pending_count": 1,
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "side": "buy",
+            "quantity": 2.0,
+            "order_type": "limit",
+            "limit_price": 10.05,
+            "status": "submitted",
+            "broker_order_id": "OID-1",
+            "raw_payload": {
+              "preview": false,
+              "symbol": "AAA",
+              "quantity": 2,
+              "price_type": "limit",
+              "statusCode": 200,
+              "result": {
+                "order_id": "OID-1"
+              }
+            }
+          }
+        ],
+        "notification_sent": true
+      }
+    }
+  },
+  "daily_digest": {
+    "main:zh:no_action": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓"
+        ],
+        [
+          "send",
+          "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 0,
+                "fill_count": 0,
+                "routine": true,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "no_action",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓",
+        "compact_text": "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+      }
+    },
+    "main:zh:filled": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "🔔 【调仓指令】\n🧭 策略: Example\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n🧾 执行明细\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+        ],
+        [
+          "send",
+          "🔔 【调仓指令】\n🧭 策略: Example\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 1,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 1,
+                "fill_count": null,
+                "routine": false,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "filled",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "quantity": 1,
+            "status": "filled"
+          }
+        ],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "🔔 【调仓指令】\n🧭 策略: Example\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n🧾 执行明细\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）",
+        "compact_text": "🔔 【调仓指令】\n🧭 策略: Example\n📉 已提交限价卖出 AAA: 1股（尚未确认成交；限价单可能未成交或取消）"
+      }
+    },
+    "main:zh:error": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓"
+        ],
+        [
+          "send",
+          "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "error",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 0,
+                "fill_count": null,
+                "routine": false,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {
+              "error": "synthetic_failure"
+            }
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": false,
+        "execution_status": "error",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "error": "synthetic_failure",
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【心跳检测】\n🧭 策略: Example\n💵 可用现金: 未核实\n💰 账户总权益: 未核实\n━━━━━━━━━━━━━━━━━━\n📌 策略账户概览\n━━━━━━━━━━━━━━━━━━\n✅ 无需调仓",
+        "compact_text": "💓 【心跳检测】\n🧭 策略: Example\n✅ 无需调仓"
+      }
+    },
+    "heartbeat:zh:no_action:False": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ]
+      ]
+    },
+    "heartbeat:zh:no_action:True": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n状态：正常\n已收到合格执行回执：status=ok, 2026-10-16T23:00:00+00:00"
+        ]
+      ]
+    },
+    "heartbeat:zh:blocked:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 最近 1 份执行回执均不符合要求\n- 最近 1 份执行回执均不符合要求\n最近检查的回执（原文）：\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\n技术详情（原文）：\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:zh:blocked:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 最近 1 份执行回执均不符合要求\n- 最近 1 份执行回执均不符合要求\n最近检查的回执（原文）：\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\n技术详情（原文）：\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:zh:missing:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 过去 36 小时内没有新的执行回执"
+        ]
+      ]
+    },
+    "heartbeat:zh:missing:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[执行回执心跳] Example\n检查范围：过去 36 小时\n问题：\n- 过去 36 小时内没有新的执行回执"
+        ]
+      ]
+    },
+    "runtime_error:zh": {
+      "result": true,
+      "sends": [
+        "⚠️ Firstrade 策略运行失败\n🧭 策略: Example\n运行目标：US\n本次运行未正常结束，请查看最新执行报告。\n下一步：检查账户会话及最新执行报告。"
+      ]
+    },
+    "main:en:no_action": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed"
+        ],
+        [
+          "send",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 0,
+                "fill_count": 0,
+                "routine": true,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "no_action",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed",
+        "compact_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+      }
+    },
+    "main:en:filled": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n🧾 Execution details\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "send",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "ok",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 1,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 1,
+                "fill_count": null,
+                "routine": false,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {}
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": true,
+        "execution_status": "filled",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "quantity": 1,
+            "status": "filled"
+          }
+        ],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n🧾 Execution details\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)",
+        "compact_text": "🔔 【Rebalance Instruction】\n🧭 Strategy: Example\n📉 Submitted limit sell AAA: 1 share (fill not confirmed; a limit order may remain unfilled or be canceled)"
+      }
+    },
+    "main:en:error": {
+      "calls": [
+        [
+          "cycle",
+          {
+            "send_cycle_notification": true,
+            "dispatch_plugin_alerts": true
+          }
+        ],
+        [
+          "log",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed"
+        ],
+        [
+          "send",
+          "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+        ],
+        [
+          "attach",
+          {
+            "dry_run": false
+          }
+        ],
+        [
+          "finalize",
+          {
+            "status": "error",
+            "summary": {
+              "action_done": false,
+              "execution_status": "COMPLETED",
+              "order_events_count": 0,
+              "orders_previewed_count": 0,
+              "orders_skipped_count": 0,
+              "notes_count": 0,
+              "dry_run_order_preview_available": false,
+              "strategy_run_period": null,
+              "strategy_run_stage": "COMPLETED",
+              "strategy_run_persisted": null,
+              "session_reused": false,
+              "live_trading_enabled": false,
+              "notification_sent": true,
+              "notification_suppressed": false,
+              "notification_digest": {
+                "schema_version": "qsl.notification_cycle.v1",
+                "order_count": 0,
+                "fill_count": null,
+                "routine": false,
+                "dry_run": false
+              }
+            },
+            "diagnostics": {
+              "error": "synthetic_failure"
+            }
+          }
+        ],
+        [
+          "persist",
+          {
+            "run_id": "synthetic-run"
+          }
+        ]
+      ],
+      "result": {
+        "ok": false,
+        "execution_status": "error",
+        "strategy_run_stage": "COMPLETED",
+        "submitted_orders": [],
+        "strategy_profile": "synthetic",
+        "strategy_display_name": "Example",
+        "dry_run_only": false,
+        "error": "synthetic_failure",
+        "notification_sent": true
+      },
+      "renderer": {
+        "detailed_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n💵 Available cash: Unverified\n💰 Total account equity: Unverified\n━━━━━━━━━━━━━━━━━━\n📌 Strategy Account\n━━━━━━━━━━━━━━━━━━\n✅ No rebalance needed",
+        "compact_text": "💓 【Heartbeat】\n🧭 Strategy: Example\n✅ No rebalance needed"
+      }
+    },
+    "heartbeat:en:no_action:False": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ]
+      ]
+    },
+    "heartbeat:en:no_action:True": {
+      "exit_code": 0,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nStatus: normal\nAn acceptable execution report was received: status=ok, 2026-10-16T23:00:00+00:00"
+        ]
+      ]
+    },
+    "heartbeat:en:blocked:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- None of the most recent 1 execution reports was acceptable\n- None of the most recent 1 execution reports was acceptable\nRecent reports (original):\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\nTechnical details (original):\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:en:blocked:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "read",
+          "gs://synthetic/reports/source.json",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- None of the most recent 1 execution reports was acceptable\n- None of the most recent 1 execution reports was acceptable\nRecent reports (original):\n- 2026-10-16T23:00:00+00:00 gs://synthetic/reports/source.json rejected inner execution status\nTechnical details (original):\nsynthetic-service: rejected inner execution status"
+        ]
+      ]
+    },
+    "heartbeat:en:missing:False": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- No new execution report in the last 36 hours"
+        ]
+      ]
+    },
+    "heartbeat:en:missing:True": {
+      "exit_code": 1,
+      "calls": [
+        [
+          "list",
+          "gs://synthetic/reports",
+          {
+            "project": null
+          }
+        ],
+        [
+          "send",
+          "[Execution Report Heartbeat] Example\nLookback: 36 hours\nIssues:\n- No new execution report in the last 36 hours"
+        ]
+      ]
+    },
+    "runtime_error:en": {
+      "result": true,
+      "sends": [
+        "⚠️ Firstrade strategy run failed\n🧭 Strategy: Example\nTarget: US\nThe run did not finish successfully; check the latest execution report.\nNext: Check the account session and the latest execution report."
+      ]
+    },
+    "broker_cycle": {
+      "calls": [
+        [
+          "broker",
+          "connect",
+          [
+            [],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "select_account",
+          [
+            [
+              null
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_balances",
+          [
+            [
+              "synthetic-selector"
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_positions",
+          [
+            [
+              "synthetic-selector"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "read_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "read_json",
+          [
+            [
+              "strategy-runs/claims/______________ctor/tqqq_growth_income/2026_10.json"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json",
+              {
+                "stage": "ORDERS_PLANNED",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [],
+                "skipped_orders": [],
+                "execution_notes": [],
+                "action_done": false,
+                "broker_submission_done": false,
+                "execution_status": "",
+                "orders_pending_count": 0
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/history/2026/10/16/20261016T230000Z-ORDERS_PLANNED.json",
+              {
+                "stage": "ORDERS_PLANNED",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [],
+                "skipped_orders": [],
+                "execution_notes": [],
+                "action_done": false,
+                "broker_submission_done": false,
+                "execution_status": "",
+                "orders_pending_count": 0
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "get_quote",
+          [
+            [
+              "synthetic-selector",
+              "AAA"
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "create_json",
+          [
+            [
+              "strategy-runs/claims/______________ctor/tqqq_growth_income/2026_10.json",
+              {
+                "stage": "PENDING_SUBMISSION",
+                "submission_claim_boundary": "pre_broker_request_v2",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "run_period": "2026-10",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "no_order_submitted": true
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "broker",
+          "place_stock_order",
+          [
+            [
+              "StockOrderRequest(account='synthetic-selector', symbol='AAA', side='buy', quantity=2, notional_usd=None, price_type='limit', duration='day', limit_price=10.05, stop_price=None, max_notional_usd=25.0)"
+            ],
+            {
+              "dry_run": false,
+              "explicit_live_ack": true
+            }
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/latest.json",
+              {
+                "stage": "PENDING_RECONCILIATION",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [
+                  {
+                    "symbol": "AAA",
+                    "side": "buy",
+                    "quantity": 2.0,
+                    "order_type": "limit",
+                    "limit_price": 10.05,
+                    "status": "submitted",
+                    "broker_order_id": "OID-1",
+                    "raw_payload": {
+                      "preview": false,
+                      "symbol": "AAA",
+                      "quantity": 2,
+                      "price_type": "limit",
+                      "statusCode": 200,
+                      "result": {
+                        "order_id": "OID-1"
+                      }
+                    }
+                  }
+                ],
+                "skipped_orders": [],
+                "execution_notes": [
+                  {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "AAA",
+                    "target_value": 50.0,
+                    "projected_value": 20.1,
+                    "target_weight": 0.05,
+                    "projected_weight": 0.0201,
+                    "drift_weight": -0.029900000000000003,
+                    "drift_value": -29.9,
+                    "projected_quantity": 2.0
+                  }
+                ],
+                "action_done": false,
+                "broker_submission_done": true,
+                "execution_status": "pending_reconciliation",
+                "orders_pending_count": 1
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "state",
+          "write_json",
+          [
+            [
+              "strategy-runs/______________ctor/tqqq_growth_income/2026_10/history/2026/10/16/20261016T230000Z-PENDING_RECONCILIATION.json",
+              {
+                "stage": "PENDING_RECONCILIATION",
+                "as_of": "2026-10-16T23:00:00+00:00",
+                "account": "**************ctor",
+                "strategy_profile": "tqqq_growth_income",
+                "strategy_display_name": "TQQQ Growth Income",
+                "run_period": "2026-10",
+                "dry_run_only": false,
+                "live_trading_enabled": true,
+                "session_reused": false,
+                "portfolio_snapshot": {
+                  "strategy_symbols": [
+                    "AAA"
+                  ],
+                  "portfolio_rows": [
+                    [
+                      "AAA"
+                    ]
+                  ],
+                  "market_values": {
+                    "AAA": 0.0
+                  },
+                  "quantities": {
+                    "AAA": 0.0
+                  },
+                  "target_values": {
+                    "AAA": 50.0
+                  },
+                  "total_equity": 1000.0,
+                  "liquid_cash": 1000.0,
+                  "cash_sweep_symbol": null,
+                  "risk_symbols": [
+                    "AAA"
+                  ],
+                  "income_symbols": [],
+                  "safe_haven_symbols": [],
+                  "sellable_quantities": {
+                    "AAA": 0.0
+                  }
+                },
+                "evaluation_metadata": {
+                  "strategy_profile": "tqqq_growth_income"
+                },
+                "plan": {
+                  "strategy_profile": "tqqq_growth_income",
+                  "allocation": {
+                    "strategy_profile": "tqqq_growth_income",
+                    "target_mode": "value",
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "targets": {
+                      "AAA": 50.0
+                    },
+                    "positions": [
+                      {
+                        "symbol": "AAA",
+                        "target_value": 50.0,
+                        "role": "risk"
+                      }
+                    ]
+                  },
+                  "portfolio": {
+                    "strategy_symbols": [
+                      "AAA"
+                    ],
+                    "portfolio_rows": [
+                      [
+                        "AAA"
+                      ]
+                    ],
+                    "market_values": {
+                      "AAA": 0.0
+                    },
+                    "quantities": {
+                      "AAA": 0.0
+                    },
+                    "target_values": {
+                      "AAA": 50.0
+                    },
+                    "total_equity": 1000.0,
+                    "liquid_cash": 1000.0,
+                    "cash_sweep_symbol": null,
+                    "risk_symbols": [
+                      "AAA"
+                    ],
+                    "income_symbols": [],
+                    "safe_haven_symbols": [],
+                    "sellable_quantities": {
+                      "AAA": 0.0
+                    }
+                  },
+                  "execution": {
+                    "trade_threshold_value": 1.0,
+                    "reserved_cash": 0.0,
+                    "current_min_trade": 1.0,
+                    "investable_cash": 1000.0,
+                    "cash_only_execution": true
+                  }
+                },
+                "submitted_orders": [
+                  {
+                    "symbol": "AAA",
+                    "side": "buy",
+                    "quantity": 2.0,
+                    "order_type": "limit",
+                    "limit_price": 10.05,
+                    "status": "submitted",
+                    "broker_order_id": "OID-1",
+                    "raw_payload": {
+                      "preview": false,
+                      "symbol": "AAA",
+                      "quantity": 2,
+                      "price_type": "limit",
+                      "statusCode": 200,
+                      "result": {
+                        "order_id": "OID-1"
+                      }
+                    }
+                  }
+                ],
+                "skipped_orders": [],
+                "execution_notes": [
+                  {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "AAA",
+                    "target_value": 50.0,
+                    "projected_value": 20.1,
+                    "target_weight": 0.05,
+                    "projected_weight": 0.0201,
+                    "drift_weight": -0.029900000000000003,
+                    "drift_value": -29.9,
+                    "projected_quantity": 2.0
+                  }
+                ],
+                "action_done": false,
+                "broker_submission_done": true,
+                "execution_status": "pending_reconciliation",
+                "orders_pending_count": 1
+              }
+            ],
+            {}
+          ]
+        ],
+        [
+          "send",
+          "🔔 【Rebalance Instruction】\n🧭 Strategy: NASDAQ Growth Income\n💰 Total assets: $1,000.00\n📈 Submitted limit buy AAA: 2 shares @ $10.05 (ID: OID-1) (fill not confirmed; a limit order may remain unfilled or be canceled)"
+        ],
+        [
+          "receipt"
+        ],
+        [
+          "finalize"
+        ],
+        [
+          "report_persist"
+        ]
+      ],
+      "outcome": {
+        "ok": true,
+        "execution_status": "pending_reconciliation",
+        "orders_pending_count": 1,
+        "submitted_orders": [
+          {
+            "symbol": "AAA",
+            "side": "buy",
+            "quantity": 2.0,
+            "order_type": "limit",
+            "limit_price": 10.05,
+            "status": "submitted",
+            "broker_order_id": "OID-1",
+            "raw_payload": {
+              "preview": false,
+              "symbol": "AAA",
+              "quantity": 2,
+              "price_type": "limit",
+              "statusCode": 200,
+              "result": {
+                "order_id": "OID-1"
+              }
+            }
+          }
+        ],
+        "notification_sent": true
+      }
+    }
+  }
+}
