@@ -193,6 +193,47 @@ def test_get_order_status_normalizes_matching_order_payload():
     }
 
 
+@pytest.mark.parametrize("reverse_fields", [False, True])
+@pytest.mark.parametrize("fields,expected_qty,expected_price", [
+    ({"quantity": 10, "limit_price": 9.95}, 0.0, 0.0),
+    ({"quantity": 10, "limit_price": 9.95, "executed_qty": 0, "executed_price": 0,
+      "filled_quantity": 8, "avg_price": 99}, 0.0, 0.0),
+    ({"quantity": 10, "limit_price": 9.95, "executed_qty": None, "executed_price": None,
+      "filled_quantity": 3, "avg_price": 10}, 3.0, 10.0),
+    ({"quantity": 10, "limit_price": 9.95, "executed_qty": 2, "executed_price": 10,
+      "filled_quantity": 8, "avg_price": 99}, 2.0, 10.0),
+    ({"quantity": 10, "limit_price": 9.95, "filled_quantity": 3, "avg_price": 10}, 3.0, 10.0),
+    ({"quantity": 10, "limit_price": 9.95, "executed_qty": "invalid", "executed_price": "",
+      "filled_quantity": 8, "avg_price": 99}, 0.0, 0.0),
+    ({"quantity": 10, "limit_price": 9.95, "avg_price": 10}, 0.0, 10.0),
+    ({"quantity": 10, "limit_price": 9.95, "filled_quantity": 3}, 3.0, 0.0),
+    ({"executed_qty": [], "filled_quantity": 8, "executed_price": 10}, 0.0, 10.0),
+    ({"executed_qty": 2, "executed_price": {}, "avg_price": 99}, 2.0, 0.0),
+])
+def test_get_order_status_uses_execution_fields_in_declared_priority(
+    fields, expected_qty, expected_price, reverse_fields,
+):
+    from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
+
+    items = list(fields.items())
+    if reverse_fields:
+        items.reverse()
+    row = {"order_id": "SYNTHETIC-SELL", "status": "PartiallyFilled", **dict(items)}
+    client = FirstradeBrokerClient(FirstradeCredentials(username="", password=""))
+    client.session = object()
+    client.account_data = SimpleNamespace(get_orders=lambda *_args, **_kwargs: [row])
+
+    status = client.get_order_status("synthetic-account", "SYNTHETIC-SELL")
+
+    assert status["executed_qty"] == expected_qty
+    assert status["executed_price"] == expected_price
+    assert status["raw_payload"] == row
+    assert compute_confirmed_sell_release_value(
+        submitted_sell_orders=[{"broker_order_id": "SYNTHETIC-SELL", "status": "submitted"}],
+        fetch_order_status=lambda order_id: client.get_order_status("synthetic-account", order_id),
+    ) == pytest.approx(expected_qty * expected_price)
+
+
 def test_get_balances_includes_account_list_total_value():
     class BalancesWithoutTotalAccountData(FakeAccountData):
         account_balances = {"12345678": "$987.65"}

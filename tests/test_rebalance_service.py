@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.firstrade_client import FirstradeCredentials, FirstradePlatformError
+from application.firstrade_client import FirstradeBrokerClient, FirstradeCredentials, FirstradePlatformError
 from application.rebalance_service import (
     _publish_cycle_notification,
     _runtime_metadata_with_execution_policy,
@@ -219,6 +219,85 @@ def live_cycle(monkeypatch):
         )
 
     return run, client
+
+
+@pytest.mark.parametrize("execution_fields,expected_buy_quantity", [
+    ({}, 0),
+    ({"executed_qty": 0, "executed_price": 0}, 0),
+    ({"filled_quantity": 3, "avg_price": 10}, 2),
+])
+def test_live_sell_release_uses_real_order_status_execution_fields(
+    monkeypatch, execution_fields, expected_buy_quantity,
+):
+    import application.rebalance_service as module
+
+    class OrderReadClient(FakeFirstradeClient):
+        get_orders = FirstradeBrokerClient.get_orders
+        get_order_status = FirstradeBrokerClient.get_order_status
+
+        def require_connected(self):
+            return object(), self.account_data
+
+        def get_balances(self, _account):
+            return {"total_value": 100.0, "cash": 0.0, "buying_power": 0.0}
+
+        def get_positions(self, _account):
+            return {"items": [{"symbol": "AAA", "quantity": 10, "market_value": 100.0}]}
+
+    class SellThenBuyRuntime(FakeStrategyRuntime):
+        managed_symbols = ("AAA", "BBB")
+
+        def evaluate(self, **inputs):
+            assert "portfolio_snapshot" in inputs
+            return SimpleNamespace(
+                decision=StrategyDecision(
+                    positions=(PositionTarget(symbol="AAA", target_value=0.0, role="risk"),
+                               PositionTarget(symbol="BBB", target_value=80.0, role="risk")),
+                    diagnostics={"execution_annotations": {"trade_threshold_value": 1.0}},
+                ),
+                metadata={"strategy_profile": self.profile, "snapshot_as_of": fixed_now.isoformat()},
+            )
+
+    fixed_now = datetime(2026, 5, 15, 14, 0, tzinfo=timezone.utc)
+    row = {"order_id": "OID-1", "status": "PartiallyFilled" if expected_buy_quantity else "accepted",
+           "quantity": 10, "limit_price": 9.95, **execution_fields}
+    reads = []
+
+    def sdk_orders(*_args, **_kwargs):
+        reads.append(dict(row))
+        return [row]
+
+    client = OrderReadClient(None, live_trading_enabled=True)
+    client.account_data = SimpleNamespace(get_orders=sdk_orders)
+    real_adapters = module.build_runtime_broker_adapters
+    monkeypatch.setattr(module, "_utcnow", lambda: fixed_now)
+    monkeypatch.setattr(module, "load_strategy_runtime", lambda *_args, **_kwargs: SellThenBuyRuntime())
+    monkeypatch.setattr(module, "build_runtime_broker_adapters", lambda **kwargs: real_adapters(**kwargs, clock=lambda: fixed_now))
+    monkeypatch.setattr(module, "try_record_platform_execution", lambda *_args, **_kwargs: None)
+
+    result = run_strategy_cycle(
+        runtime_settings=_runtime_settings_with_persistence(
+            dry_run_only=False, live_trading_enabled=True, live_order_ack=True,
+            max_order_notional_usd=100.0, persist_strategy_runs=True,
+        ),
+        credentials=FirstradeCredentials(username="", password=""),
+        client_factory=lambda *_args, **_kwargs: client,
+        state_store=FakeStateStore(), env_reader=lambda _name, default=None: default,
+        send_cycle_notification=False, dispatch_plugin_alerts=False,
+    )
+
+    assert reads
+    assert result["portfolio"]["liquid_cash"] == 0.0
+    assert [(request.side, request.symbol, request.quantity) for request, *_ in client.orders] == (
+        [("sell", "AAA", 10), ("buy", "BBB", expected_buy_quantity)]
+        if expected_buy_quantity else [("sell", "AAA", 10)]
+    )
+    if expected_buy_quantity:
+        assert expected_buy_quantity * client.orders[-1][0].limit_price <= 30.0
+    else:
+        assert any(order["reason"] == "pending_sell_release" for order in result["skipped_orders"])
+    assert result["strategy_run_stage"] == "PENDING_RECONCILIATION"
+    assert result["action_done"] is False
 
 
 @pytest.mark.parametrize("persist,has_store", [(True, False), (False, False), (False, True)])

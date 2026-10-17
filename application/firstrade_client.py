@@ -557,6 +557,8 @@ class FirstradeBrokerClient:
         return [dict(row) for row in payload]
 
     def get_order_status(self, account: str, order_id: str) -> dict[str, Any] | None:
+        from collections.abc import Mapping
+
         normalized_order_id = str(order_id or "").strip()
         if not normalized_order_id:
             return None
@@ -571,8 +573,33 @@ class FirstradeBrokerClient:
                 "status_description",
                 "description",
             )
-            executed_qty = _first_numeric_from_payload(
-                row,
+            def execution_field(payload: Any, candidate_key: str) -> tuple[bool, Any]:
+                # Keep the original value: flattening erases empty containers.
+                if isinstance(payload, Mapping):
+                    for key, value in payload.items():
+                        if _sanitize_payload_key(str(key).rsplit(".", 1)[-1]) == candidate_key:
+                            return True, value
+                        present, found = execution_field(value, candidate_key)
+                        if present:
+                            return True, found
+                elif isinstance(payload, list):
+                    for item in payload:
+                        present, found = execution_field(item, candidate_key)
+                        if present:
+                            return True, found
+                return False, None
+
+            def execution_number(*candidate_keys: str) -> float | None:
+                # Field precedence must not depend on SDK dictionary order.
+                # Explicit zero or invalid execution values must not fall
+                # through to a conflicting, larger alternative.
+                for key in candidate_keys:
+                    present, value = execution_field(row, _sanitize_payload_key(key))
+                    if present and value is not None:
+                        return float_or_none(value)
+                return None
+
+            executed_qty = execution_number(
                 "executed_qty",
                 "executed_quantity",
                 "filled_quantity",
@@ -581,12 +608,8 @@ class FirstradeBrokerClient:
                 "filled_shares",
                 "executed_shares",
                 "quantity_filled",
-                "quantity",
-                "shares",
-                "qty",
             )
-            executed_price = _first_numeric_from_payload(
-                row,
+            executed_price = execution_number(
                 "executed_price",
                 "average_fill_price",
                 "avg_fill_price",
@@ -594,8 +617,6 @@ class FirstradeBrokerClient:
                 "average_price",
                 "fill_price",
                 "filled_price",
-                "price",
-                "limit_price",
             )
             return {
                 "status": status or "",
