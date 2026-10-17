@@ -12,7 +12,7 @@ import pytest
 from notifications import unified
 from test_notification_consolidation import ENV, NOW, Store, archive_read, candidate, notify, source
 
-QRS_SHA = "8f5eee7e72577682e6e897ceb5f02014e49a40a7"
+QRS_SHA = "160933eaa376bd4297616e8affc946430be69771"
 SNAPSHOT = Path(__file__).parent / "fixtures/qrs_notification_716"
 EXPECTED = [{"platform_id": "firstrade", "opaque_account_uid": "opaque-synthetic",
              "target_id": "target-synthetic", "strategy_profile": "synthetic"}]
@@ -110,8 +110,9 @@ def test_qrs_roundtrip_zero_order_run_is_known_zero(qrs, tmp_path):
     rows, summary, receipt, text = roundtrip(qrs, candidate(store), tmp_path)
     assert rows[0]["order_count"] == rows[0]["fill_count"] == 0
     assert summary["counts_unknown"] is False and receipt["run_count"] == 1
-    # Firstrade's healthy zero-run rendering uses the aggregate zero label.
+    # Keep the known zero label and the per-run zero statement together.
     assert "订单：0" in text and "成交：0" in text and "未知" not in text
+    assert "本轮 0 单" in text
 
 
 def test_qrs_roundtrip_real_order_is_immediate_and_counted_once(qrs, tmp_path):

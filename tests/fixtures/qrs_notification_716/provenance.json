@@ -1,17 +1,17 @@
 {
   "repository": "QuantStrategyLab/QuantRuntimeSettings",
-  "source_sha": "8f5eee7e72577682e6e897ceb5f02014e49a40a7",
+  "source_sha": "160933eaa376bd4297616e8affc946430be69771",
   "method": "test-only source; module docstrings omitted; ruff header added; executable code unchanged",
   "files": {
     "merge_digest_candidates.py": {
       "source_path": "python/scripts/merge_digest_candidates.py",
-      "source_sha256": "e364af69ecbee8381230335669ccd2ad2668e63f9153f950c0a5f09e22e8d147",
-      "vendored_sha256": "0ec02b2360449e953d864352c3ce0b634b3a12b3b130ec53b3bd51828fa6549b"
+      "source_sha256": "8feb0fb58ee31d49f3e4e8b0bc602333ae62e9e0262f102aa9c7f7f839a2b812",
+      "vendored_sha256": "d2afae4ad08e63e6edf321d36f13c4dbd1cc703b714c41bceec7f1a44109a96f"
     },
     "notification_candidate_adapter.py": {
       "source_path": "python/scripts/notification_candidate_adapter.py",
-      "source_sha256": "95278e822046d4090cddf12fbe07f3917463620201e12aef4ffbe44b7defaf29",
-      "vendored_sha256": "9d7fa0775c4e70aeb81d367d5e76f6d997656e0a8d07cf2292b1c2029334b39f"
+      "source_sha256": "8f0806165f7d99ffd9db7ef41879d9eb7d37e6551678fd0463d29dd7e7bbc19e",
+      "vendored_sha256": "f1090ae41cf1947e8f3810102d89a0fddf16af7a138f05d6641c4ead3e6de9cd"
     },
     "daily_digest_aggregator.py": {
       "source_path": "python/scripts/daily_digest_aggregator.py",
@@ -40,8 +40,8 @@
     },
     "unified_daily_digest.py": {
       "source_path": "python/scripts/unified_daily_digest.py",
-      "source_sha256": "788c6e6110c54b5da66e9932214ca6fa906bf558e8e153abc8eeb1e467a552f7",
-      "vendored_sha256": "4d38fbedb37d6f289856d4e01089c3c70f7309f69c06880acc7bb2e4ca67456e"
+      "source_sha256": "71ba99a8ee21448822bf1d464060e84d6287e8ce7f2595f33b813ce852a45ca5",
+      "vendored_sha256": "b025c5af668445ae3f90533e6bbba3fa0869a1d0b2da6ac916c0ed8c137c0414"
     },
     "notification_snapshot/__init__.py": {
       "source_path": "python/scripts/notification_snapshot/__init__.py",

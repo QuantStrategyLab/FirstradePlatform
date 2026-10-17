@@ -281,10 +281,26 @@ def _reserve(event, binding, *, now, store, state=None, recovered=False, severit
     return tracker, decision
 
 
-def _record_ack(tracker, decision, outcome):
+def _independent_sender_receipt(receipt, decision, event, *, related_ids=()):
+    """Keep opaque provider IDs; local reservation/event IDs are not receipts."""
+    if not isinstance(receipt, str) or not receipt.strip():
+        return None
+    normalized = receipt.strip().casefold()
+    namespaces = normalized.replace("/", ":").split(":")
+    if any(part.strip().replace("_", "-") == "transport-ack" for part in namespaces):
+        return None
+    local_ids = (decision.incident_key, decision.transition_key,
+                 event.to_candidate()["dedupe_key"], event.order_execution_digest, *related_ids)
+    # Substring comparison also rejects namespaced IDs and marker object URIs.
+    if any(value and value.casefold() in normalized for value in local_ids):
+        return None
+    return receipt
+
+
+def _record_ack(tracker, decision, outcome, *, event, related_ids=()):
     acknowledged = outcome is True or isinstance(outcome, Mapping) and outcome.get("acknowledged") is True
     receipt = outcome.get("receipt_id") if isinstance(outcome, Mapping) and acknowledged else None
-    receipt = receipt if isinstance(receipt, str) and receipt.strip() else None
+    receipt = _independent_sender_receipt(receipt, decision, event, related_ids=related_ids)
     # A boolean ACK has no unique receipt ID. Do not invent one or mark delivered.
     tracker.record_delivery(decision, receipt_id=receipt)
     return {"delivery_status": "delivered" if receipt else "uncertain",
@@ -301,7 +317,7 @@ def _tracked(event, binding, *, now, store, send, state=None, recovered=False, s
     except Exception:
         tracker.record_delivery(decision)
         raise
-    return _record_ack(tracker, decision, outcome)
+    return _record_ack(tracker, decision, outcome, event=event)
 
 
 def cycle_kind(result):
@@ -426,7 +442,7 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
             else:
                 # Reserve each scope, then one callback for the combined alert.
                 tracker, decision = _reserve(event, binding, now=now, store=store)
-                decisions.append((tracker, decision))
+                decisions.append((tracker, decision, event))
                 if decision.action == "send":
                     try:
                         fact = event.to_candidate()
@@ -438,16 +454,21 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
                     except Exception:
                         persisted = False
         delivery = []
-        claimed = [(tracker, decision) for tracker, decision in decisions if decision.action == "send"]
+        claimed = [(tracker, decision, event) for tracker, decision, event in decisions if decision.action == "send"]
         if claimed:
             try:
                 outcome = send()
             except Exception:
-                for tracker, decision in claimed:
+                for tracker, decision, event in claimed:
                     tracker.record_delivery(decision)
                 raise
-            for tracker, decision in claimed:
-                delivery.append(_record_ack(tracker, decision, outcome))
+            # One sender response covers the combined alert. A local identity
+            # from any reservation is invalid for every reservation it covers.
+            related_ids = tuple(value for _, decision, event in claimed for value in (
+                decision.incident_key, decision.transition_key,
+                event.to_candidate()["dedupe_key"], event.order_execution_digest) if value)
+            for tracker, decision, event in claimed:
+                delivery.append(_record_ack(tracker, decision, outcome, event=event, related_ids=related_ids))
         return {"candidate_persisted": persisted, "deliveries": delivery}
     except Exception:
         print("notification_consolidation_failed; coverage_unknown", flush=True)
