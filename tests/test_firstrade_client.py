@@ -207,6 +207,8 @@ def test_get_order_status_normalizes_matching_order_payload():
       "filled_quantity": 8, "avg_price": 99}, 0.0, 0.0),
     ({"quantity": 10, "limit_price": 9.95, "avg_price": 10}, 0.0, 10.0),
     ({"quantity": 10, "limit_price": 9.95, "filled_quantity": 3}, 3.0, 0.0),
+    ({"executed_qty": [], "filled_quantity": 8, "executed_price": 10}, 0.0, 10.0),
+    ({"executed_qty": 2, "executed_price": {}, "avg_price": 99}, 2.0, 0.0),
 ])
 def test_get_order_status_uses_execution_fields_in_declared_priority(
     fields, expected_qty, expected_price, reverse_fields,
