@@ -358,3 +358,37 @@ def test_execution_port_extracts_broker_order_id_from_raw_payload():
 
     assert report.status == "submitted"
     assert report.broker_order_id == "OID-123"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"statusCode": 500},
+        {"statusCode": 503, "result": {"order_id": "possibly-accepted"}},
+        {"statusCode": 200, "result": {}},
+        {"statusCode": 400, "error": "ambiguous request result"},
+        {"statusCode": 408},
+        {"statusCode": 429},
+    ],
+)
+def test_execution_port_preserves_ambiguous_live_outcome_as_unknown(payload):
+    class AmbiguousClient(FakeClient):
+        def place_stock_order(self, request, dry_run=True, explicit_live_ack=False):
+            assert not dry_run and explicit_live_ack
+            return payload
+
+    from quant_platform_kit.common.models import OrderIntent
+
+    adapters = build_runtime_broker_adapters(
+        client=AmbiguousClient(),
+        account="synthetic-account",
+        live_orders=True,
+        live_order_ack=True,
+    )
+    intent = OrderIntent("AAA", "buy", 2.0, order_type="limit", limit_price=10.0)
+    report = adapters.build_execution_port().submit_order(intent)
+
+    assert report.status == "unknown"
+    assert (report.symbol, report.side, report.quantity) == ("AAA", "buy", 2.0)
+    assert report.raw_payload == payload
+    assert report.broker_order_id == payload.get("result", {}).get("order_id")

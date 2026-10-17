@@ -593,6 +593,13 @@ def _order_submission_accepted(order: dict[str, Any]) -> bool:
     return status in _ACCEPTED_ORDER_STATUSES
 
 
+def _order_submission_unknown(order: dict[str, Any]) -> bool:
+    status = "".join(
+        ch for ch in str(order.get("status") or "").strip().lower() if ch.isalnum()
+    )
+    return status not in _ACCEPTED_ORDER_STATUSES and status != "rejected"
+
+
 def _broker_rejection_reason(order: dict[str, Any]) -> str:
     raw_payload = dict(order.get("raw_payload") or {})
     for key, value in raw_payload.items():
@@ -611,6 +618,11 @@ def _record_order_result(
     if _order_submission_accepted(order):
         submitted.append(order)
         return True
+    if _order_submission_unknown(order):
+        # Preserve the attempted intent and broker facts for reconciliation;
+        # an unknown outcome is neither a confirmed rejection nor a fill.
+        submitted.append(order)
+        return False
     skipped.append({**order, "reason": _broker_rejection_reason(order)})
     return False
 
@@ -704,6 +716,16 @@ def execute_value_target_plan(
     submitted_sell_orders: list[dict[str, Any]] = []
     sell_submitted = False
 
+    def _unknown_submission_result() -> ExecutionCycleResult:
+        return ExecutionCycleResult(
+            submitted_orders=tuple(submitted),
+            skipped_orders=tuple(skipped),
+            action_done=False,
+            broker_submission_done=any(_order_submission_accepted(order) for order in submitted),
+            pending_reconciliation=True,
+            execution_notes=tuple(execution_notes),
+        )
+
     def _submission_claim_unavailable(symbol: str) -> ExecutionCycleResult:
         skipped.append(
             {
@@ -791,6 +813,8 @@ def execute_value_target_plan(
             ):
                 submitted_sell_orders.append(order_result)
                 sell_submitted = True
+            if _order_submission_unknown(order_result):
+                return _unknown_submission_result()
             continue
 
     confirmed_sell_release_value = compute_confirmed_sell_release_value(
@@ -895,6 +919,8 @@ def execute_value_target_plan(
                 skipped=skipped,
             ):
                 investable_cash = max(0.0, investable_cash - buy_budget)
+            if _order_submission_unknown(order_result):
+                return _unknown_submission_result()
             continue
         limit_price = _limit_buy_price(symbol, price, limit_buy_premium, limit_buy_premium_by_symbol)
         quantity = _planned_buy_order_quantity(
@@ -947,6 +973,8 @@ def execute_value_target_plan(
             skipped=skipped,
         ):
             investable_cash = max(0.0, investable_cash - (quantity * limit_price))
+        if _order_submission_unknown(order_result):
+            return _unknown_submission_result()
 
     total_value = float(portfolio.get("total_equity") or portfolio.get("total_strategy_equity") or 0.0)
     has_broker_rejection = any(
