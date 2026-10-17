@@ -140,11 +140,14 @@ def _row(report, binding, target, now):
             actually_ran=True, dry_run=True, as_of=event.occurred_at.isoformat(),
             status="ok" if report.get("status") == "ok" else "alert", execution_status="dry_run",
             order_count=None, fill_count=None, cycle_count=1, evidence_provenance="candidates",
-            field_status={"order_count": "counts_unknown", "fill_count": "counts_unknown"},
+            field_status={"order_count": "unknown", "fill_count": "unknown"},
             persistence_status="persisted", delivery_status="pending_central")
-    return project_reports([report], expected_target=target,
+    row = project_reports([report], expected_target=target,
         opaque_account_uid=binding["DIGEST_OPAQUE_ACCOUNT_UID"], target_id=binding["DIGEST_TARGET_ID"],
         now=now)["runs"][0]
+    row["field_status"] = {key: "known" if row[key] is not None else "unknown"
+                           for key in ("order_count", "fill_count")}
+    return row
 
 
 def _aggregate(rows):
@@ -156,7 +159,7 @@ def _aggregate(rows):
     result["as_of"] = max(row["as_of"] for row in rows)
     for key in ("order_count", "fill_count"):
         result[key] = sum(row[key] for row in rows) if all(type(row.get(key)) is int for row in rows) else None
-    result["field_status"] = {key: "known" if result[key] is not None else "counts_unknown"
+    result["field_status"] = {key: "known" if result[key] is not None else "unknown"
                               for key in ("order_count", "fill_count")}
     if any(row["status"] == "alert" for row in rows):
         result.update(status="alert", execution_status="execution_unknown", reason_code="source_cycle_alert")
@@ -170,9 +173,27 @@ def _aggregate(rows):
 def _merge(store, uri, rows, events, *, idle=None, archive=False):
     for _ in range(8):
         version, previous = store.read(uri)
-        if previous and "notification_source_runs" not in previous and not archive:
-            raise ValueError("candidate_legacy_aggregate_requires_archive_refresh")
+        # Read the former local ledger once for migration; new payloads store
+        # all merge history in their per-run rows, as required by QRS.
         sources = dict((previous or {}).get("notification_source_runs") or {})
+        facts = dict((previous or {}).get("notification_events") or {})
+        if previous and "notification_source_runs" not in previous:
+            for original in previous.get("runs", []):
+                if original.get("actually_ran") is not True:
+                    continue
+                run_id = original.get("source_run_id")
+                if not isinstance(run_id, str) or not run_id.strip():
+                    if not archive:
+                        raise ValueError("candidate_legacy_aggregate_requires_archive_refresh")
+                    continue
+                row = dict(original)
+                for fact in row.pop("notification_events", []):
+                    facts[fact["dedupe_key"]] = fact
+                row.pop("source_run_id")
+                sources[run_id] = row
+        for row in sources.values():
+            row["field_status"] = {key: "unknown" if value == "counts_unknown" else value
+                                   for key, value in row.get("field_status", {}).items()}
         for run_id, row in rows.items():
             old = sources.get(run_id)
             if old and old != row:
@@ -181,13 +202,24 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                 row = _aggregate([old, row])
                 row.update(cycle_count=1, status="alert", reason_code="candidate_source_conflict")
                 row.update(order_count=None, fill_count=None,
-                    field_status={"order_count": "counts_unknown", "fill_count": "counts_unknown"})
+                    field_status={"order_count": "unknown", "fill_count": "unknown"})
             sources[run_id] = row
-        facts = dict((previous or {}).get("notification_events") or {})
         facts.update(events)
+        identity = ("platform_id", "strategy_profile", "opaque_account_uid", "target_id", "business_day", "dry_run")
+        source_rows = list(sources.values())
+        if any(any(row.get(key) != source_rows[0].get(key) for key in identity) for row in source_rows):
+            raise ValueError("candidate_identity_conflict")
+        by_run = {run_id: [] for run_id in sources}
+        for key in sorted(facts):
+            fact = facts[key]
+            if fact.get("source_run_id") not in by_run:
+                raise ValueError("candidate_event_source_run_missing")
+            by_run[fact["source_run_id"]].append(fact)
+        # QRS consumes only runs: each carries its own archive counts/events.
+        run_rows = [{**sources[run_id], "source_run_id": run_id,
+                     "notification_events": by_run[run_id]} for run_id in sorted(sources)]
         payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected",
-            runs=[_aggregate(list(sources.values()))] if sources else [idle] if idle else [],
-            notification_source_runs=sources, notification_events=facts)
+            runs=run_rows if sources else [idle] if idle else [])
         if store.compare_and_set(uri, version, payload):
             return True
     raise RuntimeError("candidate_concurrent_update")
@@ -252,9 +284,10 @@ def _reserve(event, binding, *, now, store, state=None, recovered=False, severit
 def _record_ack(tracker, decision, outcome):
     acknowledged = outcome is True or isinstance(outcome, Mapping) and outcome.get("acknowledged") is True
     receipt = outcome.get("receipt_id") if isinstance(outcome, Mapping) and acknowledged else None
+    receipt = receipt if isinstance(receipt, str) and receipt.strip() else None
     # A boolean ACK has no unique receipt ID. Do not invent one or mark delivered.
     tracker.record_delivery(decision, receipt_id=receipt)
-    return {"delivery_status": "delivered" if receipt else "acknowledged" if acknowledged else "uncertain",
+    return {"delivery_status": "delivered" if receipt else "uncertain",
             "transport_acknowledged": acknowledged}
 
 

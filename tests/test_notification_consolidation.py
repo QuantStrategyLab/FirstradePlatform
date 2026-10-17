@@ -80,10 +80,73 @@ def test_routine_persists_before_deferral_and_same_run_is_counted_once():
     assert notify(store, report, result, sent)["route"] == "digest_candidate"
     assert notify(store, report, result, sent)["route"] == "digest_candidate"
     payload = candidate(store)
-    assert sent == [] and len(payload["notification_events"]) == 1
+    assert sent == [] and len(payload["runs"][0]["notification_events"]) == 1
     assert payload["runs"][0]["cycle_count"] == 1
     assert (payload["runs"][0]["order_count"], payload["runs"][0]["fill_count"]) == (0, 0)
     assert (report, result) == original
+
+
+def test_candidate_rows_keep_each_runs_counts_and_events_separate():
+    store, sent = Store(), []
+    zero, zero_result = source("zero-run")
+    order, order_result = source("order-run", status="completed", orders=[{
+        "status": "filled", "broker_order_id": "synthetic-order",
+        "fills": [{"execution_id": "synthetic-fill"}],
+    }])
+    for report, result in ((zero, zero_result), (order, order_result), (zero, zero_result)):
+        notify(store, report, result, sent)
+    rows = {row["source_run_id"]: row for row in candidate(store)["runs"]}
+    assert "notification_source_runs" not in candidate(store)
+    assert "notification_events" not in candidate(store)
+    assert set(rows) == {"zero-run", "order-run"}
+    assert [(rows[key]["order_count"], rows[key]["fill_count"], rows[key]["cycle_count"])
+            for key in ("zero-run", "order-run")] == [(0, 0, 1), (1, 1, 1)]
+    for run_id, row in rows.items():
+        assert len(row["notification_events"]) == 1
+        assert {event["source_run_id"] for event in row["notification_events"]} == {run_id}
+    assert len(sent) == 1
+
+
+def test_former_top_level_ledger_migrates_to_per_run_rows_without_recounting():
+    store, sent = Store(), []
+    report, result = source()
+    notify(store, report, result, sent)
+    uri = next(key for key in store.data if "/_notification_markers/" not in key)
+    version, payload = store.data[uri]
+    row = payload["runs"][0]
+    events = row.pop("notification_events")
+    row.pop("source_run_id")
+    store.data[uri] = (version, {"schema_version": "qsl.digest_candidates.v1", "runs": [row],
+        "notification_source_runs": {report["run_id"]: row},
+        "notification_events": {event["dedupe_key"]: event for event in events}})
+    notify(store, report, result, sent)
+    row = candidate(store)["runs"][0]
+    assert row["source_run_id"] == report["run_id"] and row["cycle_count"] == 1
+    assert row["order_count"] == 0 and len(row["notification_events"]) == 1
+    assert set(candidate(store)) == {"schema_version", "producer_status", "runs"}
+
+
+@pytest.mark.parametrize("outcome,expected,ack", [
+    (True, "uncertain", True),
+    ({"acknowledged": True}, "uncertain", True),
+    ({"acknowledged": True, "receipt_id": "  "}, "uncertain", True),
+    (False, "uncertain", False),
+    ({"acknowledged": True, "receipt_id": "telegram:synthetic-message"}, "delivered", True),
+])
+def test_delivery_requires_sender_receipt_and_uncertain_is_not_resent(outcome, expected, ack):
+    store, sends = Store(), []
+    report, result = source(status="blocked", execution_blocked=True)
+    def send():
+        sends.append(True)
+        return outcome
+    first = unified.notify_cycle(report, result, settings=None, send=send, env=ENV, now=NOW, store=store)
+    assert first["delivery_status"] == expected
+    assert first["transport_acknowledged"] is ack
+    markers = [value for key, (_, value) in store.data.items() if "/_notification_markers/" in key]
+    assert len(markers) == 1 and markers[0]["delivery_status"] == expected
+    assert markers[0]["receipt_id"] == (outcome["receipt_id"] if expected == "delivered" else None)
+    second = unified.notify_cycle(report, result, settings=None, send=send, env=ENV, now=NOW, store=store)
+    assert second["delivery_status"] == "duplicate" and len(sends) == 1
 
 
 def test_real_orders_remain_immediate_and_unknown_fills_stay_null():
@@ -180,7 +243,7 @@ def test_runtime_and_archive_share_source_run_dedupe_and_do_not_erase_alerts():
     out = unified.emit_candidates(ENV, now=NOW, store=store, read=archive_read([report]))
     assert out["uploaded"] is True
     assert candidate(store)["runs"][0]["cycle_count"] == 1
-    assert len(candidate(store)["notification_source_runs"]) == 1
+    assert len(candidate(store)["runs"]) == 1
     changed = deepcopy(report)
     changed["status"] = "error"
     unified.emit_candidates(ENV, now=NOW, store=store, read=archive_read([changed]))
@@ -212,7 +275,7 @@ def test_no_runs_need_schedule_proof_and_never_invent_zero_counts(monkeypatch):
     assert result["candidate_persisted"] is True and sent == []
     row = candidate(store)["runs"][0]
     assert row["actually_ran"] is False and "order_count" not in row
-    assert candidate(store)["notification_source_runs"] == {}
+    assert "source_run_id" not in row
 
 
 def test_two_accounts_do_not_share_marker_or_candidate():

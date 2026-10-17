@@ -26,7 +26,7 @@ def test_receipt_acceptance_quiet_and_due_rules_are_byte_identical_to_main():
 def test_qpk_snapshot_matches_recorded_source_hashes():
     root = Path("notifications/digest_snapshot")
     provenance = json.loads((root / "provenance.json").read_text())
-    assert len(provenance["source_sha"]) == 40
+    assert provenance["source_sha"] == "07e24c0c804a9b47316b6ec3c75bb63820d8f421"
     for name, metadata in provenance["sources"].items():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == metadata["sha256"]
 
@@ -99,7 +99,7 @@ def test_two_workers_reserve_one_incident_before_any_send():
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(lambda _: notify(store, report, result, sent), range(2)))
     assert len(sent) == 1
-    assert sorted(o["delivery_status"] for o in outcomes) == ["acknowledged", "duplicate"]
+    assert sorted(o["delivery_status"] for o in outcomes) == ["duplicate", "uncertain"]
 
 
 def test_new_order_identity_is_not_hidden_by_unrecovered_old_order():
