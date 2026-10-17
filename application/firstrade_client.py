@@ -571,8 +571,17 @@ class FirstradeBrokerClient:
                 "status_description",
                 "description",
             )
-            executed_qty = _first_numeric_from_payload(
-                row,
+            def execution_number(*candidate_keys: str) -> float | None:
+                # Field precedence must not depend on SDK dictionary order.
+                # Explicit zero or invalid execution values must not fall
+                # through to a conflicting, larger alternative.
+                for key in candidate_keys:
+                    value = _first_payload_value(row, key)
+                    if value is not None:
+                        return float_or_none(value)
+                return None
+
+            executed_qty = execution_number(
                 "executed_qty",
                 "executed_quantity",
                 "filled_quantity",
@@ -581,12 +590,8 @@ class FirstradeBrokerClient:
                 "filled_shares",
                 "executed_shares",
                 "quantity_filled",
-                "quantity",
-                "shares",
-                "qty",
             )
-            executed_price = _first_numeric_from_payload(
-                row,
+            executed_price = execution_number(
                 "executed_price",
                 "average_fill_price",
                 "avg_fill_price",
@@ -594,8 +599,6 @@ class FirstradeBrokerClient:
                 "average_price",
                 "fill_price",
                 "filled_price",
-                "price",
-                "limit_price",
             )
             return {
                 "status": status or "",
