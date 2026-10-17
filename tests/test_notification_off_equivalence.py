@@ -152,7 +152,8 @@ def record_broker_cycle(monkeypatch):
 @pytest.mark.parametrize("mode", ["immediate", "daily_digest"])
 def test_flags_off_entrypoints_renderers_match_main_golden(monkeypatch, flag, mode):
     for name in ("QSL_ROUTINE_NOTIFICATION_MODE", "QSL_NOTIFY_LANG", "GCP_PROJECT_ID",
-                 "GOOGLE_CLOUD_PROJECT", "RUNTIME_HEARTBEAT_GCP_PROJECT_ID"):
+                 "GOOGLE_CLOUD_PROJECT", "RUNTIME_HEARTBEAT_GCP_PROJECT_ID",
+                 "GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"):
         monkeypatch.delenv(name, raising=False)
     if flag is None:
         monkeypatch.delenv("FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED", raising=False)
