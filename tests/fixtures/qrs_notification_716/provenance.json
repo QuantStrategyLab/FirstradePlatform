@@ -1,0 +1,62 @@
+{
+  "repository": "QuantStrategyLab/QuantRuntimeSettings",
+  "source_sha": "160933eaa376bd4297616e8affc946430be69771",
+  "method": "test-only source; module docstrings omitted; ruff header added; executable code unchanged",
+  "files": {
+    "merge_digest_candidates.py": {
+      "source_path": "python/scripts/merge_digest_candidates.py",
+      "source_sha256": "8feb0fb58ee31d49f3e4e8b0bc602333ae62e9e0262f102aa9c7f7f839a2b812",
+      "vendored_sha256": "d2afae4ad08e63e6edf321d36f13c4dbd1cc703b714c41bceec7f1a44109a96f"
+    },
+    "notification_candidate_adapter.py": {
+      "source_path": "python/scripts/notification_candidate_adapter.py",
+      "source_sha256": "8f0806165f7d99ffd9db7ef41879d9eb7d37e6551678fd0463d29dd7e7bbc19e",
+      "vendored_sha256": "f1090ae41cf1947e8f3810102d89a0fddf16af7a138f05d6641c4ead3e6de9cd"
+    },
+    "daily_digest_aggregator.py": {
+      "source_path": "python/scripts/daily_digest_aggregator.py",
+      "source_sha256": "8b38c191d0022c227e7e4f981c57ffcd334f8fcaf21f47385a5a4f70f3df129e",
+      "vendored_sha256": "a31f5f27062925921a3ffc3028d8333fa669dd0af95545cbf4f002eab1af3fb0"
+    },
+    "daily_digest_notify.py": {
+      "source_path": "python/scripts/daily_digest_notify.py",
+      "source_sha256": "189c3c5d86bf9a153141779ddaba9a28be2615fe80b6646368e407fb91a300cc",
+      "vendored_sha256": "2f71ea02a65a1db5fa230f20944af68a86d673de86e006795a019b695edff81a"
+    },
+    "daily_digest_delivery_axes.py": {
+      "source_path": "python/scripts/daily_digest_delivery_axes.py",
+      "source_sha256": "2db144b93428f95183908d2d1e652021c5dfd1a1851c764c0e71962acd600979",
+      "vendored_sha256": "482a6906a498e5e08b5a1c720b190815726f849c34c6230ec5f28b73125e09eb"
+    },
+    "display_names.py": {
+      "source_path": "python/scripts/display_names.py",
+      "source_sha256": "20e26298cf48c77431257a4d73d2c9ef5ce0eda2a88323a23852d0119bdacf8f",
+      "vendored_sha256": "9483eaa55ee5afb66ea373a2a98df4b61a1295e95342c1e7b4f9c73faf272a16"
+    },
+    "notification_mode.py": {
+      "source_path": "python/scripts/notification_mode.py",
+      "source_sha256": "4f3a77af9b677095589c69f976ea0ecf633322b2b41c8eb18457afdaec87d2df",
+      "vendored_sha256": "e8cc3801a96ac0ffd8c2cf6c447879a10ad433f3d0f319d6dab48442bef7e1f1"
+    },
+    "unified_daily_digest.py": {
+      "source_path": "python/scripts/unified_daily_digest.py",
+      "source_sha256": "71ba99a8ee21448822bf1d464060e84d6287e8ce7f2595f33b813ce852a45ca5",
+      "vendored_sha256": "b025c5af668445ae3f90533e6bbba3fa0869a1d0b2da6ac916c0ed8c137c0414"
+    },
+    "notification_snapshot/__init__.py": {
+      "source_path": "python/scripts/notification_snapshot/__init__.py",
+      "source_sha256": "67dfde39f061966cdde08f51663d0e7e413a88abab8a82a9b29825cb6f7dfa10",
+      "vendored_sha256": "2bd1094c4918d6544741e89502c36b63448bef4eba5abc6b2cc9227ca78dc2b6"
+    },
+    "notification_snapshot/unified_contract.py": {
+      "source_path": "python/scripts/notification_snapshot/unified_contract.py",
+      "source_sha256": "7ba48d1d7c74e66be8cd3ff983c2117002776e82cda6675a084cfe0dc51aecc0",
+      "vendored_sha256": "7ca63d4db5e17c8efd8ca5c54fb13bea1496b3084882dc0efea177f5d0633c1c"
+    },
+    "notification_snapshot/digest_routing.py": {
+      "source_path": "python/scripts/notification_snapshot/digest_routing.py",
+      "source_sha256": "60c3f258c4d1a03bc49c7d03b392c02c316541726dfacb0b1d4fae6dbd2e5017",
+      "vendored_sha256": "f2f6b5efd90468e538979a0b8c0c53baddfe6d8d97a656f2f9aa931ed710d058"
+    }
+  }
+}

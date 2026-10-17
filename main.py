@@ -174,6 +174,14 @@ def _notify_runtime_error(exc: Exception) -> bool:
         return False
 
     message = _runtime_error_notification_message(exc)
+    from notifications.unified import enabled, notify_heartbeat
+    if enabled():
+        def send() -> bool:
+            outcomes = [build_sender(token, chat_id)(message) for token, chat_id in targets]
+            return all(outcome is True for outcome in outcomes)
+        outcome = notify_heartbeat(kind="real_error", send=send, now=datetime.now(timezone.utc),
+                                   incident_reason="cycle_real_error", service_name=os.getenv("K_SERVICE"))
+        return any(item.get("transport_acknowledged") for item in outcome.get("deliveries", []))
     attempted = False
     for token, chat_id in targets:
         attempted = True
@@ -292,7 +300,8 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
     if execution_notes:
         summary["execution_notes"] = execution_notes
     from notifications.digest_snapshot.digest_routing import daily_digest_enabled
-    if daily_digest_enabled():
+    from notifications.unified import enabled
+    if enabled() or daily_digest_enabled():
         from notifications.digest_snapshot.digest_candidates import cycle_evidence
         evidence = dict(result)
         if not evidence.get("execution_status") and result.get("ok") is True:
@@ -389,10 +398,12 @@ def _run_strategy_cycle_with_report(
     settings = _runtime_settings(dry_run_override=dry_run_override)
     dry_run = bool(settings.dry_run_only)
     report = _build_runtime_report(settings, dry_run=dry_run)
+    from notifications.unified import enabled, notify_cycle
+    unified = enabled() and send_cycle_notification
     try:
         result = run_strategy_cycle(
             runtime_settings=settings,
-            send_cycle_notification=send_cycle_notification,
+            send_cycle_notification=False if unified else send_cycle_notification,
             dispatch_plugin_alerts=dispatch_plugin_alerts,
         )
         attach_strategy_result_execution_receipt(report, result, dry_run=dry_run)
@@ -408,6 +419,19 @@ def _run_strategy_cycle_with_report(
                 print(f"execution_report {report_path}", flush=True)
         except Exception as persist_exc:
             print(f"failed to persist execution report: {persist_exc}", flush=True)
+            if unified:
+                result["report_persistence_error"] = "execution_report_write_unconfirmed"
+        if unified:
+            from application.rebalance_service import _publish_cycle_notification
+            from notifications.unified import alert_text
+            delivery = notify_cycle(report, result, settings=settings,
+                send=lambda: _publish_cycle_notification(result, settings=settings),
+                send_failure=lambda: build_sender(settings.tg_token, settings.tg_chat_id)(
+                    alert_text("candidate_write_failure", settings.notify_lang)))
+            result["notification_consolidation"] = delivery
+            result["notification_sent"] = delivery.get("transport_acknowledged") is True
+            if delivery.get("route") == "digest_candidate":
+                result["notification_suppressed_reason"] = "deferred_digest"
         return result
     except Exception as exc:
         append_runtime_report_error(

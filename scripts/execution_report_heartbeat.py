@@ -758,7 +758,24 @@ def _send_telegram(message: str) -> bool:
     return ok
 
 
-def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True) -> int:
+def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=None) -> bool:
+    from notifications.unified import alert_text, enabled, notify_heartbeat
+    if not enabled():
+        return _send_telegram(message)
+    result = notify_heartbeat(kind=kind, send=lambda: _send_telegram(alert_text(kind, _notification_locale())),
+                              now=now, affected_keys=affected_keys)
+    return any(item.get("transport_acknowledged") for item in result.get("deliveries", []))
+
+
+def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True,
+                           now: dt.datetime | None = None, recovery_reports=(), affected_keys=None) -> int:
+    from notifications.unified import alert_text, enabled, notify_heartbeat
+    if enabled():
+        message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", _notification_locale())
+        result = notify_heartbeat(kind="healthy_heartbeat" if quiet_eligible else "receipt_unacceptable",
+            send=lambda: _send_telegram(message[:3900]), now=now or dt.datetime.now(dt.timezone.utc),
+            recovery_reports=recovery_reports, affected_keys=affected_keys)
+        return 1 if result.get("failed") or not result.get("candidate_persisted") else 0
     if quiet_eligible and not _env_bool("RUNTIME_HEARTBEAT_NOTIFY_ON_SUCCESS", False):
         return 0
     if quiet_eligible:
@@ -821,7 +838,7 @@ def main(now: dt.datetime | None = None) -> int:
             technical_details=[str(exc)],
         )
         print(message)
-        _send_telegram(message)
+        _deliver_alert(message, kind="real_error", now=now)
         return 1 if fail_workflow else 0
     publication_grace_minutes = float(
         os.environ.get("RUNTIME_HEARTBEAT_PUBLICATION_GRACE_MINUTES") or "30"
@@ -846,12 +863,12 @@ def main(now: dt.datetime | None = None) -> int:
                 f"({target_names})"
             )
         )
-        return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduled_window_due"))
+        return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduled_window_due"), now=now)
     if not runtime_targets:
         schedule_skip_reason = _heartbeat_skip_reason_for_schedule(due_since, now)
         if schedule_skip_reason:
             print(f"Execution report heartbeat skipped for {name}: {schedule_skip_reason}")
-            return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduler_run_due"))
+            return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduler_run_due"), now=now)
     if due_targets:
         required_services = filter_services_for_targets(
             required_services,
@@ -902,6 +919,7 @@ def main(now: dt.datetime | None = None) -> int:
 
     sorted_objects = sorted(objects.values(), key=lambda item: item[1], reverse=True)
     accepted = []
+    accepted_payloads = {}
     accepted_by_service: dict[str, tuple[str, dt.datetime, str]] = {}
     inspected = []
     quiet_by_service = {}
@@ -912,6 +930,7 @@ def main(now: dt.datetime | None = None) -> int:
     latest_services_seen = set()
     unreadable_objects = []
     latest_report_issues = []
+    unacceptable_keys = set()
     for uri, updated in sorted_objects[:max_reports]:
         payload = _cat_gcs_json(uri, project=project)
         if payload is None:
@@ -929,6 +948,7 @@ def main(now: dt.datetime | None = None) -> int:
             if raw_service in known_services and raw_service not in latest_services_seen:
                 latest_services_seen.add(raw_service)
                 latest_report_issues.append(f"{raw_service}: conflicting report identity ({filter_reason})")
+                unacceptable_keys.add(raw_service)
             inspected.append(f"- {updated.isoformat()} {uri} skipped {filter_reason}")
             continue
         if updated < due_since:
@@ -948,8 +968,10 @@ def main(now: dt.datetime | None = None) -> int:
             latest_report_seen.add(service_name)
             if not ok:
                 latest_report_issues.append(f"{service_name or name}: {reason}")
+                unacceptable_keys.add(service_name)
         inspected.append(f"- {updated.isoformat()} {uri} {reason}")
         if ok and is_latest_report:
+            accepted_payloads[service_name] = payload
             quiet = _is_quiet_report(payload, now=now)
             freshness_detail = ""
             if quiet and latest_due_at is not None:
@@ -990,6 +1012,8 @@ def main(now: dt.datetime | None = None) -> int:
             return _send_normal_heartbeat(
                 name, _notice("heartbeat_accepted_report", detail=details) if all(quiet_by_service[key] for key in required_keys) else details,
                 quiet_eligible=all(quiet_by_service[key] for key in required_keys),
+                now=now, recovery_reports=list(accepted_payloads.values()) if all(quiet_by_service[key] for key in required_keys) else (),
+                affected_keys=[key for key in required_keys if not quiet_by_service[key]] if not all(quiet_by_service[key] for key in required_keys) else None,
             )
     if accepted and not list_errors and not read_incomplete and not latest_report_issues:
         uri, updated, reason = accepted[0]
@@ -1000,6 +1024,8 @@ def main(now: dt.datetime | None = None) -> int:
             name,
             _notice("heartbeat_accepted_report", detail=f"{reason}, {updated.isoformat()}") if all(quiet_reports) else "; ".join(visible_report_details),
             quiet_eligible=all(quiet_reports),
+            now=now, recovery_reports=list(accepted_payloads.values()) if all(quiet_reports) else (),
+            affected_keys=[key for key in accepted_payloads] if not all(quiet_reports) else None,
         )
 
     issues = []
@@ -1044,7 +1070,11 @@ def main(now: dt.datetime | None = None) -> int:
         workflow_url=run_url,
     )
     print(message)
-    _send_telegram(message[:3900])
+    affected = None if list_errors or read_incomplete else (
+        list(unacceptable_keys | {key for key in required_keys if key not in accepted_by_service})
+        if required_keys or unacceptable_keys else None)
+    _deliver_alert(message[:3900], kind="receipt_unacceptable" if sorted_objects else "receipt_missing",
+                   now=now, affected_keys=affected)
     return 1 if fail_workflow else 0
 
 
