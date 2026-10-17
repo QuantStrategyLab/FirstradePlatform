@@ -433,6 +433,18 @@ class FirstradeBrokerAdapters:
                 broker_order_id is not None
                 and (broker_status_code is None or 200 <= broker_status_code < 300)
             )
+            # The existing disclosure response proves rejection. HTTP status
+            # alone (including other 4xx), or a missing ID, does not prove that
+            # an order was never accepted.
+            live_order_rejected = (
+                broker_order_id is None
+                and broker_status_code == 400
+                and any(
+                    "".join(ch for ch in key.rsplit(".", 1)[-1].lower() if ch.isalnum()) == "refcode"
+                    and str(value).strip() == "1219"
+                    for key, value in flatten_values(raw).items()
+                )
+            )
             return ExecutionReport(
                 symbol=request.symbol,
                 side=request.side,
@@ -440,7 +452,11 @@ class FirstradeBrokerAdapters:
                 status=(
                     "previewed"
                     if not self.live_orders
-                    else ("submitted" if live_order_accepted else "rejected")
+                    else (
+                        "submitted" if live_order_accepted
+                        else "rejected" if live_order_rejected
+                        else "unknown"
+                    )
                 ),
                 broker_order_id=broker_order_id,
                 raw_payload=raw,

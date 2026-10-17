@@ -58,6 +58,145 @@ class SubmittedExecutionPort(FakeExecutionPort):
         )
 
 
+def _unknown_outcome_plan(side):
+    return {
+        "allocation": {
+            "targets": (
+                {"AAA": 0.0, "BBB": 0.0, "CCC": 0.0, "DDD": 80.0}
+                if side == "sell" else {"AAA": 80.0, "BBB": 80.0, "CCC": 80.0}
+            )
+        },
+        "portfolio": {
+            "market_values": (
+                {"AAA": 100.0, "BBB": 100.0, "CCC": 100.0} if side == "sell" else {}
+            ),
+            "sellable_quantities": (
+                {"AAA": 10.0, "BBB": 10.0, "CCC": 10.0} if side == "sell" else {}
+            ),
+            "liquid_cash": 100.0,
+            "total_equity": 1000.0,
+        },
+        "execution": {"current_min_trade": 1.0, "investable_cash": 100.0},
+    }
+
+
+@pytest.mark.parametrize("side,notional", [("sell", False), ("buy", False), ("buy", True)])
+@pytest.mark.parametrize("prior_ack", [False, True])
+def test_unknown_outcome_stops_all_later_submissions_and_preserves_facts(side, notional, prior_ack):
+    raw = {"detail": "synthetic unknown broker outcome"}
+
+    class UnknownPort(FakeExecutionPort):
+        def submit_order(self, intent):
+            self.orders.append(intent)
+            status = "accepted" if prior_ack and len(self.orders) == 1 else "unknown"
+            return ExecutionReport(
+                intent.symbol, intent.side, intent.quantity, status,
+                broker_order_id=f"OID-{len(self.orders)}", raw_payload=raw,
+            )
+
+    port = UnknownPort()
+    result = execute_value_target_plan(
+        plan=_unknown_outcome_plan(side),
+        market_data_port=FakeMarketDataPort({s: 10.0 for s in ("AAA", "BBB", "CCC", "DDD")}),
+        execution_port=port, dry_run_only=False, notional_buy_execution=notional,
+        before_live_submission=lambda: True,
+    )
+
+    assert len(port.orders) == 1 + int(prior_ack)
+    assert len(result.submitted_orders) == len(port.orders)
+    unknown = result.submitted_orders[-1]
+    intent = port.orders[-1]
+    assert (unknown["symbol"], unknown["side"], unknown["quantity"]) == (
+        intent.symbol, intent.side, intent.quantity,
+    )
+    assert unknown["status"] == "unknown"
+    assert unknown["broker_order_id"] == f"OID-{len(port.orders)}"
+    assert unknown["raw_payload"] == raw
+    if notional:
+        assert unknown["notional_usd"] == intent.metadata["notional_usd"]
+    else:
+        assert unknown["limit_price"] == intent.limit_price
+    assert not result.skipped_orders
+    assert result.pending_reconciliation is True
+    assert result.action_done is False
+    assert result.broker_submission_done is prior_ack
+
+
+@pytest.mark.parametrize("payload", [{"statusCode": 500}, {"statusCode": 200, "result": {}}])
+@pytest.mark.parametrize("notional", [False, True])
+def test_real_adapter_ambiguous_response_stops_cycle_pending(payload, notional):
+    from application.runtime_broker_adapters import build_runtime_broker_adapters
+
+    class LocalClient:
+        def __init__(self):
+            self.requests = []
+
+        def place_stock_order(self, request, *, dry_run, explicit_live_ack):
+            assert not dry_run and explicit_live_ack
+            self.requests.append(request)
+            return payload
+
+    client = LocalClient()
+    adapters = build_runtime_broker_adapters(
+        client=client, account="synthetic-account", live_orders=True, live_order_ack=True,
+    )
+    result = execute_value_target_plan(
+        plan=_unknown_outcome_plan("buy"),
+        market_data_port=FakeMarketDataPort({"AAA": 10.0, "BBB": 10.0, "CCC": 10.0}),
+        execution_port=adapters.build_execution_port(), dry_run_only=False,
+        notional_buy_execution=notional, before_live_submission=lambda: True,
+    )
+
+    assert len(client.requests) == 1
+    assert len(result.submitted_orders) == 1
+    assert result.submitted_orders[0]["status"] == "unknown"
+    assert result.submitted_orders[0]["raw_payload"] == payload
+    assert result.pending_reconciliation is True
+    assert result.action_done is False
+    assert result.broker_submission_done is False
+
+
+def test_explicit_rejection_can_continue_but_ack_is_not_fill():
+    class RejectedThenAckPort(FakeExecutionPort):
+        def submit_order(self, intent):
+            self.orders.append(intent)
+            status = "rejected" if len(self.orders) == 1 else "accepted"
+            return ExecutionReport(
+                intent.symbol, intent.side, intent.quantity, status,
+                broker_order_id=None if status == "rejected" else "accepted-id",
+                raw_payload={"refCode": 1219} if status == "rejected" else {},
+            )
+
+    port = RejectedThenAckPort()
+    plan = _unknown_outcome_plan("buy")
+    plan["allocation"]["targets"] = {"AAA": 80.0, "BBB": 80.0}
+    result = execute_value_target_plan(
+        plan=plan, market_data_port=FakeMarketDataPort({"AAA": 10.0, "BBB": 10.0}),
+        execution_port=port, dry_run_only=False, before_live_submission=lambda: True,
+    )
+    assert len(port.orders) == 2
+    assert result.skipped_orders[0]["reason"] == "fractional_trading_disclosure_required"
+    assert result.submitted_orders[0]["broker_order_id"] == "accepted-id"
+    assert result.pending_reconciliation is True
+    assert result.action_done is False
+
+
+def test_timeout_propagates_after_one_submission_without_retry():
+    class TimeoutPort(FakeExecutionPort):
+        def submit_order(self, intent):
+            self.orders.append(intent)
+            raise TimeoutError("synthetic unknown transport result")
+
+    port = TimeoutPort()
+    with pytest.raises(TimeoutError, match="synthetic unknown transport result"):
+        execute_value_target_plan(
+            plan=_unknown_outcome_plan("buy"),
+            market_data_port=FakeMarketDataPort({"AAA": 10.0, "BBB": 10.0, "CCC": 10.0}),
+            execution_port=port, dry_run_only=False, before_live_submission=lambda: True,
+        )
+    assert len(port.orders) == 1
+
+
 @pytest.mark.parametrize("side,notional", [("sell", False), ("buy", False), ("buy", True)])
 def test_live_order_requires_submission_claim_callback(side, notional):
     execution_port = SubmittedExecutionPort()
