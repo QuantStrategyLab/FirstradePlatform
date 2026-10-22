@@ -8,11 +8,25 @@ import os
 from notifications.unified import emit_candidates, enabled  # noqa: E402
 
 
+def _check_binding_modes(env):
+    if env.get("QSL_ROUTINE_NOTIFICATION_MODE") != "daily_digest":
+        return
+    raw = env.get("DIGEST_TARGET_BINDINGS_JSON", "").strip()
+    if not raw:
+        return
+    bindings = json.loads(raw)
+    if not isinstance(bindings, list) or any(not isinstance(row, dict) for row in bindings):
+        raise ValueError("candidate_bindings_invalid")
+    if any(row.get("QSL_ROUTINE_NOTIFICATION_MODE", "daily_digest") != "daily_digest" for row in bindings):
+        raise ValueError("candidate_binding_mode_override")
+
+
 def main():
-    if not enabled():
-        from notifications.digest_snapshot.digest_archive import main as legacy_main
-        return legacy_main()
     try:
+        _check_binding_modes(os.environ)
+        if not enabled():
+            from notifications.digest_snapshot.digest_archive import main as legacy_main
+            return legacy_main()
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0
     except Exception:

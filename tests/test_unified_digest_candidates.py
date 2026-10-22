@@ -117,6 +117,22 @@ def test_multi_target_bindings_use_each_explicit_enablement_without_a_global_tar
     assert result == {"status": "projected", "uploaded": False, "targets": 1}
 
 
+def test_candidate_entry_rejects_binding_mode_override_before_projection(monkeypatch, capsys):
+    import json
+    from scripts import emit_unified_digest_candidates as entry
+    monkeypatch.setenv("QSL_ROUTINE_NOTIFICATION_MODE", "daily_digest")
+    monkeypatch.setenv("FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED", "false")
+    monkeypatch.setenv("DIGEST_TARGET_BINDINGS_JSON", json.dumps([{
+        "QSL_ROUTINE_NOTIFICATION_MODE": "immediate", "RUNTIME_TARGET_ENABLED": "true",
+        "DIGEST_OPAQUE_ACCOUNT_UID": "synthetic-private-uid"}]))
+    assert entry.main() == 1
+    output = capsys.readouterr().out
+    assert '"uploaded": false' in output
+    assert "synthetic-private-uid" not in output
+    entry._check_binding_modes({"QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest",
+        "DIGEST_TARGET_BINDINGS_JSON": json.dumps([{"QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest"}])})
+
+
 def test_completed_order_count_is_not_used_as_execution_fill_count():
     source = report(orders=[{"status": "filled"}])
     row = project([source])[0]

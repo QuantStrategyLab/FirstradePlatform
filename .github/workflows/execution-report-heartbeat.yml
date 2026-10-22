@@ -124,9 +124,11 @@ jobs:
           EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
 
       - name: Publish existing reports as unified digest candidates
-        if: ${{ success() && (vars.FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED == 'true' || vars.QSL_ROUTINE_NOTIFICATION_MODE == 'daily_digest') }}
+        if: ${{ success() && (github.event_name == 'schedule' || vars.FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED == 'true' || vars.QSL_ROUTINE_NOTIFICATION_MODE == 'daily_digest') }}
         env:
-          QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
+          # This projection reads existing archives after the completed daily window.
+          # Keep the service's notification mode and immediate order/alert route unchanged.
+          QSL_ROUTINE_NOTIFICATION_MODE: daily_digest
           RUNTIME_TARGET_ENABLED: ${{ vars.RUNTIME_TARGET_ENABLED }}
           RUNTIME_TARGET_JSON: ${{ vars.RUNTIME_TARGET_JSON || secrets.RUNTIME_TARGET_JSON }}
           EXECUTION_REPORT_GCS_URI: ${{ vars.EXECUTION_REPORT_GCS_URI || secrets.EXECUTION_REPORT_GCS_URI }}
