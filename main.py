@@ -18,6 +18,7 @@ from quant_platform_kit.common.health import register_health_endpoint
 from quant_platform_kit.common.execution_commands import build_execution_command_store_from_env
 from quant_platform_kit.common.platform_runner import dispatch_due_monitors, load_monitor_targets
 from quant_platform_kit.common.strategy_release import build_runtime_loaded_receipt
+from quant_platform_kit.common.us_equity_sessions import Session, session_gate
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
@@ -371,6 +372,16 @@ def _market_open_skip_payload(*, market_open: bool, error: Exception | None = No
 def _should_skip_for_market_hours() -> tuple[bool, dict[str, Any] | None]:
     if _force_strategy_run_env():
         return False, None
+    session, session_allowed = session_gate(
+        datetime.now(ZoneInfo(MARKET_TIMEZONE)),
+        enabled_sessions=frozenset({Session.REGULAR}),
+    )
+    if not session_allowed:
+        print(
+            f"Firstrade strategy run skipped: US equity session={session.value} is not enabled.",
+            flush=True,
+        )
+        return True, _market_open_skip_payload(market_open=False)
     market_open = is_market_open_now(
         calendar_name=MARKET_CALENDAR,
         timezone_name=MARKET_TIMEZONE,
