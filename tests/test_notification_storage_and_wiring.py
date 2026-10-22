@@ -1,7 +1,7 @@
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -125,6 +125,12 @@ def test_candidate_slot_cannot_mix_accounts_even_if_misconfigured():
 def test_main_on_writes_report_then_candidate_and_preserves_cycle_options(monkeypatch):
     import main
     import application.rebalance_service as rebalance
+    class FixtureDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+
+    monkeypatch.setattr(unified, "datetime", FixtureDateTime)
     store = Store()
     report, result = source()
     settings = SimpleNamespace(dry_run_only=False)
