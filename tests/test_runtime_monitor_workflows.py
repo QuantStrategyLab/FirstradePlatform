@@ -195,3 +195,31 @@ def test_manual_quiet_control_preserves_existing_alert_and_report_steps() -> Non
     assert "uv run --no-sync python scripts/execution_report_heartbeat.py" in workflow
     assert "Publish read-only runtime execution evidence" in workflow
     assert 'cron: "20 22 * * *"' in workflow
+
+
+def test_scheduled_firstrade_candidate_projection_and_quiet_heartbeat_are_paired() -> None:
+    import ast
+
+    workflow = (ROOT / ".github/workflows/execution-report-heartbeat.yml").read_text()
+    candidate_step = workflow.split("      - name: Publish existing reports as unified digest candidates\n", 1)[1]
+    expression = re.search(r"if: \$\{\{ (.*?) \}\}", candidate_step).group(1)
+    for event, unified, mode, expected in (
+        ("schedule", "false", "", True),
+        ("workflow_dispatch", "false", "", False),
+        ("workflow_dispatch", "true", "", True),
+        ("workflow_dispatch", "false", "daily_digest", True),
+    ):
+        value = expression.replace("success()", "True")
+        value = value.replace("github.event_name", repr(event))
+        value = value.replace("vars.FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED", repr(unified))
+        value = value.replace("vars.QSL_ROUTINE_NOTIFICATION_MODE", repr(mode))
+        value = value.replace("&&", " and ").replace("||", " or ")
+        parsed = ast.parse(value, mode="eval")
+        assert all(isinstance(node, (ast.Expression, ast.BoolOp, ast.And, ast.Or,
+            ast.Compare, ast.Eq, ast.Constant)) for node in ast.walk(parsed))
+        assert eval(compile(parsed, "<candidate workflow condition>", "eval"), {"__builtins__": {}}, {}) is expected
+    assert "          QSL_ROUTINE_NOTIFICATION_MODE: daily_digest\n" in candidate_step
+    assert "uv run --no-sync python scripts/emit_unified_digest_candidates.py" in candidate_step
+    assert "RUNTIME_TARGET_ENABLED: ${{ vars.RUNTIME_TARGET_ENABLED }}" in candidate_step
+    assert "DIGEST_TARGET_BINDINGS_JSON: ${{ secrets.DIGEST_TARGET_BINDINGS_JSON }}" in candidate_step
+    assert _evaluate_success_notify_expression(workflow, "schedule", None, "true") == "false"
