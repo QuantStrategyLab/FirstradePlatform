@@ -372,10 +372,14 @@ def _market_open_skip_payload(*, market_open: bool, error: Exception | None = No
 def _should_skip_for_market_hours() -> tuple[bool, dict[str, Any] | None]:
     if _force_strategy_run_env():
         return False, None
-    session, session_allowed = session_gate(
-        datetime.now(ZoneInfo(MARKET_TIMEZONE)),
-        enabled_sessions=frozenset({Session.REGULAR}),
-    )
+    try:
+        session, session_allowed = session_gate(
+            datetime.now(ZoneInfo(MARKET_TIMEZONE)),
+            enabled_sessions=frozenset({Session.REGULAR}),
+        )
+    except Exception as exc:
+        print(f"Firstrade market hours check failed: {exc}", flush=True)
+        return True, _market_open_skip_payload(market_open=False, error=exc)
     if not session_allowed:
         print(
             f"Firstrade strategy run skipped: US equity session={session.value} is not enabled.",
