@@ -2,7 +2,7 @@
 
 QRS `platform-config.json` owns public strategy/platform labels. `display-names.config.json` owns display-only account aliases, lanes, legacy labels and aliases. `python/scripts/build_display_names.py` combines them into one fixed mapping; it never changes trading catalog metadata or runtime configuration hashes.
 
-Run `python3 python/scripts/build_display_names.py --repos-root /path/to/source/checkouts` from QRS, then `--check` with the same arguments. Review and commit each repository separately. Consumer `display_names.py/json` files are generated snapshots, not independently maintained maps. They avoid upgrading pinned trading dependencies just for labels. No runtime fetch is performed. Refresh the snapshots together when labels change.
+Run `python3 python/scripts/build_display_names.py --repos-root /path/to/source/checkouts` from QRS, then `--check` with the same arguments. Review and commit each repository separately. Display name resolution is provided by `quant_platform_kit.common.display_names`, installed with QPK pin `5181f2d6`; this repository keeps no local `display_names.py/json` copy. No runtime fetch is performed; label updates reach consumers through the QPK pin.
 
 Python: optional `QSL_DISPLAY_NAMES_JSON` JSON object. Console: optional `VITE_QSL_DISPLAY_NAMES_JSON` at build time. Example (synthetic): `{"strategies":{"custom_profile":{"zh":"ETF-轮动-202610","en":"ETF-Rotation-202610"}},"accounts":{"binance":{"crypto_combo":"live"}}}`. Invalid JSON falls back to defaults; unknown labels retain the supplied fallback. Set private aliases only in the existing protected configuration, never in public source or PR bodies.
 

@@ -300,10 +300,10 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
         summary["orders_skipped"] = skipped_orders
     if execution_notes:
         summary["execution_notes"] = execution_notes
-    from notifications.digest_snapshot.digest_routing import daily_digest_enabled
+    from quant_platform_kit.notifications.digest_routing import daily_digest_enabled
     from notifications.unified import enabled
     if enabled() or daily_digest_enabled():
-        from notifications.digest_snapshot.digest_candidates import cycle_evidence
+        from quant_platform_kit.notifications.digest_candidates import cycle_evidence
         evidence = dict(result)
         if not evidence.get("execution_status") and result.get("ok") is True:
             evidence["execution_status"] = "completed"

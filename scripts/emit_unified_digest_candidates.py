@@ -25,7 +25,7 @@ def main():
     try:
         _check_binding_modes(os.environ)
         if not enabled():
-            from notifications.digest_snapshot.digest_archive import main as legacy_main
+            from quant_platform_kit.notifications.digest_archive import main as legacy_main
             return legacy_main()
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0

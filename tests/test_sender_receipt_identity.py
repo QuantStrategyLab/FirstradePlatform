@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from notifications import unified
-from notifications.digest_snapshot.unified_contract import order_identity_digest
+from quant_platform_kit.notifications.unified_contract import order_identity_digest
 from notifications.telegram import build_sender
 from test_notification_consolidation import ENV, NOW, TARGET, Store, source
 
