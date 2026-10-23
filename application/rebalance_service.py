@@ -302,7 +302,7 @@ def _publish_cycle_notification(
 
 
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
-    from notifications.digest_snapshot.digest_routing import daily_digest_enabled
+    from quant_platform_kit.notifications.digest_routing import daily_digest_enabled
     if daily_digest_enabled() and (result.get("ok") is False or any(result.get(key) for key in (
         "error", "errors", "strategy_run_persistence_error", "strategy_plugin_error",
         "strategy_plugin_alert_error", "pending_reconciliation", "orders_pending_count",
@@ -313,7 +313,7 @@ def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
     repeat_funding = result.get("notification_suppressed_reason") == "repeat_funding_blocked"
     if suppressed and not repeat_funding:
         return False
-    from notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
+    from quant_platform_kit.notifications.digest_routing import defer_routine_cycle_to_digest
     notification_evidence = dict(result)
     if not notification_evidence.get("execution_status") and result.get("ok") is True:
         notification_evidence["execution_status"] = "completed"
@@ -419,7 +419,7 @@ def publish_strategy_plugin_alerts(
     log_message: Callable[..., Any] = print,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ):
-    from notifications.digest_snapshot.digest_routing import immediate_plugin_signals
+    from quant_platform_kit.notifications.digest_routing import immediate_plugin_signals
     return dispatch_strategy_plugin_alerts(
         immediate_plugin_signals(signals),
         notification_settings=settings,

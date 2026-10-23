@@ -8,10 +8,11 @@ routine plugin observations do not produce individual pushes.
 
 QPK source reference: `4cc5e55251269923771f90cd661bb62a5cfdf0cd` (notification modules only).
 
-The notification-only QPK source snapshot in `notifications/digest_snapshot/` avoids an
-unrelated trading dependency upgrade. Keep these three modules byte-identical
-to the reviewed QPK notification modules. Existing QPK/strategy pins, order
-execution, funding, risk, account enablement and durable report writes are unchanged.
+The notification modules are imported directly from the QPK dependency pinned in
+`pyproject.toml` and `uv.lock`; no vendored QPK notification snapshot is kept in
+this repository. The pinned QPK revision is the single reviewed source for these
+modules. Existing QPK/strategy pins, order execution, funding, risk, account
+enablement and durable report writes are unchanged.
 
 Before enabling routing, validate the exact active target's private archived
 report, candidate store and QRS receiver. Existing cloud monitor wiring uses

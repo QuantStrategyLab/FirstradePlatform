@@ -7,7 +7,7 @@ import json
 import pytest
 
 from notifications import unified
-from notifications.digest_snapshot.digest_candidates import cycle_evidence
+from quant_platform_kit.notifications.digest_candidates import cycle_evidence
 
 NOW = datetime(2026, 10, 17, 0, tzinfo=timezone.utc)
 TARGET = dict(platform_id="firstrade", strategy_profile="synthetic", service_name="synthetic-service",

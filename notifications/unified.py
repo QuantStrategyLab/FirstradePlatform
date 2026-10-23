@@ -12,10 +12,10 @@ import hashlib
 import json
 import os
 
-from .digest_snapshot import digest_archive
-from .digest_snapshot.digest_candidates import project_reports
-from .digest_snapshot.digest_routing import defer_routine_cycle_to_digest
-from .digest_snapshot.unified_contract import (
+from quant_platform_kit.notifications import digest_archive
+from quant_platform_kit.notifications.digest_candidates import project_reports
+from quant_platform_kit.notifications.digest_routing import defer_routine_cycle_to_digest
+from quant_platform_kit.notifications.unified_contract import (
     CandidatePersistenceError, IncidentTracker, NotificationEvent,
     effective_notification_mode, order_identity_digest, route_notification_event,
     sgt_business_window, unified_notification_enabled,
