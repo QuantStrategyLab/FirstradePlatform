@@ -203,6 +203,41 @@ def test_keeps_provider_cash_and_buying_power_fields_distinct():
     assert result["coverage"]["buying_power_available"] is True
 
 
+@pytest.mark.parametrize("cash", ["0", "125.75", "-18.5"])
+def test_reads_exact_cash_balance_from_observed_provider_result_envelope(cash):
+    client = CachedReadOnlyClient()
+    client.balances = {
+        "account_list_total_value": "500",
+        "result": {"cash_balance": cash, "cash_balance_change": "99",
+                   "daytrade_buying_power": "2000", "non_margin_buying_power": "400",
+                   "margin": {"cash_balance": "999"}},
+    }
+    result = collect_firstrade_account_facts(
+        client, expected_account="synthetic-account-a", include_positions=False,
+    )
+    assert result["balances"]["provider_equity"] == "500"
+    assert result["balances"]["cash_balance"] == cash
+    assert result["balances"]["buying_power"] is None
+    assert result["coverage"]["cash_balance_available"] is True
+
+
+def test_rejects_conflicting_flat_and_result_cash_without_choosing_one():
+    client = CachedReadOnlyClient()
+    client.balances = {"cash_balance": "10", "result": {"cash_balance": "20"}}
+    with pytest.raises(AccountFactsUnavailable) as error:
+        collect_firstrade_account_facts(client, expected_account="synthetic-account-a")
+    assert error.value.reason_code == "balances_ambiguous"
+
+
+def test_does_not_substitute_result_changes_margin_or_buying_power_for_cash():
+    client = CachedReadOnlyClient()
+    client.balances = {"result": {"cash_balance_change": "10", "non_margin_buying_power": "20",
+                                  "margin": {"cash_balance": "30"}}}
+    result = collect_firstrade_account_facts(client, expected_account="synthetic-account-a")
+    assert result["balances"]["cash_balance"] is None
+    assert result["coverage"]["buying_power_available"] is False
+
+
 def test_does_not_mix_margin_cash_with_cash_or_buying_power():
     client = CachedReadOnlyClient()
     client.balances = {
