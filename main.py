@@ -22,6 +22,7 @@ from quant_platform_kit.common.us_equity_sessions import Session, session_gate
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeCachedSessionError,
     FirstradeMfaRequired,
     FirstradePlatformError,
     is_live_trading_enabled,
@@ -1029,8 +1030,11 @@ def account_facts_sync():
     except FirstradePlatformError as exc:
         # connect_read_only / cached session failures land here (not AccountFactsUnavailable).
         app.logger.warning(
-            "account_facts_sync client failed exc_type=%s",
+            "account_facts_sync client failed exc_type=%s reason=%s stage=%s http_status=%s",
             type(exc).__name__,
+            exc.reason_code if isinstance(exc, FirstradeCachedSessionError) else "unclassified",
+            exc.stage if isinstance(exc, FirstradeCachedSessionError) else "unclassified",
+            exc.http_status if isinstance(exc, FirstradeCachedSessionError) else None,
         )
         return jsonify({"ok": False, "error": "readonly_client_unavailable"}), 503
     except Exception as exc:

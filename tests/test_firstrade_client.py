@@ -6,6 +6,7 @@ import pytest
 
 from application.firstrade_client import (
     FirstradeBrokerClient,
+    FirstradeCachedSessionError,
     FirstradeCredentials,
     FirstradePlatformError,
     FirstradeSafetyError,
@@ -523,7 +524,7 @@ def test_read_only_transport_is_bounded_without_redirects(tmp_path, monkeypatch)
     client.close()
 
 
-@pytest.mark.parametrize("failure", [None, "http", "redirect", "auth", "non-json", "timeout"])
+@pytest.mark.parametrize("failure", [None, "http", "redirect", "auth", "non-json", "timeout", "network"])
 def test_read_only_real_sdk_stops_on_first_read_failure(tmp_path, monkeypatch, failure):
     import json
     import requests
@@ -542,6 +543,8 @@ def test_read_only_real_sdk_stops_on_first_read_failure(tmp_path, monkeypatch, f
         assert kwargs == {"timeout": (5, 15), "allow_redirects": False}
         if failure == "timeout":
             raise requests.Timeout("synthetic detail must not escape")
+        if failure == "network":
+            raise requests.ConnectionError("synthetic detail must not escape")
         response = requests.Response()
         response.status_code = {"http": 401, "redirect": 302}.get(failure, 200)
         body = {"error": "synthetic-denial"} if failure == "auth" else {"error": "", "items": []}
@@ -550,8 +553,16 @@ def test_read_only_real_sdk_stops_on_first_read_failure(tmp_path, monkeypatch, f
     monkeypatch.setattr(requests.Session, "request", request)
     monkeypatch.setattr(requests.Session, "close", close)
     if failure:
-        with pytest.raises(FirstradePlatformError, match="^Firstrade cached session unavailable\\.$"):
+        with pytest.raises(FirstradeCachedSessionError, match="^Firstrade cached session unavailable\\.$") as error:
             client.connect_read_only()
+        assert error.value.reason_code == {
+            "http": "read_http_error", "redirect": "read_http_error",
+            "auth": "read_provider_error", "non-json": "read_invalid_payload",
+            "timeout": "read_timeout", "network": "read_network_error",
+        }[failure]
+        assert error.value.stage == "userinfo"
+        assert error.value.http_status == {"http": 401, "redirect": 302}.get(failure)
+        assert "synthetic" not in str(error.value)
         assert calls == ["/private/userinfo"]
     else:
         client.connect_read_only()
@@ -560,6 +571,21 @@ def test_read_only_real_sdk_stops_on_first_read_failure(tmp_path, monkeypatch, f
     assert closed == [True]
     assert store.writes == 0
     assert not (tmp_path / "absent").exists()
+
+
+def test_cached_session_diagnostics_do_not_accept_arbitrary_provider_text():
+    with pytest.raises(ValueError, match="invalid_cached_session_diagnostic"):
+        FirstradeCachedSessionError("private-provider-message")
+
+
+def test_read_only_reports_missing_cache_before_any_provider_read(tmp_path, monkeypatch):
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    store.payloads.clear()
+    with pytest.raises(FirstradeCachedSessionError) as error:
+        client.connect_read_only()
+    assert error.value.reason_code == "cache_missing_or_stale"
+    assert error.value.stage == "cache"
+    assert calls == []
 
 
 def test_read_only_credentials_do_not_read_password_or_mfa(monkeypatch):

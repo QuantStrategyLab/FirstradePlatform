@@ -36,6 +36,22 @@ class FirstradeSafetyError(FirstradePlatformError):
     """Raised when an order violates local safety controls."""
 
 
+class FirstradeCachedSessionError(FirstradePlatformError):
+    """Closed diagnostic codes; provider bodies and credentials never escape."""
+
+    def __init__(self, reason_code: str, *, stage: str = "cache", http_status: int | None = None):
+        if reason_code not in {
+            "cache_missing_or_stale", "cache_tokens_incomplete", "read_timeout",
+            "read_network_error", "read_http_error", "read_invalid_payload",
+            "read_provider_error", "account_data_invalid",
+        } or stage not in {"cache", "userinfo", "account_list", "account_read"}:
+            raise ValueError("invalid_cached_session_diagnostic")
+        super().__init__("Firstrade cached session unavailable.")
+        self.reason_code = reason_code
+        self.stage = stage
+        self.http_status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
+
+
 @dataclass(frozen=True)
 class FirstradeCredentials:
     username: str
@@ -298,9 +314,12 @@ class FirstradeBrokerClient:
         ):
             raise FirstradeSafetyError("Firstrade cached-only connection requires a fresh non-trading client.")
         payload = self._load_session_cache(Path(self.credentials.cookie_dir))
-        if not payload or not isinstance(payload.get("access-token"), str) or not payload["access-token"]:
-            raise FirstradePlatformError("Firstrade cached session unavailable.")
+        if not payload:
+            raise FirstradeCachedSessionError("cache_missing_or_stale")
+        if not isinstance(payload.get("access-token"), str) or not payload["access-token"]:
+            raise FirstradeCachedSessionError("cache_tokens_incomplete")
         from firstrade.account import FTAccountData, FTSession
+        import requests
 
         session_factory = self._session_factory or FTSession
         account_data_factory = self._account_data_factory or FTAccountData
@@ -308,8 +327,10 @@ class FirstradeBrokerClient:
         transport = session.session
         transport.trust_env = False
         original_request = transport.request
+        read_stage = "cache"
 
         def read_only_request(method, url, **kwargs):
+            nonlocal read_stage
             parsed = urlsplit(url)
             if str(method).lower() != "get" or (
                 parsed.scheme != "https" or parsed.netloc != "api3x.firstrade.com"
@@ -319,22 +340,36 @@ class FirstradeBrokerClient:
                 }
             ):
                 raise FirstradeSafetyError("Firstrade read-only request denied.")
+            read_stage = {"/private/userinfo": "userinfo", "/private/acct_list": "account_list"}.get(parsed.path, "account_read")
             kwargs.update(timeout=(5, 15), allow_redirects=False)
-            response = original_request(method, url, **kwargs)
+            try:
+                response = original_request(method, url, **kwargs)
+            except requests.Timeout:
+                raise FirstradeCachedSessionError("read_timeout", stage=read_stage) from None
+            except requests.RequestException:
+                raise FirstradeCachedSessionError("read_network_error", stage=read_stage) from None
             if not 200 <= response.status_code < 300:
-                raise FirstradePlatformError("Firstrade account read unavailable.")
-            body = response.json()
-            if not isinstance(body, (dict, list)) or (isinstance(body, dict) and body.get("error")):
-                raise FirstradePlatformError("Firstrade account read unavailable.")
+                raise FirstradeCachedSessionError("read_http_error", stage=read_stage, http_status=response.status_code)
+            try:
+                body = response.json()
+            except ValueError:
+                raise FirstradeCachedSessionError("read_invalid_payload", stage=read_stage) from None
+            if not isinstance(body, (dict, list)):
+                raise FirstradeCachedSessionError("read_invalid_payload", stage=read_stage)
+            if isinstance(body, dict) and body.get("error"):
+                raise FirstradeCachedSessionError("read_provider_error", stage=read_stage)
             return response
 
         transport.request = read_only_request
         try:
             session.build_session_from_tokens(payload)
             account_data = account_data_factory(session)
+        except FirstradeCachedSessionError:
+            transport.close()
+            raise
         except Exception:
             transport.close()
-            raise FirstradePlatformError("Firstrade cached session unavailable.") from None
+            raise FirstradeCachedSessionError("account_data_invalid", stage=read_stage) from None
         self.session, self.account_data = session, account_data
         self.session_reused = True
         self.read_only_transport_enabled = True
