@@ -16,6 +16,11 @@ on:
         required: true
         default: false
         type: boolean
+      funds_schema_only:
+        description: Inspect saved funds field names only; no broker calls or financial values
+        required: false
+        default: false
+        type: boolean
       failure_window_start:
         description: UTC RFC3339 start time for the failed stage deployment
         required: true
@@ -93,8 +98,10 @@ jobs:
             echo "The checked-out source and current main ref must match expected_sha." >&2
             exit 1
           fi
-          python3 -m scripts.diagnose_cached_stage_failure \
-            --validate-window "${FAILURE_WINDOW_START}" "${FAILURE_WINDOW_END}"
+          if [ "${{ inputs.funds_schema_only }}" != "true" ]; then
+            python3 -m scripts.diagnose_cached_stage_failure \
+              --validate-window "${FAILURE_WINDOW_START}" "${FAILURE_WINDOW_END}"
+          fi
 
       - name: Authenticate with the existing deployment WIF identity
         uses: google-github-actions/auth@v3
@@ -109,6 +116,7 @@ jobs:
           version: ">= 416.0.0"
 
       - name: Read private Cloud Run, IAM, Scheduler, and audit evidence
+        if: inputs.funds_schema_only != true
         env:
           EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
         run: |
@@ -156,3 +164,7 @@ jobs:
             --window-start "${FAILURE_WINDOW_START}" --window-end "${FAILURE_WINDOW_END}" \
             --scheduler-jobs "${scheduler_file}" --audit-entries "${audit_file}" \
             --audit-status "${audit_status}"
+
+      - name: Inspect existing private funds snapshot schema
+        if: inputs.funds_schema_only == true
+        run: python3 -m scripts.inspect_funds_snapshot_schema
