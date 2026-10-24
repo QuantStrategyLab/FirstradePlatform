@@ -368,6 +368,56 @@ def test_execute_value_target_plan_keeps_existing_whole_share_when_positive_targ
     ]
 
 
+def test_execute_value_target_plan_retains_existing_qqqm_whole_share():
+    execution_port = FakeExecutionPort()
+    execute_value_target_plan(
+        plan={
+            "allocation": {
+                "targets": {"QQQM": 100.0},
+                "risk_symbols": ("QQQM",),
+            },
+            "portfolio": {
+                "market_values": {"QQQM": 300.0},
+                "quantities": {"QQQM": 1.0},
+                "sellable_quantities": {"QQQM": 1.0},
+                "liquid_cash": 0.0,
+            },
+            "execution": {"current_min_trade": 10.0, "investable_cash": 0.0},
+        },
+        market_data_port=FakeMarketDataPort({"QQQM": 300.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+    )
+
+    assert [order for order in execution_port.orders if order.symbol == "QQQM"] == []
+
+
+def test_execute_value_target_plan_bootstraps_close_to_one_share_qqqm_target():
+    execution_port = FakeExecutionPort()
+    execute_value_target_plan(
+        plan={
+            "allocation": {
+                "targets": {"QQQM": 260.0},
+                "risk_symbols": ("QQQM",),
+            },
+            "portfolio": {
+                "market_values": {"QQQM": 0.0},
+                "quantities": {"QQQM": 0.0},
+                "sellable_quantities": {"QQQM": 0.0},
+                "liquid_cash": 400.0,
+            },
+            "execution": {"current_min_trade": 10.0, "investable_cash": 400.0},
+        },
+        market_data_port=FakeMarketDataPort({"QQQM": 300.0}),
+        execution_port=execution_port,
+        dry_run_only=True,
+    )
+
+    assert [(order.side, order.symbol, order.quantity, order.limit_price) for order in execution_port.orders] == [
+        ("buy", "QQQM", 1.0, 301.5),
+    ]
+
+
 def test_execute_value_target_plan_tops_up_existing_whole_share_when_target_rounds_up():
     execution_port = FakeExecutionPort()
     result = execute_value_target_plan(

@@ -30,12 +30,9 @@ from quant_platform_kit.notifications.renderer_base import (
 from notifications.compact_adapter import adapt_compact_sections
 from quant_platform_kit.notifications.events import RenderedNotification
 
-try:
-    from quant_platform_kit.common.notification_localization import (
-        merge_strategy_plugin_i18n as _merge_strategy_plugin_i18n,
-    )
-except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
-    _merge_strategy_plugin_i18n = None
+from quant_platform_kit.common.notification_localization import (
+    merge_strategy_plugin_i18n as _merge_strategy_plugin_i18n,
+)
 
 _TELEGRAM_MARKET_SYMBOL_LINK_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z0-9]{1,12})\.([A-Z]{2,4})(?![A-Za-z0-9_])")
 _TELEGRAM_MARKET_SYMBOL_LINK_JOINER = "\u2060"
@@ -49,59 +46,10 @@ def _break_telegram_market_symbol_auto_links(value: object) -> str:
     )
 
 
-try:
-    from quant_platform_kit.common.small_account_compatibility import (
-        format_small_account_allocation_drift_notes,
-        format_small_account_cash_substitution_notes,
-    )
-except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
-    def format_small_account_allocation_drift_notes(_notes, *, translator, **_kwargs):
-        return ()
-
-    def format_small_account_cash_substitution_notes(
-        notes,
-        *,
-        translator,
-        wrapper_key="buy_deferred",
-        detail_key="buy_deferred_small_account_cash_substitution",
-        cash_label_key="cash_label",
-        symbol_suffix=".US",
-    ):
-        messages = []
-        seen_keys = set()
-        for note in tuple(notes or ()):
-            if not isinstance(note, Mapping):
-                continue
-            symbol = str(note.get("symbol") or "").strip().upper()
-            if not symbol:
-                continue
-            target_value = max(0.0, float(note.get("target_value") or 0.0))
-            price = max(0.0, float(note.get("price") or 0.0))
-            if target_value <= 0.0 or price <= 0.0:
-                continue
-            cash_symbols = tuple(
-                dict.fromkeys(
-                    str(cash_symbol or "").strip().upper()
-                    for cash_symbol in tuple(note.get("cash_symbols") or ())
-                    if str(cash_symbol or "").strip()
-                )
-            )
-            cash_symbols_text = ", ".join(f"{cash_symbol}{symbol_suffix}" for cash_symbol in cash_symbols)
-            if not cash_symbols_text:
-                cash_symbols_text = translator(cash_label_key)
-            note_key = (symbol, f"{target_value:.2f}", cash_symbols_text)
-            if note_key in seen_keys:
-                continue
-            seen_keys.add(note_key)
-            detail = translator(
-                detail_key,
-                symbol=f"{symbol}{symbol_suffix}",
-                diff=f"{target_value:.2f}",
-                price=f"{price:.2f}",
-                cash_symbols=cash_symbols_text,
-            )
-            messages.append(translator(wrapper_key, detail=detail))
-        return tuple(messages)
+from quant_platform_kit.common.small_account_compatibility import (
+    format_small_account_allocation_drift_notes,
+    format_small_account_cash_substitution_notes,
+)
 
 
 def _format_symbol_with_suffix(symbol, *, suffix=".US") -> str:
