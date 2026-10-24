@@ -293,3 +293,51 @@ def test_publisher_rejects_oversized_ack_without_retry():
 
     assert len(session.calls) == 1
     assert session.closed is True
+
+
+def test_position_currency_setting_enables_native_position_projection():
+    data = observation()
+    data.update(positions_status="available", positions=[{
+        "symbol": "SYNTH", "quantity": "0.25", "market_value": "70.125", "currency": None,
+    }])
+    cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="EUR"))
+    payload = build_firstrade_account_snapshot(data, cfg, account_scope="us")
+    assert payload["broker_reported_positions"] == [{
+        "symbol": "SYNTH", "quantity": "0.25", "market_value": "70.125",
+        "currency": "EUR", "currency_source": "configured",
+    }]
+    assert payload["broker_reported_positions_scope"] == "broker_reported"
+    assert payload["broker_reported_balances"][0]["net_assets"] == "1234.50"
+    assert payload["cash"][0]["cash_balance"] == "250.25"
+    data["positions"][0]["currency"] = "USD"
+    native = build_firstrade_account_snapshot(data, cfg, account_scope="us")["broker_reported_positions"][0]
+    assert native["currency"] == "USD"
+    assert "currency_source" not in native
+    assert "avg_cost" not in native
+
+
+@pytest.mark.parametrize("value", ["usd", "BASE", "USD ", 1])
+def test_position_currency_setting_requires_an_exact_iso_code(value):
+    with pytest.raises(AccountFactsPublishError, match="position_currency_invalid"):
+        load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY=value))
+
+
+@pytest.mark.parametrize("patch", [
+    {"quantity": None}, {"market_value": None}, {"symbol": "bad-symbol"}, {"currency": "BASE"},
+])
+def test_invalid_positions_are_never_published_as_complete(patch):
+    data = observation()
+    data.update(positions_status="available", positions=[{
+        "symbol": "SYNTH", "quantity": "1", "market_value": "2", "currency": None, **patch,
+    }])
+    cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="USD"))
+    with pytest.raises(AccountFactsPublishError):
+        build_firstrade_account_snapshot(data, cfg, account_scope="us")
+
+
+def test_empty_position_page_does_not_claim_complete_inventory():
+    data = observation()
+    data.update(positions_status="available", positions=[])
+    cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="USD"))
+    payload = build_firstrade_account_snapshot(data, cfg, account_scope="us")
+    assert "broker_reported_positions" not in payload

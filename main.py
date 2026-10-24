@@ -1003,7 +1003,7 @@ def account_facts_sync():
         observation = collect_firstrade_account_facts(
             client,
             expected_account=expected_account,
-            include_positions=False,
+            include_positions=config.position_currency is not None,
         )
         payload = build_firstrade_account_snapshot(
             observation,
