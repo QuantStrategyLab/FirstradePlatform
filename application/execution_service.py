@@ -10,125 +10,15 @@ from typing import Any
 from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
 from quant_platform_kit.common.models import OrderIntent
 from quant_platform_kit.common.ports import ExecutionPort, MarketDataPort
-try:
-    from quant_platform_kit.common.small_account_compatibility import (
-        apply_small_account_cash_compatibility,
-        build_small_account_allocation_drift_notes,
-    )
-except ImportError:  # pragma: no cover - compatibility with older pinned shared wheels
-    @dataclass(frozen=True)
-    class _SmallAccountCashCompatibilityResult:
-        targets: dict[str, float]
-        whole_share_substituted_symbols: tuple[str, ...]
-        safe_haven_cash_substituted_symbols: tuple[str, ...]
-        cash_substitution_notes: tuple[dict[str, Any], ...]
+from quant_platform_kit.common.small_account_compatibility import (
+    DEFAULT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS,
+    DEFAULT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL,
+    DEFAULT_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL,
+    SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD,
+    apply_small_account_cash_compatibility,
+    build_small_account_allocation_drift_notes,
+)
 
-    def _project_unbuyable_value_targets_to_cash(
-        target_values,
-        prices,
-        *,
-        candidate_symbols=None,
-        quantity_step=1.0,
-    ):
-        adjusted = {
-            str(symbol or "").strip().upper(): float(value or 0.0)
-            for symbol, value in dict(target_values or {}).items()
-        }
-        step = max(0.0, float(quantity_step or 0.0))
-        if step <= 0.0:
-            return adjusted, ()
-        normalized_candidates = (
-            tuple(adjusted)
-            if candidate_symbols is None
-            else tuple(dict.fromkeys(str(symbol or "").strip().upper() for symbol in candidate_symbols))
-        )
-        normalized_prices = {
-            str(symbol or "").strip().upper(): float(price or 0.0)
-            for symbol, price in dict(prices or {}).items()
-        }
-        substituted = []
-        for symbol in normalized_candidates:
-            target_value = max(0.0, float(adjusted.get(symbol, 0.0) or 0.0))
-            price = max(0.0, float(normalized_prices.get(symbol, 0.0) or 0.0))
-            if price > 0.0 and 0.0 < target_value < (price * step):
-                adjusted[symbol] = 0.0
-                substituted.append(symbol)
-        return adjusted, tuple(dict.fromkeys(substituted))
-
-    def apply_small_account_cash_compatibility(
-        target_values,
-        prices,
-        *,
-        candidate_symbols=None,
-        safe_haven_cash_symbols=(),
-        quantity_step=1.0,
-        cash_substitute_limit_usd=2000.0,
-    ):
-        adjusted_targets, substituted = _project_unbuyable_value_targets_to_cash(
-            target_values,
-            prices,
-            candidate_symbols=candidate_symbols,
-            quantity_step=quantity_step,
-        )
-        normalized_candidates = (
-            tuple(adjusted_targets)
-            if candidate_symbols is None
-            else tuple(dict.fromkeys(str(symbol or "").strip().upper() for symbol in candidate_symbols))
-        )
-        remaining_non_safe_targets = [
-            symbol
-            for symbol in normalized_candidates
-            if float(adjusted_targets.get(str(symbol or "").strip().upper(), 0.0) or 0.0) > 0.0
-        ]
-        safe_haven_symbols = tuple(
-            dict.fromkeys(
-                str(symbol or "").strip().upper()
-                for symbol in safe_haven_cash_symbols
-                if str(symbol or "").strip()
-            )
-        )
-        safe_haven_substituted = []
-        if (
-            substituted
-            and not remaining_non_safe_targets
-            and _positive_target_total(adjusted_targets) <= max(0.0, float(cash_substitute_limit_usd or 0.0))
-        ):
-            for symbol in safe_haven_symbols:
-                if float(adjusted_targets.get(symbol, 0.0) or 0.0) > 0.0:
-                    adjusted_targets[symbol] = 0.0
-                    safe_haven_substituted.append(symbol)
-        normalized_targets = {
-            str(symbol or "").strip().upper(): float(value or 0.0)
-            for symbol, value in dict(target_values or {}).items()
-        }
-        normalized_prices = {
-            str(symbol or "").strip().upper(): float(price or 0.0)
-            for symbol, price in dict(prices or {}).items()
-        }
-        notes = []
-        if safe_haven_substituted:
-            for symbol in substituted:
-                target_value = max(0.0, float(normalized_targets.get(symbol, 0.0) or 0.0))
-                price = max(0.0, float(normalized_prices.get(symbol, 0.0) or 0.0))
-                if target_value <= 0.0 or price <= 0.0:
-                    continue
-                notes.append(
-                    {
-                        "symbol": symbol,
-                        "target_value": target_value,
-                        "price": price,
-                        "cash_symbols": tuple(safe_haven_substituted),
-                    }
-                )
-        return _SmallAccountCashCompatibilityResult(
-            targets=adjusted_targets,
-            whole_share_substituted_symbols=substituted,
-            safe_haven_cash_substituted_symbols=tuple(safe_haven_substituted),
-            cash_substitution_notes=tuple(notes),
-        )
-
-    def build_small_account_allocation_drift_notes(**_kwargs):
-        return ()
 
 @dataclass(frozen=True)
 class ExecutionCycleResult:
@@ -142,7 +32,6 @@ class ExecutionCycleResult:
 
 
 DEFAULT_SAFE_HAVEN_CASH_SUBSTITUTE_THRESHOLD_USD = 1000.0
-SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
 MIN_NOTIONAL_BUY_USD = 1.0
 NOTIONAL_BUY_CASH_UTILIZATION_RATIO = 0.98
 _ACCEPTED_ORDER_STATUSES = frozenset(
@@ -151,14 +40,16 @@ _ACCEPTED_ORDER_STATUSES = frozenset(
 _BROKER_REJECTION_SKIP_REASONS = frozenset(
     {"broker_rejected", "fractional_trading_disclosure_required"}
 )
-SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = frozenset({"TQQQ", "SOXL"})
+# Shared QPK defaults keep QQQM retention/bootstrap aligned with the other
+# brokers; Firstrade only adds its SOXX-specific override on top.
+SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = DEFAULT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS
 _SMALL_ACCOUNT_RETENTION_MIN_TARGET_SHARE_RATIO_DEFAULT = 0.85
 SMALL_ACCOUNT_EXISTING_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
+    **DEFAULT_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL,
     "SOXX": 0.90,
 }
 SMALL_ACCOUNT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
-    "TQQQ": 0.90,
-    "SOXL": 0.90,
+    **DEFAULT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL,
     "SOXX": 0.90,
 }
 
