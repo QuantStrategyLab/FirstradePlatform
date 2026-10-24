@@ -317,3 +317,33 @@ def test_sync_endpoint_falls_back_to_sole_broker_account_when_selector_unmatched
     assert published[0][0]["broker_account_id"] == "synthetic-native-id"
     assert published[0][1].account_id == "synthetic-native-id"
     assert client.closed is True
+
+
+def test_sync_reads_positions_only_with_explicit_currency_configuration(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY", "EUR")
+    client = FakeClient()
+    calls, posted = [], []
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", lambda: client)
+
+    def collect(_client, **kwargs):
+        calls.append(kwargs)
+        return {
+            "status": "available", "platform": "firstrade", "account_selector_status": "matched",
+            "broker_account_id": "synthetic-native-id",
+            "observed_started_at": "2026-10-08T08:00:00+00:00", "observed_finished_at": "2026-10-08T08:00:03+00:00",
+            "balances": {"currency": "USD", "provider_equity": "100", "cash_balance": "50"},
+            "positions_status": "available",
+            "positions": [{"symbol": "SYNTH", "quantity": "1", "market_value": "50", "currency": None}],
+        }
+
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", collect)
+    monkeypatch.setattr(main, "publish_firstrade_account_snapshot", lambda body, _cfg: posted.append(body))
+    response = main.app.test_client().post("/account-facts-sync", headers={"Authorization": "Bearer synthetic-facts-token"})
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "stored": True}
+    assert calls == [{"expected_account": "synthetic-native-id", "include_positions": True}]
+    assert posted[0]["broker_reported_positions"][0]["currency"] == "EUR"
+    assert posted[0]["broker_reported_positions"][0]["currency_source"] == "configured"
+    assert client.closed is True
+    assert "SYNTH" not in response.get_data(as_text=True)
