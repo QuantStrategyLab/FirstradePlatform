@@ -241,6 +241,15 @@ def collect_firstrade_account_facts(
         ("total_equity", "total_value", "account_list_total_value"),
     )
     cash_balance = _exact_balance_value(balances, ("cash_balance",))
+    # Saved provider responses place account cash in this exact envelope.
+    # Do not recursively search margin, balance changes, or buying power.
+    provider_result = balances.get("result")
+    if isinstance(provider_result, Mapping):
+        result_cash = _exact_balance_value(provider_result, ("cash_balance",))
+        if cash_balance is not None and result_cash is not None and cash_balance != result_cash:
+            raise AccountFactsUnavailable("balances_ambiguous")
+        if cash_balance is None:
+            cash_balance = result_cash
     available_cash = _exact_balance_value(balances, ("available_cash",))
     buying_power = _exact_balance_value(balances, ("buying_power",))
     balance_currency = _currency_code(balances)
