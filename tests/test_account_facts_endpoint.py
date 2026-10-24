@@ -8,6 +8,23 @@ pytest.importorskip("flask")
 
 import main
 from application.account_facts_readonly import AccountFactsUnavailable
+from application.firstrade_client import FirstradeCachedSessionError
+
+
+def test_cached_failure_logs_only_closed_stage_without_changing_public_contract(monkeypatch, caplog):
+    _configure(monkeypatch)
+
+    def failed_client():
+        raise FirstradeCachedSessionError("read_http_error", stage="userinfo", http_status=401)
+
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", failed_client)
+    with caplog.at_level("WARNING"):
+        response = main.app.test_client().post(
+            "/account-facts-sync", headers={"Authorization": "Bearer synthetic-facts-token"},
+        )
+    assert response.status_code == 503
+    assert response.json == {"ok": False, "error": "readonly_client_unavailable"}
+    assert "reason=read_http_error stage=userinfo http_status=401" in caplog.text
 
 
 def _configure(monkeypatch, **overrides):
