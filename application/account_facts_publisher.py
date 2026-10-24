@@ -22,6 +22,7 @@ _BINDING_ID_RE = re.compile(r"[a-f0-9]{64}", re.ASCII)
 _BROKER_ACCOUNT_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 _CURRENCY_RE = re.compile(r"[A-Z]{3}", re.ASCII)
 _AMOUNT_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", re.ASCII)
+_POSITION_SYMBOL_RE = re.compile(r"[A-Z0-9][A-Z0-9./ -]{0,31}", re.ASCII)
 
 
 class AccountFactsPublishError(RuntimeError):
@@ -41,6 +42,7 @@ class AccountFactsPublishConfig:
     account_key: str = field(repr=False)
     account_scope: str = field(repr=False)
     account_id: str | None = field(repr=False)
+    position_currency: str | None = None
 
 
 def _required_env(env: Mapping[str, str], key: str) -> str:
@@ -122,6 +124,12 @@ def load_account_facts_publish_config(
     ):
         raise AccountFactsPublishError("account_identity_invalid")
 
+    position_currency = env.get("FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY") or None
+    if position_currency is not None and (
+        not isinstance(position_currency, str) or not _CURRENCY_RE.fullmatch(position_currency)
+    ):
+        raise AccountFactsPublishError("position_currency_invalid")
+
     return AccountFactsPublishConfig(
         sync_url=sync_url,
         sync_token=token,
@@ -130,6 +138,7 @@ def load_account_facts_publish_config(
         account_key=account_key,
         account_scope=account_scope,
         account_id=account_id,
+        position_currency=position_currency,
     )
 
 
@@ -177,7 +186,7 @@ def build_firstrade_account_snapshot(
     *,
     account_scope: str,
 ) -> dict[str, Any]:
-    """Build the fixed QRS history body without positions or derived values."""
+    """Build native facts; optional positions require an explicit currency setting."""
     if (
         observation.get("status") != "available"
         or observation.get("platform") != "firstrade"
@@ -219,7 +228,7 @@ def build_firstrade_account_snapshot(
             "source_tag": "provider.cash_balance",
         })
 
-    return {
+    payload = {
         "schema_version": "firstrade_account_snapshot_history.v1",
         "snapshot_schema_version": "firstrade_account_snapshot.v1",
         "account_scope": config.account_scope,
@@ -240,6 +249,34 @@ def build_firstrade_account_snapshot(
         }],
         "cash": cash,
     }
+    if config.position_currency is not None:
+        rows = observation.get("positions")
+        if observation.get("positions_status") != "available" or not isinstance(rows, list) or len(rows) > 64:
+            raise AccountFactsPublishError("positions_unavailable")
+        positions = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, Mapping):
+                raise AccountFactsPublishError("positions_invalid")
+            symbol = row.get("symbol")
+            if not isinstance(symbol, str) or not _POSITION_SYMBOL_RE.fullmatch(symbol) or symbol in seen:
+                raise AccountFactsPublishError("positions_invalid")
+            seen.add(symbol)
+            native_currency = row.get("currency")
+            position_currency = config.position_currency if native_currency is None else native_currency
+            if not isinstance(position_currency, str) or not _CURRENCY_RE.fullmatch(position_currency):
+                raise AccountFactsPublishError("position_currency_invalid")
+            item = {"symbol": symbol, "quantity": _amount(row.get("quantity")),
+                    "market_value": _amount(row.get("market_value")), "currency": position_currency}
+            if native_currency is None:
+                item["currency_source"] = "configured"
+            positions.append(item)
+        # Empty inventories need an explicit completeness contract. Do not
+        # convert a missing/paginated response into a confirmed empty account.
+        if positions:
+            payload["broker_reported_positions"] = positions
+            payload["broker_reported_positions_scope"] = "broker_reported"
+    return payload
 
 
 def _ack_matches(
