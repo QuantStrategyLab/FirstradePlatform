@@ -44,6 +44,9 @@ Secret and saved authentication tokens in cloud-runner memory. Password and MFA
 credentials are never loaded. The original runtime cache TTL is preserved;
 missing, expired or rejected authentication stops without login or cache writes.
 A storage read failure is reported separately from a stale cache.
+Cloud read failures expose a closed error category and stage, never the original
+CLI error, resource path or credential. Permission failures do not trigger a
+different credential source, identity or an automatic retry.
 
 After cached user-info/account-list validation, the explicit client method arms
 exactly one history GET with a fixed account, date range, first page and row

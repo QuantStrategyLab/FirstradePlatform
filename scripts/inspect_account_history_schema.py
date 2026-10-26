@@ -21,9 +21,24 @@ _FIELDS = ("date", "trade_date", "settle_date", "transaction_date", "type", "tra
 
 
 class CloudReadUnavailable(ValueError):
-    def __init__(self, stage):
+    def __init__(self, stage, category="unclassified"):
         super().__init__("history_cloud_read_unavailable")
         self.stage = stage
+        self.category = category
+
+
+def cloud_error_category(stderr):
+    """Map private CLI diagnostics to closed codes without exporting text."""
+    for code, markers in (
+        ("permission_denied", ("PERMISSION_DENIED", "secretmanager.versions.access' denied")),
+        ("not_found", ("NOT_FOUND",)),
+        ("authentication_failed", ("UNAUTHENTICATED", "invalid_grant", "Reauthentication")),
+        ("service_disabled", ("SERVICE_DISABLED",)),
+        ("argument_invalid", ("unrecognized arguments", "Invalid choice")),
+    ):
+        if any(marker in stderr for marker in markers):
+            return code
+    return "unclassified"
 
 
 def project_schema(payload):
@@ -67,7 +82,8 @@ def execute(start, end):
             capture_output=True, text=True, timeout=45)
         if response.returncode or len(response.stdout.encode()) > limit:
             raise CloudReadUnavailable({"run": "runtime_metadata", "secrets": "cached_username",
-                                        "storage": "saved_session"}[args[0]])
+                "storage": "saved_session"}[args[0]], cloud_error_category(response.stderr)
+                if response.returncode else "response_size_exceeded")
         return response.stdout
     service_metadata = json.loads(cloud("run", "services", "describe", service, "--region", region, "--format=json"))
     traffic = [row for row in service_metadata["status"]["traffic"] if row.get("percent", 0) > 0]
@@ -130,7 +146,8 @@ def main():
     try:
         result = execute(args.from_date, args.to_date)
     except CloudReadUnavailable as error:
-        result = {"status": "stopped", "reason": "history_cloud_read_failed", "stage": error.stage}
+        result = {"status": "stopped", "reason": "history_cloud_read_failed",
+                  "stage": error.stage, "failure_category": error.category}
     except Exception:
         result = {"status": "stopped", "reason": "history_schema_inspection_unavailable"}
     print(json.dumps(result, sort_keys=True))
