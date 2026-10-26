@@ -19,10 +19,45 @@ _SENSITIVE = re.compile(r"account|acct|token|secret|password|cookie|session|[0-9
 _HISTORY = re.compile(
     r"([^/]+)/funds/history/(\d{4})/(\d{2})/(\d{2})/(\d{8})T\d{6}Z\.json\Z", re.ASCII,
 )
-_KNOWN_METRICS = (
+_BALANCE_LABELS = (
     "provider_equity", "equity", "total_value", "market_value", "cash_balance",
     "cash_balance_change", "available_cash", "buying_power", "margin_balance",
+    "total_equity", "account_list_total_value",
 )
+_KNOWN_METRICS = (*_BALANCE_LABELS, *("result." + label for label in _BALANCE_LABELS))
+
+
+def configured_account(env: dict) -> str | None:
+    """Follow the deployed target-selector precedence without resolving secrets."""
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("runtime_target_ambiguous")
+            obj[key] = value
+        return obj
+
+    direct = env.get("FIRSTRADE_ACCOUNT")
+    selected = direct
+    for key in ("QSL_RUNTIME_TARGET_JSON", "RUNTIME_TARGET_JSON"):
+        if key not in env or env[key] == "":
+            continue
+        if env[key] is None:
+            return None
+        target = json.loads(env[key], object_pairs_hook=unique_object)
+        if not isinstance(target, dict):
+            raise ValueError("runtime_target_invalid")
+        selected = target.get("account_selector")
+        if isinstance(selected, list):
+            selected = selected[0] if len(selected) == 1 else None
+        if direct and direct != selected:
+            raise ValueError("configured_account_mismatch")
+        break
+    if selected is None:
+        return None
+    if not isinstance(selected, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", selected, re.ASCII):
+        raise ValueError("configured_account_invalid")
+    return selected
 
 
 def history_objects(listing: dict, prefix: str) -> list[tuple[dict, str, str]]:
@@ -155,6 +190,7 @@ def inspect_existing_snapshots(*, history: bool = False) -> dict:
     if listing.get("nextPageToken"):
         raise ValueError("snapshot_listing_incomplete")
     if history:
+        selected_account = configured_account(env)
         objects = history_objects(listing, prefix)
         groups = {account: index + 1 for index, account in enumerate(sorted({row[1] for row in objects}))}
         rows = []
@@ -162,7 +198,7 @@ def inspect_existing_snapshots(*, history: bool = False) -> dict:
             query = urllib.parse.urlencode({"alt": "media", "generation": obj["generation"]})
             snapshot = read_json(base + "/" + urllib.parse.quote(obj["name"], safe="") + "?" + query)
             row = project_history(snapshot, account=account, archive_date=archive_date,
-                                  configured_account=env.get("FIRSTRADE_ACCOUNT"))
+                                  configured_account=selected_account)
             rows.append({"account_group": groups[account], **row})
         return {"status": "inspected", "mode": "history_schema", "snapshot_count": len(rows),
                 "account_group_count": len(groups), "snapshots": rows, "broker_requests": 0, "mutations": 0}
