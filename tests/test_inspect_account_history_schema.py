@@ -101,3 +101,30 @@ def test_reader_main_cannot_read_credentials_or_financial_bodies_on_local_host(m
     monkeypatch.setattr(module, "execute", lambda *_a: pytest.fail("cloud-only reader must not run"))
     assert module.main() == 1
     assert json.loads(capsys.readouterr().out)["reason"] == "history_cloud_manual_main_once_required"
+
+
+@pytest.mark.parametrize("message,category", [
+    ("PERMISSION_DENIED private-identifier", "permission_denied"),
+    ("NOT_FOUND private-path", "not_found"),
+    ("UNAUTHENTICATED private-token", "authentication_failed"),
+    ("invalid_grant private-token", "authentication_failed"),
+    ("SERVICE_DISABLED private-project", "service_disabled"),
+    ("unrecognized arguments private-value", "argument_invalid"),
+    ("private-error", "unclassified"),
+])
+def test_cloud_diagnostic_exports_closed_category_only(message, category):
+    assert module.cloud_error_category(message) == category
+    assert "private" not in module.cloud_error_category(message)
+
+
+def test_reader_main_preserves_failed_stage_and_safe_category(monkeypatch, capsys):
+    for key, value in {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main",
+        "GITHUB_RUN_ATTEMPT": "1", "RUNNER_OS": "Linux"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(module.argparse.ArgumentParser, "parse_args", lambda _s:
+        SimpleNamespace(from_date="2026-10-01", to_date="2026-10-02"))
+    def fail(*_args): raise module.CloudReadUnavailable("cached_username", "permission_denied")
+    monkeypatch.setattr(module, "execute", fail)
+    assert module.main() == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "stopped",
+        "reason": "history_cloud_read_failed", "stage": "cached_username", "failure_category": "permission_denied"}
