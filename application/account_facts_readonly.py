@@ -45,7 +45,17 @@ def _decimal_text(value: object) -> str | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
         raise AccountFactsUnavailable("provider_value_invalid")
-    text = str(value).strip()
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise AccountFactsUnavailable("provider_value_invalid")
+        # json.loads(parse_float=Decimal) uses exponent notation for small
+        # values. Bound the expansion before formatting exact fixed decimals.
+        if (max(1, value.adjusted() + 1) > _MAX_DECIMAL_INTEGER_DIGITS
+                or max(0, -value.as_tuple().exponent) > _MAX_DECIMAL_SCALE):
+            raise AccountFactsUnavailable("provider_value_out_of_range")
+        text = format(value, "f")
+    else:
+        text = str(value).strip()
     if not text:
         return None
     if len(text) > _MAX_DECIMAL_TEXT_LENGTH:

@@ -11,6 +11,7 @@ import pytest
 from application.account_facts_publisher import (
     AccountFactsPublishConfig, AccountFactsPublishError, publish_firstrade_account_snapshot,
 )
+from application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
 from scripts import publish_archived_account_history as history
 
 
@@ -207,3 +208,43 @@ def test_cli_never_prints_unexpected_error_values(monkeypatch, capsys):
     monkeypatch.setattr(history, "execute", fail)
     assert history.main() == 1
     assert json.loads(capsys.readouterr().out) == {"status": "archive_publish_unavailable", "reason": "unavailable"}
+
+
+@pytest.mark.parametrize("numeric,expected", [(0.00000001, "0.00000001"), (-0.00000001, "-0.00000001")])
+def test_json_numeric_small_cash_roundtrip_keeps_exact_supported_precision(numeric, expected):
+    data = snapshot()
+    data["balance_metrics"]["result.cash_balance"] = json.loads(json.dumps(numeric), parse_float=Decimal)
+    payload = history.archive_payload(data, archive_date=DAY, config=config())
+    assert payload["cash"][0]["cash_balance"] == expected
+
+
+@pytest.mark.parametrize("value", ["1E-1000000", "1E1000000", "NaN", "Infinity", "-Infinity"])
+def test_decimal_exponent_expansion_is_bounded_before_formatting(value):
+    with pytest.raises(AccountFactsUnavailable):
+        _decimal_text(Decimal(value))
+
+
+@pytest.mark.parametrize("code", ["SYNTHETIC_ACCOUNT_MARKER", {"private": "SYNTHETIC_ACCOUNT_MARKER"}])
+def test_rejected_http_error_cannot_echo_private_identity(code, capsys):
+    cfg = config()
+    response = SimpleNamespace(status_code=400, json=lambda: {"error": code})
+    session = SimpleNamespace(post=lambda *args, **kwargs: response, close=lambda: None)
+    with pytest.raises(AccountFactsPublishError, match="sync_rejected"):
+        publish_firstrade_account_snapshot(
+            history.archive_payload(snapshot(), archive_date=DAY, config=cfg),
+            cfg, session_factory=lambda: session, historical=True,
+        )
+    log = capsys.readouterr().out
+    assert "SYNTHETIC_ACCOUNT_MARKER" not in log and "status=400" in log
+
+
+def test_known_static_qrs_conflict_remains_diagnosable(capsys):
+    cfg = config()
+    response = SimpleNamespace(status_code=409, json=lambda: {"error": "account_facts_daily_conflict"})
+    session = SimpleNamespace(post=lambda *args, **kwargs: response, close=lambda: None)
+    with pytest.raises(AccountFactsPublishError, match="sync_rejected"):
+        publish_firstrade_account_snapshot(
+            history.archive_payload(snapshot(), archive_date=DAY, config=cfg),
+            cfg, session_factory=lambda: session, historical=True,
+        )
+    assert "error=account_facts_daily_conflict" in capsys.readouterr().out
