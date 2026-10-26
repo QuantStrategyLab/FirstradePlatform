@@ -317,6 +317,7 @@ def publish_firstrade_account_snapshot(
     config: AccountFactsPublishConfig,
     *,
     session_factory: Callable[[], Any] = requests.Session,
+    historical: bool = False,
 ) -> None:
     """POST once to the fixed QRS endpoint and require its exact safe ACK."""
     try:
@@ -327,7 +328,7 @@ def publish_firstrade_account_snapshot(
         session.trust_env = False
         try:
             response = session.post(
-                config.sync_url,
+                config.sync_url.removesuffix("/sync") + "/history/sync" if historical else config.sync_url,
                 json=dict(payload),
                 headers={"Authorization": f"Bearer {config.sync_token}"},
                 timeout=(5, 15),
@@ -365,6 +366,11 @@ def publish_firstrade_account_snapshot(
             target_id=config.target_id,
             observation_date=str(payload["observation_date"]),
             observed_finished_at=str(payload["observed_finished_at"]),
+        ):
+            raise AccountFactsPublishError("sync_ack_invalid")
+        if historical and (
+            acknowledgement.get("historical") is not True
+            or acknowledgement.get("latest_unchanged") is not True
         ):
             raise AccountFactsPublishError("sync_ack_invalid")
     finally:

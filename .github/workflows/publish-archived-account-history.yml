@@ -1,0 +1,64 @@
+name: Publish saved account history day
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive_date:
+        description: UTC date of one existing account archive (YYYY-MM-DD)
+        type: string
+        required: true
+      publish:
+        description: Append the selected day; false previews without POST
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: Deploy Cloud Run-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  history:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.ACCOUNT_HISTORY_GCP_PROJECT_ID }}
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}
+      FIRSTRADE_ACCOUNT_FACTS_TARGET_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_TARGET_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.ACCOUNT_HISTORY_GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.ACCOUNT_HISTORY_GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ vars.ACCOUNT_HISTORY_GCP_PROJECT_ID }}
+      - name: Install existing transport dependency
+        run: python -m pip install requests
+      - name: Preview one saved day
+        if: inputs.publish != true
+        env:
+          ARCHIVE_DATE: ${{ inputs.archive_date }}
+        run: python -m scripts.publish_archived_account_history --date "$ARCHIVE_DATE"
+      - name: Append one saved day without changing latest
+        if: inputs.publish == true
+        env:
+          ARCHIVE_DATE: ${{ inputs.archive_date }}
+        run: python -m scripts.publish_archived_account_history --date "$ARCHIVE_DATE" --publish
