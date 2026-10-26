@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 import re
@@ -10,10 +12,80 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime
 
 _FIELD = re.compile(r"[A-Za-z][A-Za-z0-9_.]{0,95}\Z", re.ASCII)
 _SENSITIVE = re.compile(r"account|acct|token|secret|password|cookie|session|[0-9]{6}", re.I)
+_HISTORY = re.compile(
+    r"([^/]+)/funds/history/(\d{4})/(\d{2})/(\d{2})/(\d{8})T\d{6}Z\.json\Z", re.ASCII,
+)
+_KNOWN_METRICS = (
+    "provider_equity", "equity", "total_value", "market_value", "cash_balance",
+    "cash_balance_change", "available_cash", "buying_power", "margin_balance",
+)
+
+
+def history_objects(listing: dict, prefix: str) -> list[tuple[dict, str, str]]:
+    """Validate the complete bounded archive selection before reading bodies."""
+    if listing.get("nextPageToken"):
+        raise ValueError("snapshot_listing_incomplete")
+    objects = []
+    for obj in listing.get("items", []):
+        name = obj.get("name", "")
+        if not isinstance(name, str) or not name.startswith(prefix):
+            raise ValueError("snapshot_path_invalid")
+        relative = name[len(prefix):]
+        if "/funds/history/" not in relative:
+            continue
+        match = _HISTORY.fullmatch(relative)
+        if not match:
+            raise ValueError("snapshot_path_invalid")
+        account, year, month, day, stamp_date = match.groups()
+        archive_date = date(int(year), int(month), int(day))
+        if stamp_date != archive_date.strftime("%Y%m%d"):
+            raise ValueError("snapshot_path_date_mismatch")
+        if not re.fullmatch(r"[0-9]{1,25}", str(obj.get("generation", "")), re.ASCII):
+            raise ValueError("snapshot_generation_invalid")
+        objects.append((obj, account, archive_date.isoformat()))
+    if not 1 <= len(objects) <= 64 or len({row[1] for row in objects}) > 10:
+        raise ValueError("snapshot_count_unavailable")
+    if len({row[0]["name"] for row in objects}) != len(objects):
+        raise ValueError("snapshot_listing_duplicate")
+    return sorted(objects, key=lambda row: row[0]["name"])
+
+
+def project_history(snapshot: object, *, account: str, archive_date: str,
+                    configured_account: str | None) -> dict:
+    """Expose fixed schema labels, dates and identity comparisons, never values."""
+    schema = project_schema(snapshot)
+    metrics = snapshot["balance_metrics"]
+    native_account = snapshot.get("account")
+    identity_present = isinstance(native_account, str) and bool(native_account.strip())
+    namespace = "".join(ch if ch.isalnum() else "_" for ch in native_account) if identity_present else None
+    types = {}
+    for key in _KNOWN_METRICS:
+        if key in metrics:
+            value = metrics[key]
+            types[key] = ("number" if type(value) in (float, int) else
+                          "string" if isinstance(value, str) else "other")
+    observed = schema["observed_at"]
+    return {
+        "archive_date": archive_date,
+        "observed_at": observed,
+        "observation_date_matches_archive": observed[:10] == archive_date if observed else None,
+        "identity_present": identity_present,
+        "storage_account_matches": native_account == account if identity_present else None,
+        "storage_namespace_matches": namespace == account if identity_present else None,
+        "configured_account_available": bool(configured_account),
+        "configured_account_matches": native_account == configured_account if configured_account and identity_present else None,
+        "known_metric_types": types,
+        "unlisted_metric_count": len(metrics) - len(types),
+        "positions_present": schema["positions_present"],
+        "account_summary_present": isinstance(snapshot.get("account_summaries"), list),
+        "canonical_snapshot_sha256": hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(),
+        ).hexdigest(),
+    }
 
 
 def project_schema(snapshot: object) -> dict:
@@ -43,7 +115,7 @@ def project_schema(snapshot: object) -> dict:
     }
 
 
-def inspect_existing_snapshots() -> dict:
+def inspect_existing_snapshots(*, history: bool = False) -> dict:
     project = os.environ["GCP_PROJECT_ID"]
     region = os.environ["CLOUD_RUN_REGION"]
     service = os.environ["CLOUD_RUN_SERVICE"]
@@ -82,6 +154,18 @@ def inspect_existing_snapshots() -> dict:
     }))
     if listing.get("nextPageToken"):
         raise ValueError("snapshot_listing_incomplete")
+    if history:
+        objects = history_objects(listing, prefix)
+        groups = {account: index + 1 for index, account in enumerate(sorted({row[1] for row in objects}))}
+        rows = []
+        for obj, account, archive_date in objects:
+            query = urllib.parse.urlencode({"alt": "media", "generation": obj["generation"]})
+            snapshot = read_json(base + "/" + urllib.parse.quote(obj["name"], safe="") + "?" + query)
+            row = project_history(snapshot, account=account, archive_date=archive_date,
+                                  configured_account=env.get("FIRSTRADE_ACCOUNT"))
+            rows.append({"account_group": groups[account], **row})
+        return {"status": "inspected", "mode": "history_schema", "snapshot_count": len(rows),
+                "account_group_count": len(groups), "snapshots": rows, "broker_requests": 0, "mutations": 0}
     objects = [r for r in listing.get("items", []) if r["name"].endswith("/funds/latest.json")]
     if not objects or len(objects) > 10:
         raise ValueError("snapshot_count_unavailable")
@@ -93,9 +177,9 @@ def inspect_existing_snapshots() -> dict:
     return {"status": "inspected", "snapshot_count": len(rows), "snapshots": rows, "broker_requests": 0, "mutations": 0}
 
 
-def main() -> int:
+def main(*, history: bool = False) -> int:
     try:
-        result = inspect_existing_snapshots()
+        result = inspect_existing_snapshots(history=True) if history else inspect_existing_snapshots()
     except urllib.error.HTTPError as exc:
         print(json.dumps({"status": "inspection_unavailable", "http_status": exc.code}))
         return 1
@@ -107,4 +191,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--history", action="store_true", help="Inspect at most 64 saved archives; no broker calls")
+    raise SystemExit(main(history=parser.parse_args().history))
