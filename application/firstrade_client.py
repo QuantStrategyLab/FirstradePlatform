@@ -9,9 +9,11 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
+import re
 from time import time
 from typing import Any, Callable
 from urllib.parse import urlsplit
@@ -270,6 +272,9 @@ class FirstradeBrokerClient:
         self.account_data: Any | None = None
         self.session_reused = False
         self.read_only_transport_enabled = False
+        self._readonly_history_url: str | None = None
+        self._readonly_history_used = False
+        self.read_only_request_attempts = 0
 
     def connect(self, *, force_login: bool = False) -> "FirstradeBrokerClient":
         """Log in (or reuse cache). force_login skips cache reuse but still saves the new cache."""
@@ -332,17 +337,23 @@ class FirstradeBrokerClient:
         def read_only_request(method, url, **kwargs):
             nonlocal read_stage
             parsed = urlsplit(url)
+            history_read = self._readonly_history_url is not None and url == self._readonly_history_url
             if str(method).lower() != "get" or (
                 parsed.scheme != "https" or parsed.netloc != "api3x.firstrade.com"
-                or parsed.path not in {
+                or (not history_read and parsed.path not in {
                     "/private/userinfo", "/private/acct_list", "/private/balances",
                     "/private/positions", "/private/order_status",
-                }
+                })
             ):
                 raise FirstradeSafetyError("Firstrade read-only request denied.")
+            if history_read:
+                self._readonly_history_url = None
+                if kwargs:
+                    raise FirstradeSafetyError("Firstrade history request parameters denied.")
             read_stage = {"/private/userinfo": "userinfo", "/private/acct_list": "account_list"}.get(parsed.path, "account_read")
             kwargs.update(timeout=(5, 15), allow_redirects=False)
             try:
+                self.read_only_request_attempts += 1
                 response = original_request(method, url, **kwargs)
             except requests.Timeout:
                 raise FirstradeCachedSessionError("read_timeout", stage=read_stage) from None
@@ -350,6 +361,8 @@ class FirstradeBrokerClient:
                 raise FirstradeCachedSessionError("read_network_error", stage=read_stage) from None
             if not 200 <= response.status_code < 300:
                 raise FirstradeCachedSessionError("read_http_error", stage=read_stage, http_status=response.status_code)
+            if history_read and len(response.content) > 2 * 1024 * 1024:
+                raise FirstradeCachedSessionError("read_invalid_payload", stage=read_stage)
             try:
                 body = response.json()
             except ValueError:
@@ -375,7 +388,37 @@ class FirstradeBrokerClient:
         self.read_only_transport_enabled = True
         return self
 
+    def get_account_history_read_only(self, account: str, start: str, end: str) -> dict:
+        """Read one first page for one cached account and at most 31 closed days."""
+        try:
+            first, last = date.fromisoformat(start), date.fromisoformat(end)
+            today = datetime.now(timezone.utc).date()
+            valid_dates = (first.isoformat() == start and last.isoformat() == end
+                           and 0 <= (last - first).days <= 30
+                           and 0 < (today - last).days <= (today - first).days <= 365)
+        except (TypeError, ValueError):
+            valid_dates = False
+        if (not valid_dates or not isinstance(account, str)
+                or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", account, re.ASCII)
+                or self.live_trading_enabled or not self.session_reused
+                or not self.read_only_transport_enabled or self.session is None
+                or self.account_data is None or self._readonly_history_used
+                or self.account_numbers().count(account) != 1):
+            raise FirstradeSafetyError("Firstrade history read scope unavailable.")
+        from firstrade import urls
+        self._readonly_history_used = True
+        self._readonly_history_url = urls.account_history(account, "cust", [start, end])
+        try:
+            return self.account_data.get_account_history(account, "cust", [start, end])
+        except FirstradeCachedSessionError:
+            raise
+        except Exception:
+            raise FirstradeCachedSessionError("read_invalid_payload", stage="account_read") from None
+        finally:
+            self._readonly_history_url = None
+
     def close(self) -> None:
+        self._readonly_history_url = None
         session, self.session = self.session, None
         self.account_data = None
         self.session_reused = False
