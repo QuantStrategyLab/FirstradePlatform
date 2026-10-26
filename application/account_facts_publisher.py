@@ -23,6 +23,12 @@ _BROKER_ACCOUNT_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 _CURRENCY_RE = re.compile(r"[A-Z]{3}", re.ASCII)
 _AMOUNT_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", re.ASCII)
 _POSITION_SYMBOL_RE = re.compile(r"[A-Z0-9][A-Z0-9./ -]{0,31}", re.ASCII)
+_SAFE_QRS_ERRORS = frozenset({
+    "account_facts_daily_conflict", "account_facts_observation_conflict",
+    "account_facts_identity_mismatch", "account_facts_binding_unmatched",
+    "account_facts_binding_mismatch", "account_facts_history_out_of_range",
+    "account_facts_account_unattributed", "account_facts_store_unavailable",
+})
 
 
 class AccountFactsPublishError(RuntimeError):
@@ -345,11 +351,12 @@ def publish_firstrade_account_snapshot(
                 body = None
             if isinstance(body, dict):
                 err = body.get("error")
-                if isinstance(err, str) and 0 < len(err) <= 96 and err.isascii() and err.replace("_", "").isalnum():
+                if isinstance(err, str) and err in _SAFE_QRS_ERRORS:
                     qrs_error = err
             # Safe diagnostics only: HTTP status + fixed QRS error token (no body dump).
+            safe_status = status_code if type(status_code) is int and 100 <= status_code <= 599 else "unknown"
             print(
-                f"account_facts_sync qrs_reject status={status_code} error={qrs_error or '<none>'}",
+                f"account_facts_sync qrs_reject status={safe_status} error={qrs_error or '<redacted>'}",
                 flush=True,
             )
             raise AccountFactsPublishError("sync_rejected")
