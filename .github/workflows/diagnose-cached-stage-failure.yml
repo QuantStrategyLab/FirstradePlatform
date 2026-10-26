@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      execution_reports_schema_only:
+        description: With funds_schema_only, inspect saved report fields/counts without values or broker calls
+        required: false
+        default: false
+        type: boolean
       failure_window_end:
         description: UTC RFC3339 end time for the failed stage deployment (maximum 30 minutes after start)
         required: true
@@ -71,10 +76,15 @@ jobs:
           DISPATCH_SHA: ${{ github.sha }}
           FUNDS_SCHEMA_ONLY: ${{ inputs.funds_schema_only }}
           FUNDS_HISTORY_SCHEMA_ONLY: ${{ inputs.funds_history_schema_only }}
+          EXECUTION_REPORTS_SCHEMA_ONLY: ${{ inputs.execution_reports_schema_only }}
         run: |
           set -euo pipefail
           if [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ] && [ "${FUNDS_SCHEMA_ONLY}" != "true" ]; then
             echo "History inspection requires funds_schema_only." >&2
+            exit 1
+          fi
+          if [ "${EXECUTION_REPORTS_SCHEMA_ONLY}" = "true" ] && { [ "${FUNDS_SCHEMA_ONLY}" != "true" ] || [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ]; }; then
+            echo "Report inspection requires funds_schema_only and excludes funds history." >&2
             exit 1
           fi
           if [ "${APPROVED_REF}" != "refs/heads/main" ] \
@@ -180,9 +190,12 @@ jobs:
         if: inputs.funds_schema_only == true
         env:
           FUNDS_HISTORY_SCHEMA_ONLY: ${{ inputs.funds_history_schema_only }}
+          EXECUTION_REPORTS_SCHEMA_ONLY: ${{ inputs.execution_reports_schema_only }}
         run: |
           set -euo pipefail
-          if [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ]; then
+          if [ "${EXECUTION_REPORTS_SCHEMA_ONLY}" = "true" ]; then
+            python3 -m scripts.inspect_funds_snapshot_schema --reports
+          elif [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ]; then
             python3 -m scripts.inspect_funds_snapshot_schema --history
           else
             python3 -m scripts.inspect_funds_snapshot_schema

@@ -121,7 +121,7 @@ def test_history_selection_ignores_latest_and_retains_actual_weekend_archive():
     assert objects[0][2] == "2026-01-04"
 
 
-def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False):
+def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False, reports=False):
     requests = []
     for key in ("GCP_PROJECT_ID", "CLOUD_RUN_REGION", "CLOUD_RUN_SERVICE"):
         monkeypatch.setenv(key, "private-placeholder")
@@ -134,6 +134,9 @@ def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False):
         assert args[1:4] == ["run", "revisions", "describe"]
         env = {"FIRSTRADE_GCS_STATE_BUCKET": "private-bucket", "FIRSTRADE_STATE_PREFIX": "private-prefix",
                "FIRSTRADE_ACCOUNT": ACCOUNT}
+        if reports:
+            del env["FIRSTRADE_GCS_STATE_BUCKET"]
+            env["EXECUTION_REPORT_GCS_URI"] = "gs://private-bucket/private-reports/"
         if runtime_target:
             del env["FIRSTRADE_ACCOUNT"]
             env["RUNTIME_TARGET_JSON"] = json.dumps({"account_selector": [ACCOUNT]})
@@ -150,10 +153,10 @@ def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False):
         requests.append((unquote(parsed.path), query))
         if "alt" in query:
             assert query == {"alt": ["media"], "generation": ["123"]}
-            data = snapshot()
+            data = {"account": ACCOUNT, "summary": {"orders_previewed": []}} if reports else snapshot()
         else:
             assert query["maxResults"] == ["1000"]
-            assert query["prefix"] == [PREFIX]
+            assert query["prefix"] == ["private-reports/" if reports else PREFIX]
             data = listing
         yield BytesIO(json.dumps(data).encode())
 
@@ -230,3 +233,100 @@ def test_fixed_provider_envelope_labels_are_not_fuzzy_cash_matches():
     assert result["known_metric_types"] == {"result.cash_balance": "number", "result.total_value": "number"}
     assert result["unlisted_metric_count"] == 1
     assert all(v not in json.dumps(result) for v in ["PRIVATE", "123.45", "234.56", "345.67"])
+
+
+def test_report_schema_never_exports_values_dynamic_keys_or_qualifies_submissions():
+    result = inspector.project_report_schema({
+        "account": ACCOUNT, "dry_run": True, "started_at": "2026-01-02T03:04:05Z",
+        "PRIVATE_DYNAMIC_KEY": "PRIVATE_TOKEN",
+        "summary": {"orders_previewed": [{"symbol": "PRIVATE_SYMBOL", "quantity": 9876.543,
+            "status": "submitted", "order_id": "PRIVATE_ORDER", "PRIVATE_KEY": "PRIVATE_VALUE"}]},
+        "diagnostics": {"cash_balance_change": 9876.543},
+    }, ACCOUNT)
+    assert result["configured_account_matches"] is True
+    assert result["observation_date"] == "2026-01-02"
+    assert result["dry_run"] is True
+    assert result["qualified_execution_count"] is None
+    assert result["containers"] == [{"path": "$.summary.orders_previewed", "container_type": "list", "row_count": 1,
+        "non_object_row_count": 0,
+        "known_field_types": {"order_id": ["str"], "symbol": ["str"], "quantity": ["float"], "status": ["str"]},
+        "unlisted_field_count": 1}]
+    assert all(x not in json.dumps(result) for x in (ACCOUNT, "PRIVATE", "9876", "submitted", "cash_balance_change"))
+
+
+def test_report_unknown_identity_and_missing_rows_are_not_true_empty_executions():
+    result = inspector.project_report_schema({"account_alias": ACCOUNT, "timestamp": "PRIVATE_TOKEN"}, ACCOUNT)
+    assert result["configured_account_matches"] is None
+    assert result["native_account_present"] is False
+    assert result["observation_date"] is None
+    assert result["containers"] == []
+    assert result["qualified_execution_count"] is None
+    result = inspector.project_report_schema({"account_id": "other", "fills": []}, ACCOUNT)
+    assert result["configured_account_matches"] is False
+    assert result["containers"][0]["row_count"] == 0
+    assert result["qualified_execution_count"] is None
+    for fields in ({"account": ACCOUNT, "account_id": "other"}, {"account": "****1234"}):
+        result = inspector.project_report_schema(fields, ACCOUNT)
+        assert result["configured_account_matches"] is None
+
+
+@pytest.mark.parametrize("selector,expected", [(ACCOUNT, True), ([ACCOUNT], True), ("other", False),
+                                            ([ACCOUNT, "other"], None), (None, None)])
+def test_report_runtime_selector_is_compared_without_inventing_native_identity(selector, expected):
+    result = inspector.project_report_schema({"runtime_target": {"account_selector": selector}}, ACCOUNT)
+    assert result["runtime_selector_matches"] is expected
+    assert result["native_account_present"] is False
+    assert result["configured_account_matches"] is None
+    assert result["qualified_execution_count"] is None
+    assert ACCOUNT not in json.dumps(result)
+
+
+def test_unknown_report_container_is_not_an_empty_or_qualified_execution_list():
+    result = inspector.project_report_schema({"orders": {"PRIVATE": "PRIVATE_TOKEN"},
+        "trades": ["PRIVATE_ORDER"]}, ACCOUNT)
+    assert result["containers"][0]["row_count"] is None
+    assert result["containers"][0]["container_type"] == "dict"
+    assert result["containers"][1]["row_count"] == 1
+    assert result["containers"][1]["non_object_row_count"] == 1
+    assert result["qualified_execution_count"] is None
+    assert "PRIVATE" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("uri", ["gs://private-bucket", "gs://private-bucket/", "https://private-bucket/reports",
+                               "gs://private-bucket/reports?PRIVATE_TOKEN", "gs://private-bucket/../reports",
+                               "gs://private-bucket/reports//other", "gs://private-bucket/reports\n"])
+def test_report_location_does_not_expand_to_bucket_or_external_destinations(uri):
+    with pytest.raises(ValueError):
+        inspector.report_location(uri)
+
+
+def test_report_transport_uses_only_existing_prefix_and_pinned_generation(monkeypatch):
+    listing = {"items": [{"name": "private-reports/2026-01/report.json", "generation": "123"}]}
+    requests = install_cloud_fakes(monkeypatch, listing, reports=True)
+    result = inspector.inspect_existing_snapshots(reports=True)
+    assert len(requests) == 2
+    assert result["report_count"] == 1
+    assert result["reports"][0]["configured_account_matches"] is True
+    assert result["broker_requests"] == result["mutations"] == 0
+    assert all(x not in json.dumps(result) for x in (ACCOUNT, "private-reports", "PRIVATE_TOKEN"))
+
+
+@pytest.mark.parametrize("listing", [
+    {"items": [], "nextPageToken": "PRIVATE"},
+    {"items": [{"name": "other/report.json", "generation": "123"}]},
+    {"items": [{"name": "private-reports/report.json", "generation": "PRIVATE_TOKEN"}]},
+    {"items": [{"name": f"private-reports/{i}.json", "generation": "123"} for i in range(65)]},
+])
+def test_report_listing_failure_reads_no_private_body(monkeypatch, listing):
+    requests = install_cloud_fakes(monkeypatch, listing, reports=True)
+    with pytest.raises(ValueError):
+        inspector.inspect_existing_snapshots(reports=True)
+    assert len(requests) == 1
+
+
+def test_report_failure_does_not_echo_private_exception(monkeypatch, capsys):
+    def fail(**kwargs):
+        raise RuntimeError("PRIVATE_TOKEN PRIVATE_ACCOUNT 9876.543")
+    monkeypatch.setattr(inspector, "inspect_existing_snapshots", fail)
+    assert main(reports=True) == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "inspection_unavailable"}
