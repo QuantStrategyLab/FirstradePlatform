@@ -156,7 +156,7 @@ def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False, reports=F
             data = {"account": ACCOUNT, "summary": {"orders_previewed": []}} if reports else snapshot()
         else:
             assert query["maxResults"] == ["1000"]
-            assert query["prefix"] == ["private-reports/" if reports else PREFIX]
+            assert query["prefix"] == ["private-reports/firstrade/" if reports else PREFIX]
             data = listing
         yield BytesIO(json.dumps(data).encode())
 
@@ -292,7 +292,7 @@ def test_unknown_report_container_is_not_an_empty_or_qualified_execution_list():
     assert "PRIVATE" not in json.dumps(result)
 
 
-@pytest.mark.parametrize("uri", ["gs://private-bucket", "gs://private-bucket/", "https://private-bucket/reports",
+@pytest.mark.parametrize("uri", ["https://private-bucket/reports",
                                "gs://private-bucket/reports?PRIVATE_TOKEN", "gs://private-bucket/../reports",
                                "gs://private-bucket/reports//other", "gs://private-bucket/reports\n"])
 def test_report_location_does_not_expand_to_bucket_or_external_destinations(uri):
@@ -301,7 +301,7 @@ def test_report_location_does_not_expand_to_bucket_or_external_destinations(uri)
 
 
 def test_report_transport_uses_only_existing_prefix_and_pinned_generation(monkeypatch):
-    listing = {"items": [{"name": "private-reports/2026-01/report.json", "generation": "123"}]}
+    listing = {"items": [{"name": "private-reports/firstrade/2026-01/report.json", "generation": "123"}]}
     requests = install_cloud_fakes(monkeypatch, listing, reports=True)
     result = inspector.inspect_existing_snapshots(reports=True)
     assert len(requests) == 2
@@ -330,3 +330,23 @@ def test_report_failure_does_not_echo_private_exception(monkeypatch, capsys):
     monkeypatch.setattr(inspector, "inspect_existing_snapshots", fail)
     assert main(reports=True) == 1
     assert json.loads(capsys.readouterr().out) == {"status": "inspection_unavailable"}
+
+
+@pytest.mark.parametrize("root", ["gs://private-bucket", "gs://private-bucket/reports/"])
+def test_report_prefix_matches_actual_shared_writer(root):
+    from quant_platform_kit.common.runtime_reports import build_runtime_report_cloud_uri
+    bucket, prefix = inspector.report_location(root)
+    uri = build_runtime_report_cloud_uri({"platform": "firstrade", "strategy_profile": "synthetic",
+        "started_at": "2026-01-02T03:04:05Z", "run_id": "synthetic-run"}, cloud_prefix_uri=root)
+    assert uri.startswith(f"gs://{bucket}/{prefix}")
+    assert prefix in {"firstrade/", "reports/firstrade/"}
+
+
+@pytest.mark.parametrize("message,expected", [("report_listing_invalid", "report_listing_invalid"),
+                                          ("PRIVATE_TOKEN PRIVATE_PATH", "report_schema_invalid")])
+def test_report_value_error_uses_closed_reason_codes(monkeypatch, capsys, message, expected):
+    def fail(**kwargs):
+        raise ValueError(message)
+    monkeypatch.setattr(inspector, "inspect_existing_snapshots", fail)
+    assert main(reports=True) == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "inspection_unavailable", "reason": expected}

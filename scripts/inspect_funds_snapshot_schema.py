@@ -36,17 +36,17 @@ _REPORT_ROW_FIELDS = ("id", "order_id", "execution_id", "transaction_id", "refer
 
 
 def report_location(raw: str) -> tuple[str, str]:
-    """Use only the existing runtime's explicit non-root GCS report prefix."""
+    """Follow the shared report writer's platform subdirectory, never bucket-wide."""
     if any(ord(char) < 32 for char in raw):
         raise ValueError("report_location_invalid")
     uri = urllib.parse.urlsplit(raw)
     prefix = uri.path.lstrip("/").rstrip("/")
     if (uri.scheme != "gs" or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,221}", uri.netloc)
-            or uri.query or uri.fragment or not prefix or len(prefix) > 800
-            or any(part in {"", ".", ".."} for part in prefix.split("/"))
+            or uri.query or uri.fragment or len(prefix) > 800
+            or (prefix and any(part in {"", ".", ".."} for part in prefix.split("/")))
             or any(ord(char) < 32 for char in prefix)):
         raise ValueError("report_location_invalid")
-    return uri.netloc, prefix + "/"
+    return uri.netloc, (prefix + "/" if prefix else "") + "firstrade/"
 
 
 def project_report_schema(report: object, selected_account: str | None) -> dict:
@@ -324,6 +324,14 @@ def main(*, history: bool = False, reports: bool = False) -> int:
                   inspect_existing_snapshots(history=True) if history else inspect_existing_snapshots())
     except urllib.error.HTTPError as exc:
         print(json.dumps({"status": "inspection_unavailable", "http_status": exc.code}))
+        return 1
+    except ValueError as exc:
+        result = {"status": "inspection_unavailable"}
+        if reports:
+            allowed = {"report_location_invalid", "report_shape_invalid", "report_schema_depth_exceeded",
+                       "report_rows_invalid", "report_listing_invalid", "snapshot_listing_incomplete"}
+            result["reason"] = str(exc) if str(exc) in allowed else "report_schema_invalid"
+        print(json.dumps(result))
         return 1
     except Exception:
         print(json.dumps({"status": "inspection_unavailable"}))
