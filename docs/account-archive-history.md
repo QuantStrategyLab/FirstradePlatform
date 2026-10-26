@@ -57,3 +57,11 @@ page is not complete history, a missing container is not an empty result, and
 field presence alone does not qualify a transaction as an external flow or fill.
 This inspection does not publish account facts, returns, flows or executions,
 deploy an image, change permissions, notify, or create a schedule.
+
+The existing failed-stage diagnostic also supports `execution_reports_schema_only`
+with `funds_schema_only=true` and funds-history inspection disabled. It reads at
+most 64 generation-pinned JSON reports from the serving runtime's existing report
+prefix in cloud memory. Only fixed field labels/types, row counts, dates and
+explicit account comparisons leave the runner. Unknown fields and absent native
+account identity remain unqualified; previewed or submitted orders are not fills.
+This mode makes no broker calls and publishes no business records.
