@@ -506,6 +506,7 @@ def test_read_only_failed_account_read_preserves_cache_and_closes(tmp_path, monk
     ("get", "https://api3x.firstrade.com/public/quote"),
     ("get", "https://other.example/private/userinfo"),
     ("get", "http://api3x.firstrade.com/private/userinfo"),
+    ("get", "https://api3x.firstrade.com/private/account_history?account=12345678"),
 ])
 def test_read_only_transport_rejects_other_requests(tmp_path, monkeypatch, method, url):
     client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
@@ -576,6 +577,93 @@ def test_read_only_real_sdk_stops_on_first_read_failure(tmp_path, monkeypatch, f
 def test_cached_session_diagnostics_do_not_accept_arbitrary_provider_text():
     with pytest.raises(ValueError, match="invalid_cached_session_diagnostic"):
         FirstradeCachedSessionError("private-provider-message")
+
+
+def _history_read_client(tmp_path, monkeypatch, *, history_failure=None):
+    import json
+    import requests
+    from urllib.parse import urlsplit
+    client, store, _ = _cached_read_only_client(tmp_path, monkeypatch)
+    client._session_factory = None
+    client._account_data_factory = None
+    calls = []
+    def request(session, method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        body = {"error": "", "items": []}
+        if urlsplit(url).path == "/private/acct_list":
+            body["items"] = [{"account": "12345678", "total_value": "100"}]
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(body).encode()
+        if urlsplit(url).path == "/private/account_history":
+            if history_failure == "timeout":
+                raise requests.Timeout("private detail must not escape")
+            if history_failure == "http": response.status_code = 401
+            if history_failure == "oversized": response._content = b"x" * (2 * 1024 * 1024 + 1)
+        return response
+    monkeypatch.setattr(requests.Session, "request", request)
+    return client.connect_read_only(), store, calls
+
+
+def test_history_read_is_one_exact_cached_get_and_never_writes(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    client, store, calls = _history_read_client(tmp_path, monkeypatch)
+    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    start = end - timedelta(days=30)
+    assert client.get_account_history_read_only("12345678", start.isoformat(), end.isoformat()) == {"error": "", "items": []}
+    assert len(calls) == 3
+    assert calls[-1] == ("get", f"https://api3x.firstrade.com/private/account_history?range=cust&range_arr[]={start}&range_arr[]={end}&page=1&account=12345678&per_page=1000", {"timeout": (5, 15), "allow_redirects": False})
+    with pytest.raises(FirstradeSafetyError):
+        client.get_account_history_read_only("12345678", start.isoformat(), end.isoformat())
+    with pytest.raises(FirstradeSafetyError):
+        client.session.session.request("get", calls[-1][1])
+    assert len(calls) == 3 and store.writes == 0
+    client.close()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "http", "oversized", "extra_parameters", "duplicate_sdk_request"])
+def test_history_read_stops_after_failure_without_retry_or_provider_text(tmp_path, monkeypatch, failure):
+    from datetime import datetime, timedelta, timezone
+    from firstrade import urls
+    client, store, calls = _history_read_client(tmp_path, monkeypatch, history_failure=failure)
+    end = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    if failure in {"extra_parameters", "duplicate_sdk_request"}:
+        def request(account, _range, dates):
+            url = urls.account_history(account, "cust", dates)
+            if failure == "extra_parameters":
+                return client.session.session.request("get", url, params={"account": "different"})
+            client.session.session.request("get", url)
+            return client.session.session.request("get", url)
+        client.account_data.get_account_history = request
+    with pytest.raises(FirstradeCachedSessionError, match="^Firstrade cached session unavailable\\.$"):
+        client.get_account_history_read_only("12345678", end, end)
+    with pytest.raises(FirstradeSafetyError):
+        client.get_account_history_read_only("12345678", end, end)
+    expected = 2 if failure == "extra_parameters" else 3
+    assert len(calls) == client.read_only_request_attempts == expected
+    assert store.writes == 0
+    client.close()
+
+
+@pytest.mark.parametrize("case", ["wrong_account", "query_account", "future", "too_wide", "reverse", "invalid_date", "unconnected", "live", "not_cached"])
+def test_history_read_rejects_invalid_scope_before_http(tmp_path, monkeypatch, case):
+    from datetime import datetime, timedelta, timezone
+    client, store, calls = _history_read_client(tmp_path, monkeypatch)
+    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    start = end - timedelta(days=1)
+    account = "12345678"
+    if case == "wrong_account": account = "different-account"
+    if case == "query_account": account += "&page=2"
+    if case == "future": end += timedelta(days=2)
+    if case == "too_wide": start -= timedelta(days=31)
+    if case == "reverse": start = end + timedelta(days=1)
+    if case == "unconnected": client.close()
+    if case == "live": client.live_trading_enabled = True
+    if case == "not_cached": client.session_reused = False
+    with pytest.raises(FirstradeSafetyError):
+        client.get_account_history_read_only(account, "bad" if case == "invalid_date" else start.isoformat(), end.isoformat())
+    assert len(calls) == 2 and store.writes == 0
+    client.close()
 
 
 def test_read_only_reports_missing_cache_before_any_provider_read(tmp_path, monkeypatch):

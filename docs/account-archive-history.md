@@ -34,3 +34,23 @@ latest observations, source trust, account identity and external flows remain
 unchanged. Existing conflicting records are rejected; unknown POST outcomes are
 not automatically retried. A successful exact history-only ACK is not a logged-in
 API or page acceptance result.
+
+## Cached account-history source inspection
+
+`Inspect cached account history schema` reads one first page for the current
+serving runtime's exact account and at most 31 closed UTC dates within the past
+year. It uses the same configured deployment identity, the existing username
+Secret and saved authentication tokens in cloud-runner memory. Password and MFA
+credentials are never loaded. The original runtime cache TTL is preserved;
+missing, expired or rejected authentication stops without login or cache writes.
+A storage read failure is reported separately from a stale cache.
+
+After cached user-info/account-list validation, the explicit client method arms
+exactly one history GET with a fixed account, date range, first page and row
+limit. The ordinary cached-only transport still rejects history URLs. Redirects,
+extra request parameters, retries and subsequent history calls are blocked.
+Only fixed field labels, types and container counts leave the runner. A first
+page is not complete history, a missing container is not an empty result, and
+field presence alone does not qualify a transaction as an external flow or fill.
+This inspection does not publish account facts, returns, flows or executions,
+deploy an image, change permissions, notify, or create a schedule.
