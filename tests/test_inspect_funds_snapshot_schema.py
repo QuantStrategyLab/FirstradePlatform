@@ -121,7 +121,7 @@ def test_history_selection_ignores_latest_and_retains_actual_weekend_archive():
     assert objects[0][2] == "2026-01-04"
 
 
-def install_cloud_fakes(monkeypatch, listing):
+def install_cloud_fakes(monkeypatch, listing, *, runtime_target=False):
     requests = []
     for key in ("GCP_PROJECT_ID", "CLOUD_RUN_REGION", "CLOUD_RUN_SERVICE"):
         monkeypatch.setenv(key, "private-placeholder")
@@ -134,6 +134,9 @@ def install_cloud_fakes(monkeypatch, listing):
         assert args[1:4] == ["run", "revisions", "describe"]
         env = {"FIRSTRADE_GCS_STATE_BUCKET": "private-bucket", "FIRSTRADE_STATE_PREFIX": "private-prefix",
                "FIRSTRADE_ACCOUNT": ACCOUNT}
+        if runtime_target:
+            del env["FIRSTRADE_ACCOUNT"]
+            env["RUNTIME_TARGET_JSON"] = json.dumps({"account_selector": [ACCOUNT]})
         return json.dumps({"spec": {"containers": [{"env": [{"name": k, "value": v} for k, v in env.items()]}]}})
 
     @contextmanager
@@ -176,9 +179,54 @@ def test_incomplete_history_listing_fetches_no_financial_body(monkeypatch):
     assert len(requests) == 1
 
 
+def test_cloud_inspection_matches_the_single_deployed_runtime_selector(monkeypatch):
+    install_cloud_fakes(monkeypatch, {"items": [archive()]}, runtime_target=True)
+    result = inspector.inspect_existing_snapshots(history=True)
+    row = result["snapshots"][0]
+    assert row["configured_account_available"] is True
+    assert row["configured_account_matches"] is True
+
+
 def test_history_failure_never_echoes_paths_or_body(monkeypatch, capsys):
     def fail(**kwargs):
         raise RuntimeError("PRIVATE_ACCOUNT PRIVATE_SECRET 9876.543")
     monkeypatch.setattr(inspector, "inspect_existing_snapshots", fail)
     assert main(history=True) == 1
     assert json.loads(capsys.readouterr().out) == {"status": "inspection_unavailable"}
+
+
+def test_configured_selector_uses_runtime_target_and_exact_single_list():
+    target = json.dumps({"account_selector": [ACCOUNT]})
+    assert inspector.configured_account({"RUNTIME_TARGET_JSON": target}) == ACCOUNT
+    assert inspector.configured_account({"FIRSTRADE_ACCOUNT": ACCOUNT}) == ACCOUNT
+    assert inspector.configured_account({"RUNTIME_TARGET_JSON": target, "FIRSTRADE_ACCOUNT": ACCOUNT}) == ACCOUNT
+    assert inspector.configured_account({"QSL_RUNTIME_TARGET_JSON": target,
+                                         "RUNTIME_TARGET_JSON": "invalid"}) == ACCOUNT
+    assert inspector.configured_account({"RUNTIME_TARGET_JSON": json.dumps({"account_selector": []})}) is None
+    assert inspector.configured_account({"RUNTIME_TARGET_JSON": json.dumps({"account_selector": [ACCOUNT, "other"]})}) is None
+    assert inspector.configured_account({"QSL_RUNTIME_TARGET_JSON": None,
+                                         "FIRSTRADE_ACCOUNT": ACCOUNT}) is None
+
+
+@pytest.mark.parametrize("target", ["invalid", "[]", '{"account_selector":{},"private":"PRIVATE"}',
+                                    '{"account_selector":"one","account_selector":"two"}'])
+def test_invalid_runtime_target_never_falls_back_to_direct_account(target):
+    with pytest.raises(ValueError):
+        inspector.configured_account({"RUNTIME_TARGET_JSON": target, "FIRSTRADE_ACCOUNT": ACCOUNT})
+
+
+def test_conflicting_direct_and_runtime_selectors_are_not_qualified():
+    with pytest.raises(ValueError, match="mismatch"):
+        inspector.configured_account({"RUNTIME_TARGET_JSON": json.dumps({"account_selector": ["other"]}),
+                                      "FIRSTRADE_ACCOUNT": ACCOUNT})
+
+
+def test_fixed_provider_envelope_labels_are_not_fuzzy_cash_matches():
+    data = snapshot()
+    data["balance_metrics"] = {"result.cash_balance": 123.45, "result.total_value": 234.56,
+                               "result.PRIVATE_cash_balance": 345.67}
+    result = inspector.project_history(data, account=NAMESPACE, archive_date="2026-01-02",
+                                       configured_account=ACCOUNT)
+    assert result["known_metric_types"] == {"result.cash_balance": "number", "result.total_value": "number"}
+    assert result["unlisted_metric_count"] == 1
+    assert all(v not in json.dumps(result) for v in ["PRIVATE", "123.45", "234.56", "345.67"])

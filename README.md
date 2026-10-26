@@ -57,8 +57,11 @@ archives instead of the latest snapshots, using the same deployment identity and
 storage prefix. It reads generation-pinned objects only in the cloud runner and reports
 dates, fixed metric labels/types, identity-match booleans and canonical snapshot hashes;
 it never prints account identifiers, object paths or financial values. An incomplete listing,
-invalid archive path or exceeded bound stops inspection. A missing inline account selector
-remains unverified. This does not call the broker, renew a session, import history, change
+invalid archive path or exceeded bound stops inspection. Identity comparisons follow the
+deployed `QSL_RUNTIME_TARGET_JSON` / `RUNTIME_TARGET_JSON` single-account selector, then
+`FIRSTRADE_ACCOUNT`; unresolved secret references stay unverified. Fixed native fields
+include the provider's `result` envelope, without fuzzy field matching.
+This does not call the broker, renew a session, import history, change
 the serving revision or prove that historical snapshots contain returns, cash flows or trades.
 
 The existing Runtime Target Lifecycle manual entry with `metadata_only=true` inspects the actual serving revision. It reports only whether the sync switch, approved destination, binding settings, token reference and cache settings are configured. It does not resolve secrets, read a cache or invoke the broker; binding correctness and cached-session validity remain explicitly unchecked. Configured settings do not prove a successful balance sync.
