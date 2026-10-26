@@ -25,6 +25,11 @@ on:
         description: UTC RFC3339 start time for the failed stage deployment
         required: true
         type: string
+      funds_history_schema_only:
+        description: With funds_schema_only, inspect at most 64 saved archives without financial values or broker calls
+        required: false
+        default: false
+        type: boolean
       failure_window_end:
         description: UTC RFC3339 end time for the failed stage deployment (maximum 30 minutes after start)
         required: true
@@ -64,8 +69,14 @@ jobs:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           APPROVED_REF: ${{ inputs.approved_ref }}
           DISPATCH_SHA: ${{ github.sha }}
+          FUNDS_SCHEMA_ONLY: ${{ inputs.funds_schema_only }}
+          FUNDS_HISTORY_SCHEMA_ONLY: ${{ inputs.funds_history_schema_only }}
         run: |
           set -euo pipefail
+          if [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ] && [ "${FUNDS_SCHEMA_ONLY}" != "true" ]; then
+            echo "History inspection requires funds_schema_only." >&2
+            exit 1
+          fi
           if [ "${APPROVED_REF}" != "refs/heads/main" ] \
             || [ "${DISPATCH_SHA}" != "${EXPECTED_SHA}" ] \
             || ! [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
@@ -167,4 +178,12 @@ jobs:
 
       - name: Inspect existing private funds snapshot schema
         if: inputs.funds_schema_only == true
-        run: python3 -m scripts.inspect_funds_snapshot_schema
+        env:
+          FUNDS_HISTORY_SCHEMA_ONLY: ${{ inputs.funds_history_schema_only }}
+        run: |
+          set -euo pipefail
+          if [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ]; then
+            python3 -m scripts.inspect_funds_snapshot_schema --history
+          else
+            python3 -m scripts.inspect_funds_snapshot_schema
+          fi

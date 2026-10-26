@@ -50,6 +50,17 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 
 ## Read-only account facts
 
+The existing **Diagnose cached-balance stage failure** manual workflow can inspect saved
+funds schemas with `run_readonly_diagnostic=true` and `funds_schema_only=true` at the exact
+merged main SHA. Adding `funds_history_schema_only=true` inspects up to 64 existing funds
+archives instead of the latest snapshots, using the same deployment identity and private
+storage prefix. It reads generation-pinned objects only in the cloud runner and reports
+dates, fixed metric labels/types, identity-match booleans and canonical snapshot hashes;
+it never prints account identifiers, object paths or financial values. An incomplete listing,
+invalid archive path or exceeded bound stops inspection. A missing inline account selector
+remains unverified. This does not call the broker, renew a session, import history, change
+the serving revision or prove that historical snapshots contain returns, cash flows or trades.
+
 The existing Runtime Target Lifecycle manual entry with `metadata_only=true` inspects the actual serving revision. It reports only whether the sync switch, approved destination, binding settings, token reference and cache settings are configured. It does not resolve secrets, read a cache or invoke the broker; binding correctness and cached-session validity remain explicitly unchecked. Configured settings do not prove a successful balance sync.
 
 `POST /account-facts-sync` is a manual, cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; it does not read positions, so a positions read failure or incomplete positions cannot block the balance snapshot. Buying power and positions are not used to calculate assets or cash.
