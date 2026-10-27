@@ -61,6 +61,11 @@ field presence alone does not qualify a transaction as an external flow or fill.
 The fixed `report_date` label follows the upstream SDK's history example in
 [`test.py`](https://github.com/MaxxRK/firstrade-api/blob/main/test.py); it is not
 treated as an execution or settlement date merely because it is present.
+The fixed `trade_price`, `trans_str` and `descriptionArray` labels are also used
+by public native-history consumers ([history renderer](https://github.com/changtimwu/ftapi-skill/blob/f0ab081a9dd27339b9a798549b0c5720de3a3c3c/history.py)
+and [ledger parser](https://github.com/PatrickSUDO/fadacai-portfolio/blob/85bfdff39e91ea013ff0e06e1695db4d90fee3fc/tools/trade_ledger.py)).
+These references justify inspecting those exact labels, not adopting the callers'
+accounting classifications, numeric conversions or authentication behaviour.
 This inspection does not publish account facts, returns, flows or executions,
 deploy an image, change permissions, notify, or create a schedule.
 
@@ -77,6 +82,16 @@ response body, dynamic field name or financial value is printed or uploaded to
 GitHub artifacts. The manifest always marks coverage as first-page-only and
 transactions as unqualified; archiving does not certify a complete window or
 publish flows/fills. Ordinary schema-only inspection remains read-only.
+
+To inspect an already verified page without another broker request, provide all
+three `archive_run`, `archive_generation` and `archive_sha256` inputs from its
+receipt and keep `archive_page=false`. The object path is constructed from the
+current runtime account and exact requested window; arbitrary paths are not
+accepted. The reader verifies the pinned object's hash, manifest account/window
+and native-body hash in cloud memory. It never reads the username Secret or
+session cache, contacts the broker, writes an object or publishes business data.
+Only the same fixed-label schema projection leaves the runner. Source coverage
+and transaction qualification remain incomplete.
 
 The existing failed-stage diagnostic also supports `execution_reports_schema_only`
 with `funds_schema_only=true` and funds-history inspection disabled. It reads at
