@@ -14,12 +14,15 @@ from application.firstrade_client import (
     FirstradeBrokerClient, FirstradeCachedSessionError, FirstradeCredentials,
 )
 from scripts.inspect_funds_snapshot_schema import configured_account
-from scripts.archive_account_history_page import ArchiveUnavailable, PrivatePageArchive, page_envelope
+from scripts.archive_account_history_page import (
+    ArchiveUnavailable, PrivatePageArchive, native_page_from_archive, page_envelope,
+)
 
 _CONTAINERS = ("result", "data", "items", "rows", "transactions", "history", "account_history")
 _FIELDS = ("date", "report_date", "trade_date", "settle_date", "transaction_date", "type", "transaction_type",
            "description", "symbol", "quantity", "price", "amount", "net_amount", "currency",
-           "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side")
+           "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side",
+           "trade_price", "trans_str", "descriptionArray")
 
 
 class CloudReadUnavailable(ValueError):
@@ -78,7 +81,12 @@ def project_schema(payload):
         "coverage": "first_page_only_not_complete_history", "financial_values_exported": False}
 
 
-def execute(start, end, *, archive_page=False):
+def execute(start, end, *, archive_page=False, archive_run="", archive_generation="", archive_sha256=""):
+    if any((archive_run, archive_generation, archive_sha256)):
+        if (archive_page or not re.fullmatch(r"[1-9][0-9]{0,19}", archive_run)
+                or not re.fullmatch(r"[1-9][0-9]{0,24}", archive_generation)
+                or not re.fullmatch(r"[0-9a-f]{64}", archive_sha256)):
+            raise ArchiveUnavailable("archive_selector_invalid")
     first, last = date.fromisoformat(start), date.fromisoformat(end)
     today = datetime.now(timezone.utc).date()
     if (first.isoformat() != start or last.isoformat() != end
@@ -108,15 +116,30 @@ def execute(start, end, *, archive_page=False):
     prefix = (runtime.get("FIRSTRADE_STATE_PREFIX") or "firstrade-platform").strip("/")
     if not bucket or runtime.get("FIRSTRADE_PERSIST_SESSION_CACHE", "false").lower() != "true":
         raise ValueError("history_cache_store_unavailable")
-    if archive_page:
-        run_id, source = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_SHA", "")
-        if (not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
-                or not re.fullmatch(r"[0-9a-f]{40}", source)
-                or not re.fullmatch(r"[A-Za-z0-9._/-]{1,512}", prefix)
+    if archive_page or archive_run:
+        if (not re.fullmatch(r"[A-Za-z0-9._/-]{1,512}", prefix)
                 or any(part in ("", ".", "..") for part in prefix.split("/"))):
             raise ArchiveUnavailable("archive_scope_invalid")
         # Check private storage before consuming broker authentication or a page.
         archive = PrivatePageArchive(bucket)
+    if archive_run:
+        identity = hashlib.sha256(account.encode()).hexdigest()
+        name = f"{prefix}/account-activity/{identity}/{start}_{end}/{archive_run}-1.json"
+        body = archive.read_pinned(name, archive_generation, archive_sha256)
+        payload = native_page_from_archive(body, account=account, start=start, end=end)
+        schema = project_schema(payload)
+        if schema["provider_error_present"] is True:
+            raise ArchiveUnavailable("archive_provider_error_present")
+        return {"status": "inspected", "from": start, "to": end,
+            "account_selector_matches": True, "schema": schema,
+            "archive_read_only": True, "archive_generation": archive_generation,
+            "archive_sha256": archive_sha256, "broker_request_attempts": 0,
+            "cache_reads": 0, "cache_writes": 0, "business_writes": 0, "archive_write_requests": 0}
+    if archive_page:
+        run_id, source = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_SHA", "")
+        if (not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
+                or not re.fullmatch(r"[0-9a-f]{40}", source)):
+            raise ArchiveUnavailable("archive_scope_invalid")
     # Consume only the existing username and saved tokens, never password or MFA.
     username = cloud("secrets", "versions", "access", "latest", "--secret=firstrade-username", limit=1024).strip()
     if not username:
@@ -175,9 +198,15 @@ def main():
     parser.add_argument("--from-date", required=True)
     parser.add_argument("--to-date", required=True)
     parser.add_argument("--archive-page", action="store_true")
+    parser.add_argument("--archive-run", default="")
+    parser.add_argument("--archive-generation", default="")
+    parser.add_argument("--archive-sha256", default="")
     args = parser.parse_args()
     try:
         options = {"archive_page": True} if args.archive_page else {}
+        if any((args.archive_run, args.archive_generation, args.archive_sha256)):
+            options.update(archive_run=args.archive_run, archive_generation=args.archive_generation,
+                           archive_sha256=args.archive_sha256)
         result = execute(args.from_date, args.to_date, **options)
     except ArchiveUnavailable as error:
         result = {"status": "stopped", "reason": error.reason,

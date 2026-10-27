@@ -14,6 +14,18 @@ on:
         description: Preserve this unqualified first page in the existing private GCS bucket
         type: boolean
         default: false
+      archive_run:
+        description: Read one saved page from this collector run instead of calling the broker
+        type: string
+        default: ""
+      archive_generation:
+        description: Exact saved generation from its verified archive receipt
+        type: string
+        default: ""
+      archive_sha256:
+        description: Exact saved object SHA-256 from its verified archive receipt
+        type: string
+        default: ""
 permissions:
   contents: read
   id-token: write
@@ -46,7 +58,13 @@ jobs:
           FROM_DATE: ${{ inputs.from_date }}
           TO_DATE: ${{ inputs.to_date }}
           ARCHIVE_PAGE: ${{ inputs.archive_page }}
+          ARCHIVE_RUN: ${{ inputs.archive_run }}
+          ARCHIVE_GENERATION: ${{ inputs.archive_generation }}
+          ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
         run: |
           args=(--from-date "$FROM_DATE" --to-date "$TO_DATE")
           if [[ "$ARCHIVE_PAGE" == "true" ]]; then args+=(--archive-page); fi
+          if [[ -n "$ARCHIVE_RUN$ARCHIVE_GENERATION$ARCHIVE_SHA256" ]]; then
+            args+=(--archive-run "$ARCHIVE_RUN" --archive-generation "$ARCHIVE_GENERATION" --archive-sha256 "$ARCHIVE_SHA256")
+          fi
           python -m scripts.inspect_account_history_schema "${args[@]}"

@@ -32,6 +32,15 @@ def test_upstream_documented_report_date_is_recognized_without_exporting_value()
     assert "synthetic-private-date" not in json.dumps(result)
 
 
+def test_public_implementations_native_labels_do_not_export_values_or_dynamic_keys():
+    result = module.project_schema({"items": [{"trade_price": 1.234, "trans_str": "private-kind",
+        "descriptionArray": ["private-description"], "private-dynamic-key": "private-value"}]})
+    assert result["containers"][0]["known_field_types"] == {
+        "trade_price": ["float"], "trans_str": ["str"], "descriptionArray": ["list"]}
+    assert result["containers"][0]["unlisted_field_count"] == 1
+    assert "private" not in json.dumps(result)
+
+
 def test_pagination_preserves_zero_without_claiming_complete_history():
     result = module.project_schema({"items": [], "page": 1, "per_page": 1000, "total": 0, "error": ""})
     assert result["pagination_counts"] == {"page": 1, "per_page": 1000, "total": 0}
@@ -144,6 +153,58 @@ def test_invalid_window_stops_before_any_cloud_or_broker_call(monkeypatch):
         module.execute("2026-01-01", "2026-02-01")
 
 
+def test_archived_reader_never_reads_credentials_or_contacts_broker(monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None): return cls(2026, 10, 27, tzinfo=timezone.utc)
+    monkeypatch.setattr(module, "datetime", FixedDatetime)
+    account = "synthetic-account"
+    runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": [account]}),
+        "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
+        "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state"}
+    raw = b'{"items":[{"trans_str":"synthetic-private-value"}],"error":""}'
+    body, _ = module.page_envelope(raw, account=account, start="2026-09-01", end="2026-09-30",
+        source="a" * 40, observed_at="2026-10-27T10:00:00Z")
+    expected_hash = module.hashlib.sha256(body).hexdigest()
+    calls = []
+    def run(args, **_kwargs):
+        calls.append(args)
+        if args[1:4] == ["run", "services", "describe"]:
+            value = {"status": {"traffic": [{"percent": 100, "revisionName": "synthetic"}]}}
+        else:
+            assert args[1:4] == ["run", "revisions", "describe"]
+            value = {"spec": {"containers": [{"env": [{"name": k, "value": v} for k, v in runtime.items()]}]}}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(value))
+    class Archive:
+        def __init__(self, bucket): assert bucket == "synthetic-state"
+        def read_pinned(self, name, generation, sha):
+            assert name.endswith("/2026-09-01_2026-09-30/123-1.json")
+            assert "synthetic-account" not in name and generation == "456" and sha == expected_hash
+            return body
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "PrivatePageArchive", Archive)
+    monkeypatch.setattr(module, "FirstradeBrokerClient", lambda *_a, **_k: pytest.fail("broker forbidden"))
+    for key, value in {"GCP_PROJECT_ID": "synthetic", "CLOUD_RUN_REGION": "synthetic",
+        "CLOUD_RUN_SERVICE": "synthetic"}.items(): monkeypatch.setenv(key, value)
+    result = module.execute("2026-09-01", "2026-09-30", archive_run="123",
+        archive_generation="456", archive_sha256=expected_hash)
+    assert len(calls) == 2 and result["archive_read_only"] is True
+    assert result["broker_request_attempts"] == result["cache_reads"] == result["archive_write_requests"] == 0
+    assert result["schema"]["containers"][0]["known_field_types"] == {"trans_str": ["str"]}
+    assert "synthetic-private-value" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("options", [
+    {"archive_run": "123"},
+    {"archive_run": "../private", "archive_generation": "456", "archive_sha256": "a" * 64},
+    {"archive_run": "123", "archive_generation": "456", "archive_sha256": "a" * 64, "archive_page": True},
+])
+def test_archive_selector_must_be_complete_and_excludes_broker_collection(monkeypatch, options):
+    monkeypatch.setattr(module.subprocess, "run", lambda *_a, **_k: pytest.fail("no reads expected"))
+    with pytest.raises(module.ArchiveUnavailable, match="archive_selector_invalid"):
+        module.execute("2026-09-01", "2026-09-30", **options)
+
+
 def test_reader_main_cannot_read_credentials_or_financial_bodies_on_local_host(monkeypatch, capsys):
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.setattr(module, "execute", lambda *_a: pytest.fail("cloud-only reader must not run"))
@@ -170,7 +231,8 @@ def test_reader_main_preserves_failed_stage_and_safe_category(monkeypatch, capsy
         "GITHUB_RUN_ATTEMPT": "1", "RUNNER_OS": "Linux"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(module.argparse.ArgumentParser, "parse_args", lambda _s:
-        SimpleNamespace(from_date="2026-10-01", to_date="2026-10-02", archive_page=False))
+        SimpleNamespace(from_date="2026-10-01", to_date="2026-10-02", archive_page=False,
+                        archive_run="", archive_generation="", archive_sha256=""))
     def fail(*_args): raise module.CloudReadUnavailable("cached_username", "permission_denied")
     monkeypatch.setattr(module, "execute", fail)
     assert module.main() == 1

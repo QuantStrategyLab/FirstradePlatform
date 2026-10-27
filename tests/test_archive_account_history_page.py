@@ -95,3 +95,40 @@ def test_public_or_nonuniform_bucket_stops_before_broker_or_write(monkeypatch):
 def test_google_credential_is_not_forwarded_to_redirect():
     handler = archive.NoRedirect()
     assert handler.redirect_request(None, None, 302, "found", {}, "https://synthetic.invalid") is None
+
+
+def test_native_archive_reconstruction_preserves_bytes_and_checks_account_window():
+    raw = b'{"items":[{"amount":1.2300}]}'
+    body, _ = archive.page_envelope(raw, account="synthetic-account", start="2026-09-01",
+        end="2026-09-30", source="a" * 40, observed_at="2026-10-27T10:00:00Z")
+    assert archive.native_page_from_archive(body, account="synthetic-account",
+        start="2026-09-01", end="2026-09-30") == json.loads(raw)
+    with pytest.raises(archive.ArchiveUnavailable, match="archive_manifest_invalid"):
+        archive.native_page_from_archive(body, account="different-account",
+            start="2026-09-01", end="2026-09-30")
+    with pytest.raises(archive.ArchiveUnavailable, match="archive_manifest_invalid"):
+        archive.native_page_from_archive(body, account="synthetic-account",
+            start="2026-09-02", end="2026-09-30")
+    envelope = json.loads(body)
+    envelope["response_body_base64"] = base64.b64encode(b'"different private body"').decode()
+    with pytest.raises(archive.ArchiveUnavailable, match="archive_native_integrity_failed"):
+        archive.native_page_from_archive(json.dumps(envelope).encode(), account="synthetic-account",
+            start="2026-09-01", end="2026-09-30")
+
+
+def test_pinned_archive_read_checks_receipt_hash_and_never_posts(monkeypatch):
+    store = archive.PrivatePageArchive.__new__(archive.PrivatePageArchive)
+    store._objects = "https://storage.googleapis.com/storage/v1/b/synthetic/o"
+    calls = []
+    def read(url):
+        calls.append(url)
+        return b'"private body"'
+    monkeypatch.setattr(store, "_request", read)
+    expected = hashlib.sha256(b'"private body"').hexdigest()
+    assert store.read_pinned("page.json", "123", expected) == b'"private body"'
+    assert "generation=123" in calls[0] and "alt=media" in calls[0]
+    with pytest.raises(archive.ArchiveUnavailable, match="archive_integrity_failed"):
+        store.read_pinned("page.json", "123", "a" * 64)
+    with pytest.raises(archive.ArchiveUnavailable, match="archive_selector_invalid"):
+        store.read_pinned("page.json", "private-value", expected)
+    assert len(calls) == 2

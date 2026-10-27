@@ -45,6 +45,29 @@ def page_envelope(raw, *, account, start, end, source, observed_at):
                   "native_response_bytes": len(raw)}
 
 
+def native_page_from_archive(body, *, account, start, end):
+    try:
+        envelope = json.loads(body)
+        manifest = envelope["manifest"]
+        if (manifest["schema_version"] != "firstrade.account_history_page.v1"
+                or manifest["account_identity_sha256"] != hashlib.sha256(account.encode()).hexdigest()
+                or manifest["account_selector_verified"] is not True
+                or manifest["request"] != {"from": start, "to": end, "page": 1, "per_page": 1000}
+                or manifest["coverage"] != "first_page_only_not_complete_history"
+                or manifest["transaction_qualification"] != "not_qualified"):
+            raise ValueError("manifest_mismatch")
+    except Exception:
+        raise ArchiveUnavailable("archive_manifest_invalid") from None
+    try:
+        raw = base64.b64decode(envelope["response_body_base64"], validate=True)
+        if (not 0 < len(raw) <= 2 * 1024 * 1024 or len(raw) != manifest["response_bytes"]
+                or hashlib.sha256(raw).hexdigest() != manifest["response_sha256"]):
+            raise ValueError("native_integrity_mismatch")
+        return json.loads(raw)
+    except Exception:
+        raise ArchiveUnavailable("archive_native_integrity_failed") from None
+
+
 class PrivatePageArchive:
     def __init__(self, bucket):
         credential = subprocess.run(["gcloud", "auth", "print-access-token", "--quiet"],
@@ -96,3 +119,16 @@ class PrivatePageArchive:
             raise ArchiveUnavailable("archive_readback_failed") from None
         return {"archive_verified": True, "archive_generation": generation,
             "archive_sha256": hashlib.sha256(body).hexdigest(), "archive_write_requests": 1}
+
+    def read_pinned(self, name, generation, expected_sha256):
+        if (not re.fullmatch(r"[1-9][0-9]{0,24}", generation)
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)):
+            raise ArchiveUnavailable("archive_selector_invalid")
+        try:
+            body = self._request(self._objects + "/" + quote(name, safe="") + "?"
+                + urlencode({"alt": "media", "generation": generation}))
+        except Exception:
+            raise ArchiveUnavailable("archive_read_failed") from None
+        if hashlib.sha256(body).hexdigest() != expected_sha256:
+            raise ArchiveUnavailable("archive_integrity_failed")
+        return body
