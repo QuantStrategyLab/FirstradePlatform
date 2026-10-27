@@ -62,9 +62,17 @@ def project_schema(payload):
                 if key in value and isinstance(value[key], (dict, list)):
                     visit(value[key], path + "." + key, depth + 1)
     visit(payload, "$", 0)
+    pagination_counts = {}
+    for key, maximum in (("page", 1000000), ("per_page", 1000), ("total", 1000000)):
+        value = payload.get(key) if isinstance(payload, dict) else None
+        pagination_counts[key] = value if type(value) is int and 0 <= value <= maximum else None
+    provider_error_present = None
+    if isinstance(payload, dict) and "error" in payload:
+        provider_error_present = payload["error"] not in (None, "", False)
     return {"containers": result, "pagination_labels_present": [key for key in
         ("page", "per_page", "total", "total_pages", "next_page", "pagination")
         if isinstance(payload, dict) and key in payload],
+        "pagination_counts": pagination_counts, "provider_error_present": provider_error_present,
         "coverage": "first_page_only_not_complete_history", "financial_values_exported": False}
 
 
@@ -120,8 +128,13 @@ def execute(start, end):
     try:
         client.connect_read_only()
         payload = client.get_account_history_read_only(account, start, end)
+        schema = project_schema(payload)
+        if schema["provider_error_present"] is True:
+            return {"status": "stopped", "reason": "history_provider_reported_error",
+                "broker_request_attempts": client.read_only_request_attempts,
+                "cache_writes": 0, "business_writes": 0}
         return {"status": "inspected", "from": start, "to": end,
-            "account_selector_matches": True, "schema": project_schema(payload),
+            "account_selector_matches": True, "schema": schema,
             "broker_request_attempts": client.read_only_request_attempts,
             "history_page_limit": 1, "cache_writes": 0, "business_writes": 0}
     except FirstradeCachedSessionError as error:

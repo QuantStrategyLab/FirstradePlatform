@@ -25,13 +25,35 @@ def test_missing_container_is_unknown_while_real_empty_list_is_observed():
     assert module.project_schema({"items": []})["containers"][0]["row_count"] == 0
 
 
+def test_pagination_preserves_zero_without_claiming_complete_history():
+    result = module.project_schema({"items": [], "page": 1, "per_page": 1000, "total": 0, "error": ""})
+    assert result["pagination_counts"] == {"page": 1, "per_page": 1000, "total": 0}
+    assert result["provider_error_present"] is False
+    assert result["coverage"] == "first_page_only_not_complete_history"
+    unknown = module.project_schema({"items": []})
+    assert unknown["pagination_counts"] == dict.fromkeys(("page", "per_page", "total"))
+    assert unknown["provider_error_present"] is None
+
+
+@pytest.mark.parametrize("value", [True, False, -1, 1000001, 1.5, "synthetic-private-value", {}, []])
+def test_untrusted_pagination_values_are_not_exported_as_counts(value):
+    result = module.project_schema({"page": value, "per_page": value, "total": value})
+    assert result["pagination_counts"] == dict.fromkeys(("page", "per_page", "total"))
+
+
+def test_provider_error_text_is_reduced_to_a_flag():
+    result = module.project_schema({"items": [], "error": "synthetic-private-error"})
+    assert result["provider_error_present"] is True
+    assert "synthetic-private-error" not in json.dumps(result)
+
+
 @pytest.mark.parametrize("payload", [None, "private", ["private"], {"items": [{}] * 1001}])
 def test_invalid_or_unbounded_schema_is_rejected(payload):
     with pytest.raises(ValueError):
         module.project_schema(payload)
 
 
-@pytest.mark.parametrize("failure", [None, "cache_stale", "cache_read_failed"])
+@pytest.mark.parametrize("failure", [None, "cache_stale", "cache_read_failed", "provider_error"])
 def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(tmp_path, monkeypatch, failure):
     runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": ["synthetic-account"]}),
         "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
@@ -69,7 +91,7 @@ def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(t
         def get_account_history_read_only(self, account, start, end):
             assert account == "synthetic-account"
             self.read_only_request_attempts += 1
-            return {"items": []}
+            return {"items": [], "error": "synthetic-private-error" if failure == "provider_error" else ""}
         def close(self): closed.append(True)
     monkeypatch.setattr(module.subprocess, "run", run)
     monkeypatch.setattr(module, "FirstradeBrokerClient", Client)
@@ -84,7 +106,10 @@ def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(t
     else:
         result = module.execute(end.isoformat(), end.isoformat())
         assert result["status"] == ("stopped" if failure else "inspected")
-        assert result["broker_request_attempts"] == (0 if failure else 3)
+        assert result["broker_request_attempts"] == (0 if failure == "cache_stale" else 3)
+        if failure == "provider_error":
+            assert result["reason"] == "history_provider_reported_error"
+            assert "synthetic-private-error" not in json.dumps(result)
         assert result["cache_writes"] == result["business_writes"] == 0
         assert closed == [True]
     assert len(calls) == 4
