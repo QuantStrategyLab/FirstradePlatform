@@ -43,9 +43,9 @@ def validate_bridge(job, service_url):
 
 
 def completed_snapshot(rows, job_name, service_url):
-    """Only exact Scheduler completion and application ACK count as success."""
+    """Require both Scheduler completion and the exact application HTTP 200."""
     finished = []
-    published = False
+    app_completed = False
     for row in rows:
         payload = row.get("jsonPayload") or {}
         if (
@@ -54,16 +54,20 @@ def completed_snapshot(rows, job_name, service_url):
             and payload.get("url") == service_url + "/account-facts-sync"
         ):
             finished.append(payload)
-        message = row.get("textPayload") or payload.get("message") or ""
-        if "account_facts_sync published ok" in message:
-            published = True
+        http = row.get("httpRequest") or {}
+        if (
+            row.get("resource", {}).get("type") == "cloud_run_revision"
+            and http.get("requestUrl") == service_url + "/account-facts-sync"
+            and http.get("status") == 200
+        ):
+            app_completed = True
     if any(
         event.get("status") not in (None, "OK")
         or "response code number = 200" not in event.get("debugInfo", "")
         for event in finished
     ):
         raise SnapshotSyncError("snapshot_request_failed_auth_or_provider_unavailable")
-    return bool(finished) and published
+    return bool(finished) and app_completed
 
 
 def main():
@@ -89,14 +93,13 @@ def main():
             f'(resource.type="cloud_scheduler_job" AND resource.labels.job_id="{job["name"].split("/")[-1]}" '
             'AND jsonPayload.@type="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished") OR '
             f'(resource.type="cloud_run_revision" AND resource.labels.service_name="{service}" '
-            'AND (textPayload:"account_facts_sync published ok" OR '
-            'jsonPayload.message:"account_facts_sync published ok")))'
+            f'AND httpRequest.requestUrl="{service_url}/account-facts-sync"))'
         )
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             rows = cloud("logging", "read", log_filter, "--limit=20")
             if completed_snapshot(rows, job["name"], service_url):
-                print(json.dumps({"status": "snapshot_published_verified", "http_status": 200,
+                print(json.dumps({"status": "snapshot_request_completed", "http_status": 200,
                                   "scheduler_config_writes": 0, "session_renew_calls": 0}))
                 return 0
             time.sleep(5)

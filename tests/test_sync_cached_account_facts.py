@@ -49,13 +49,18 @@ def test_rejects_disabled_or_retrying_bridge():
             sync.validate_bridge(job, URL)
 
 
-def test_dispatch_or_http_completion_alone_is_not_publication():
+def test_dispatch_or_one_http_record_alone_is_not_completed():
     sync.validate_bridge(bridge(), URL)
     assert not sync.completed_snapshot([], JOB, URL)
     assert not sync.completed_snapshot([completion()], JOB, URL)
-    ack = {"textPayload": "INFO account_facts_sync published ok"}
+    ack = {"resource": {"type": "cloud_run_revision"},
+           "httpRequest": {"requestUrl": URL + "/account-facts-sync", "status": 200}}
     assert not sync.completed_snapshot([ack], JOB, URL)
     assert sync.completed_snapshot([completion(), ack], JOB, URL)
+    assert not sync.completed_snapshot([completion(), {"textPayload": "account_facts_sync published ok"}], JOB, URL)
+    wrong_http = {"resource": {"type": "cloud_run_revision"},
+                  "httpRequest": {"requestUrl": URL + "/health", "status": 200}}
+    assert not sync.completed_snapshot([completion(), wrong_http], JOB, URL)
     wrong = completion()
     wrong["jsonPayload"]["jobName"] += "-other"
     assert not sync.completed_snapshot([wrong, ack], JOB, URL)
@@ -74,14 +79,16 @@ def test_main_runs_bridge_once_and_keeps_provider_output_private(monkeypatch, ca
         monkeypatch.setenv(key, value)
     run = Mock(side_effect=[
         {"status": {"url": URL}}, bridge(), None,
-        [completion(), {"textPayload": "account_facts_sync published ok private-body"}],
+        [completion(), {"resource": {"type": "cloud_run_revision"},
+                        "httpRequest": {"requestUrl": URL + "/account-facts-sync", "status": 200},
+                        "textPayload": "private-body"}],
     ])
     monkeypatch.setattr(sync, "cloud", run)
     assert sync.main() == 0
     assert sum(call.args[:3] == ("scheduler", "jobs", "run") for call in run.call_args_list) == 1
     output = capsys.readouterr().out
     assert "private-body" not in output and URL not in output and JOB not in output
-    assert json.loads(output.splitlines()[-1])["status"] == "snapshot_published_verified"
+    assert json.loads(output.splitlines()[-1])["status"] == "snapshot_request_completed"
 
 
 def test_unknown_dispatch_outcome_never_retries(monkeypatch, capsys):
