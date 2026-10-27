@@ -90,6 +90,9 @@ current runtime account and exact requested window; arbitrary paths are not
 accepted. The reader verifies the pinned object's hash, manifest account/window
 and native-body hash in cloud memory. It never reads the username Secret or
 session cache, contacts the broker, writes an object or publishes business data.
+This saved-page branch needs the current account and private storage configuration,
+but not the `FIRSTRADE_REUSE_SESSION` or `FIRSTRADE_PERSIST_SESSION_CACHE` flags.
+The broker-reading branch still requires both flags.
 The fixed-label schema projection now also includes `semantic_checks` for archived
 pages. It counts parsed, invalid, unsupported and ambiguous `report_date` values
 and dates inside/outside the requested window, without returning the original
@@ -105,6 +108,33 @@ remain unknown and are not defaulted from account balances. Fixed `id`,
 distinct/duplicate scalar counts, never their values. Presence or uniqueness does
 not establish identity stability across pages, reports or revisions. Free-text
 `trans_str`, descriptions, signs and amounts are not classified as flows or fills.
+
+Archived-page `native_field_diagnostics` additionally checks fixed candidate
+labels (`transactionId`, `trans_id`, `record_id`, `activity_id`, `ref_no`,
+`order_id`, `trade_id`, `sequence`, `currency_code`, `ccy`, `trans_type`,
+`trans_code`, `transaction_code`, `cusip`) and the existing type labels. These
+are diagnostic name candidates, not confirmed Firstrade field contracts.
+Unrecognized labels are never printed: each is represented only by a heuristic
+name category (`identity_like`, `date_like`, `currency_like`, `type_like`, `other`).
+At most 16 unrecognized fields are profiled, with explicit total and omitted counts.
+For both groups, only presence, JSON types, string format counts and within-page
+distinct/duplicate nonempty string/integer counts leave the runner. String formats
+are `empty`, `date`, `ambiguous_date`, `uuid`, `numeric` or `opaque`; date-like
+syntax does not establish a date field's meaning. No values, dynamic labels,
+text classifications, default currencies or synthetic transaction keys are emitted.
+The output keeps `field_contract=unknown`; a candidate ID or UUID shape does not
+prove that it identifies a transaction or stays stable across reports.
+
+The locked SDK 0.0.39 returns native history JSON without interpreting the row
+schema and selects only page 1. Its public
+[`get_account_history` implementation](https://github.com/MaxxRK/firstrade-api/blob/d7c595205ba73dd16f1d916522204c4dff8f1883/firstrade/account.py)
+and [`account_history` URL](https://github.com/MaxxRK/firstrade-api/blob/d7c595205ba73dd16f1d916522204c4dff8f1883/firstrade/urls.py#L55)
+also show that behavior. Neither establishes trade/settlement date meaning, native
+currency, stable activity identity or a transaction-code dictionary. Public
+consumers' text mappings or economic-field hashes do not establish those contracts.
+Firstrade's [official CSV instructions](https://help.firstrade.info/en/articles/9251827-how-do-i-export-to-a-csv-file)
+describe a separate three-year account-history export. That does not extend the
+coverage of this saved API page, and the inspector does not log in or download CSVs.
 
 When exactly one recognized row container exists, pagination checks compare its
 row count with bounded native `page`, `per_page` and `total` metadata. A matching

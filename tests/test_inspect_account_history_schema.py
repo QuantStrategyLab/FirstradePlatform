@@ -106,6 +106,65 @@ def test_numeric_slash_interpretations_that_agree_are_one_unambiguous_date():
     assert "09/09/2026" not in json.dumps(schema)
 
 
+def test_archive_candidate_names_and_anonymous_fields_export_only_safe_diagnostics():
+    private_id = "00000000-0000-4000-8000-000000000001"
+    rows = [
+        {"transactionId": private_id, "trans_id": "90001", "ccy": "synthetic-private-currency",
+         "trans_str": "synthetic-private-kind", "synthetic-private-record-key": "synthetic-private-value"},
+        {"transactionId": private_id, "trans_id": "2026-09-02", "trans_str": "synthetic-private-kind",
+         "synthetic-private-record-key": "synthetic-private-value"},
+        {"transactionId": None, "trans_id": "09/10/2026", "trans_type": True,
+         "synthetic-private-report-date": "2026-09-03", "synthetic-private-type-code": 42},
+        {"transactionId": 7, "trans_id": " ", "cusip": ["synthetic-private-cusip"]},
+    ]
+    schema = module.project_schema({"items": rows}, start="2026-09-01", end="2026-09-30")
+    checks = schema["semantic_checks"]["containers"][0]["native_field_diagnostics"]
+    native_id = checks["fixed_fields"]["transactionId"]
+    assert native_id["present_count"] == 4 and native_id["missing_count"] == 0
+    assert native_id["type_counts"] == {"str": 2, "NoneType": 1, "int": 1}
+    assert native_id["nonempty_scalar_count"] == 3 and native_id["distinct_scalar_count"] == 2
+    assert native_id["duplicate_scalar_count"] == 1
+    assert native_id["string_format_counts"]["uuid"] == 2
+    assert checks["fixed_fields"]["trans_id"]["string_format_counts"] == {
+        "empty": 1, "date": 1, "ambiguous_date": 1, "uuid": 0, "numeric": 1, "opaque": 0}
+    assert checks["fixed_fields"]["record_id"]["missing_count"] == 4
+    assert checks["fixed_fields"]["trans_str"]["distinct_scalar_count"] == 1
+    assert checks["fixed_fields"]["trans_type"]["nonempty_scalar_count"] == 0
+    assert checks["fixed_fields"]["cusip"]["type_counts"] == {"list": 1}
+    assert {field["name_category"] for field in checks["unrecognized_fields"]} == {
+        "identity_like", "date_like", "type_like"}
+    assert len(checks["unrecognized_fields"]) == 3
+    assert checks["field_contract"] == "unknown"
+    assert schema["containers"][0]["row_count"] == 4  # No economic-field or ID deduplication.
+    assert schema["semantic_checks"]["containers"][0]["currency"]["known_currency_counts"] == {"USD": 0}
+    assert schema["semantic_checks"]["transaction_qualification"] == "not_qualified"
+    exported = json.dumps(schema)
+    for value in ("synthetic-private", private_id, "90001", "2026-09-02", "09/10/2026", "2026-09-03"):
+        assert value not in exported
+
+
+@pytest.mark.parametrize("field,category", [("private_currency_value", "currency_like"),
+    ("private_time_value", "date_like"), ("private_transactionId", "identity_like"),
+    ("private_action_code", "type_like"), ("private_other_value", "other")])
+def test_unknown_field_name_classification_never_returns_the_name(field, category):
+    schema = module.project_schema({"items": [{field: "synthetic-private-value"}]},
+        start="2026-09-01", end="2026-09-30")
+    checks = schema["semantic_checks"]["containers"][0]["native_field_diagnostics"]
+    assert checks["unrecognized_fields"][0]["name_category"] == category
+    assert checks["unrecognized_fields"][0]["string_format_counts"]["opaque"] == 1
+    assert field not in json.dumps(schema) and "synthetic-private-value" not in json.dumps(schema)
+
+
+def test_unknown_field_diagnostics_are_bounded_without_claiming_all_fields_were_profiled():
+    schema = module.project_schema({"items": [{f"synthetic-private-field-{n}": "private" for n in range(20)}]},
+        start="2026-09-01", end="2026-09-30")
+    checks = schema["semantic_checks"]["containers"][0]["native_field_diagnostics"]
+    assert checks["unrecognized_field_count"] == 20
+    assert len(checks["unrecognized_fields"]) == 16
+    assert checks["unrecognized_fields_omitted_count"] == 4
+    assert "private" not in json.dumps(schema)
+
+
 @pytest.mark.parametrize("counts,size,consistency,coverage,expected", [
     ({"page": 1, "per_page": 1000, "total": 1}, 1, "consistent", "reported_single_page", 1),
     ({"page": 1, "per_page": 1000, "total": 0}, 0, "consistent", "reported_single_page", 0),
@@ -250,6 +309,8 @@ def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(t
             assert "synthetic-account" not in archived[0][0]
         else:
             assert archived == []
+        if not failure:
+            assert "semantic_checks" not in result["schema"]
     assert len(calls) == 4
 
 
@@ -259,15 +320,47 @@ def test_invalid_window_stops_before_any_cloud_or_broker_call(monkeypatch):
         module.execute("2026-01-01", "2026-02-01")
 
 
-def test_archived_reader_never_reads_credentials_or_contacts_broker(monkeypatch):
+@pytest.mark.parametrize("archive_page", [False, True])
+@pytest.mark.parametrize("setting,reason", [
+    ("FIRSTRADE_REUSE_SESSION", "history_cached_runtime_unavailable"),
+    ("FIRSTRADE_PERSIST_SESSION_CACHE", "history_cache_store_unavailable"),
+])
+def test_broker_reader_still_requires_session_configuration(monkeypatch, archive_page, setting, reason):
+    runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": ["synthetic-account"]}),
+        "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
+        "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state", setting: "false"}
+    calls = []
+    def run(args, **_kwargs):
+        calls.append(args)
+        if args[1:4] == ["run", "services", "describe"]:
+            value = {"status": {"traffic": [{"percent": 100, "revisionName": "synthetic"}]}}
+        else:
+            assert args[1:4] == ["run", "revisions", "describe"]
+            value = {"spec": {"containers": [{"env": [{"name": k, "value": v} for k, v in runtime.items()]}]}}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(value))
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "PrivatePageArchive", lambda *_a: pytest.fail("archive forbidden"))
+    monkeypatch.setattr(module, "FirstradeBrokerClient", lambda *_a, **_k: pytest.fail("broker forbidden"))
+    for key in ("GCP_PROJECT_ID", "CLOUD_RUN_REGION", "CLOUD_RUN_SERVICE"):
+        monkeypatch.setenv(key, "synthetic")
+    end = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    with pytest.raises(ValueError, match="^" + reason + "$"):
+        module.execute(end, end, archive_page=archive_page)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("session_settings", [
+    {"FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true"},
+    {"FIRSTRADE_REUSE_SESSION": "false", "FIRSTRADE_PERSIST_SESSION_CACHE": "false"}, {},
+])
+def test_archived_reader_never_reads_credentials_or_contacts_broker(monkeypatch, session_settings):
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None): return cls(2026, 10, 27, tzinfo=timezone.utc)
     monkeypatch.setattr(module, "datetime", FixedDatetime)
     account = "synthetic-account"
     runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": [account]}),
-        "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
-        "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state"}
+        "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state", **session_settings}
     raw = json.dumps({"items": [{"trans_str": "synthetic-private-value", "report_date": "2026-09-15",
         "currency": "USD", "id": "synthetic-private-id"}],
         "page": 1, "per_page": 1000, "total": 1, "error": ""}).encode()

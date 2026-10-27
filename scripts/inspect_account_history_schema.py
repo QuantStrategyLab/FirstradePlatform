@@ -23,6 +23,10 @@ _FIELDS = ("date", "report_date", "trade_date", "settle_date", "transaction_date
            "description", "symbol", "quantity", "price", "amount", "net_amount", "currency",
            "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side",
            "trade_price", "trans_str", "descriptionArray")
+# Diagnostic candidates only: a matching name is not a provider field contract.
+_FIELD_CANDIDATES = ("transactionId", "trans_id", "record_id", "activity_id", "ref_no",
+    "order_id", "trade_id", "sequence", "currency_code", "ccy", "trans_type", "trans_code",
+    "transaction_code", "cusip")
 
 
 class CloudReadUnavailable(ValueError):
@@ -85,6 +89,42 @@ def _report_date(value):
     return None, "unknown_format", None
 
 
+def _diagnostic_field(rows, field):
+    values, result = _field_summary(rows, field)
+    formats = dict.fromkeys(("empty", "date", "ambiguous_date", "uuid", "numeric", "opaque"), 0)
+    for value in values:
+        if type(value) is not str:
+            continue
+        parsed, status, _ = _report_date(value)
+        if not value.strip():
+            fmt = "empty"
+        elif parsed is not None:
+            fmt = "date"
+        elif status == "ambiguous":
+            fmt = "ambiguous_date"
+        elif re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
+            fmt = "uuid"
+        elif re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)", value):
+            fmt = "numeric"
+        else:
+            fmt = "opaque"
+        formats[fmt] += 1
+    scalars = [(type(value), value) for value in values
+               if type(value) is int or (type(value) is str and value.strip())]
+    result.update(string_format_counts=formats, nonempty_scalar_count=len(scalars),
+        distinct_scalar_count=len(set(scalars)), duplicate_scalar_count=len(scalars) - len(set(scalars)))
+    return result
+
+
+def _field_name_category(field):
+    name = re.sub(r"[^a-z]", "", field.lower())
+    if "currency" in name or name == "ccy": return "currency_like"
+    if "date" in name or "time" in name: return "date_like"
+    if name.endswith(("id", "uuid", "ref", "number", "seq", "sequence", "key")): return "identity_like"
+    if "type" in name or "code" in name or name == "action": return "type_like"
+    return "other"
+
+
 def _row_semantics(rows, window):
     dates, date_checks = _field_summary(rows, "report_date")
     date_checks.update(dict.fromkeys(("parsed_count", "invalid_count", "unknown_format_count",
@@ -109,8 +149,18 @@ def _row_semantics(rows, window):
         checks.update(nonempty_scalar_count=len(scalars), distinct_scalar_count=len(set(scalars)),
                       duplicate_scalar_count=len(scalars) - len(set(scalars)))
         native_ids[field] = checks
+    keys = set().union(*(row.keys() for row in rows)) if rows else set()
+    diagnostic_fields = (*_FIELD_CANDIDATES, "type", "transaction_type", "trans_str")
+    unknown_fields = keys - set(_FIELDS) - set(_FIELD_CANDIDATES)
     return {"report_date": date_checks, "currency": currency_checks,
-            "native_id_fields": native_ids, "native_identity_stability": "unknown"}
+        "native_id_fields": native_ids, "native_identity_stability": "unknown",
+        "native_field_diagnostics": {
+            "fixed_fields": {field: _diagnostic_field(rows, field) for field in diagnostic_fields},
+            "unrecognized_fields": [{"name_category": _field_name_category(field),
+                **_diagnostic_field(rows, field)} for field in sorted(unknown_fields)[:16]],
+            "unrecognized_field_count": len(unknown_fields),
+            "unrecognized_fields_omitted_count": max(0, len(unknown_fields) - 16),
+            "field_contract": "unknown"}}
 
 
 def _pagination_semantics(containers, counts, labels):
@@ -213,11 +263,11 @@ def execute(start, end, *, archive_page=False, archive_run="", archive_generatio
     revision = json.loads(cloud("run", "revisions", "describe", traffic[0]["revisionName"], "--region", region, "--format=json"))
     runtime = {row["name"]: row.get("value") for row in revision["spec"]["containers"][0].get("env", [])}
     account = configured_account(runtime)
-    if not account or runtime.get("FIRSTRADE_REUSE_SESSION", "false").lower() != "true":
+    if not account or (not archive_run and runtime.get("FIRSTRADE_REUSE_SESSION", "false").lower() != "true"):
         raise ValueError("history_cached_runtime_unavailable")
     bucket = runtime.get("FIRSTRADE_GCS_STATE_BUCKET")
     prefix = (runtime.get("FIRSTRADE_STATE_PREFIX") or "firstrade-platform").strip("/")
-    if not bucket or runtime.get("FIRSTRADE_PERSIST_SESSION_CACHE", "false").lower() != "true":
+    if not bucket or (not archive_run and runtime.get("FIRSTRADE_PERSIST_SESSION_CACHE", "false").lower() != "true"):
         raise ValueError("history_cache_store_unavailable")
     if archive_page or archive_run:
         if (not re.fullmatch(r"[A-Za-z0-9._/-]{1,512}", prefix)
