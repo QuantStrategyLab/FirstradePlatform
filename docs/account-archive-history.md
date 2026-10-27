@@ -52,7 +52,10 @@ After cached user-info/account-list validation, the explicit client method arms
 exactly one history GET with a fixed account, date range, first page and row
 limit. The ordinary cached-only transport still rejects history URLs. Redirects,
 extra request parameters, retries and subsequent history calls are blocked.
-Only fixed field labels, types and container counts leave the runner. A first
+Only fixed field labels, types, container counts and bounded integer pagination
+counts leave the runner. Missing or invalid counts remain null; an explicit
+provider error stops inspection without exporting its text. Pagination counts
+describe the returned first-page metadata and do not certify source coverage. A first
 page is not complete history, a missing container is not an empty result, and
 field presence alone does not qualify a transaction as an external flow or fill.
 This inspection does not publish account facts, returns, flows or executions,
