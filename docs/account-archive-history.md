@@ -58,8 +58,25 @@ provider error stops inspection without exporting its text. Pagination counts
 describe the returned first-page metadata and do not certify source coverage. A first
 page is not complete history, a missing container is not an empty result, and
 field presence alone does not qualify a transaction as an external flow or fill.
+The fixed `report_date` label follows the upstream SDK's history example in
+[`test.py`](https://github.com/MaxxRK/firstrade-api/blob/main/test.py); it is not
+treated as an execution or settlement date merely because it is present.
 This inspection does not publish account facts, returns, flows or executions,
 deploy an image, change permissions, notify, or create a schedule.
+
+The optional manual `archive_page=true` input additionally preserves this one
+page in the serving runtime's existing private state bucket. It checks enforced
+public-access prevention and uniform bucket access first, using the same existing
+deployment identity. The archive contains the exact response-body bytes encoded
+as base64, their SHA-256, the requested account fingerprint/window/page, collector
+source and retrieval time. Retrieval time is not a transaction or valuation date.
+The run-specific object is created with `ifGenerationMatch=0` and read back at
+the returned generation before reporting success. Collisions, uncertain writes
+and failed readback stop without retries, overwrites or deletion. No object path,
+response body, dynamic field name or financial value is printed or uploaded to
+GitHub artifacts. The manifest always marks coverage as first-page-only and
+transactions as unqualified; archiving does not certify a complete window or
+publish flows/fills. Ordinary schema-only inspection remains read-only.
 
 The existing failed-stage diagnostic also supports `execution_reports_schema_only`
 with `funds_schema_only=true` and funds-history inspection disabled. It reads at
