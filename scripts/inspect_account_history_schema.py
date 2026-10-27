@@ -26,7 +26,7 @@ _FIELDS = ("date", "report_date", "trade_date", "settle_date", "transaction_date
 # Diagnostic candidates only: a matching name is not a provider field contract.
 _FIELD_CANDIDATES = ("transactionId", "trans_id", "record_id", "activity_id", "ref_no",
     "order_id", "trade_id", "sequence", "currency_code", "ccy", "trans_type", "trans_code",
-    "transaction_code", "cusip")
+    "transaction_code", "cusip", "account_type")
 
 
 class CloudReadUnavailable(ValueError):
