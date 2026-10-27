@@ -53,7 +53,10 @@ exactly one history GET with a fixed account, date range, first page and row
 limit. The ordinary cached-only transport still rejects history URLs. Redirects,
 extra request parameters, retries and subsequent history calls are blocked.
 Only fixed field labels, types, container counts and bounded integer pagination
-counts leave the runner. Missing or invalid counts remain null; an explicit
+counts leave the runner. Fixed labels include snake_case, camelCase and compact
+spellings of date, activity/type, currency and record metadata; arbitrary keys
+and all values remain private. A recognized label does not establish its business
+meaning. Missing or invalid counts remain null; an explicit
 provider error stops inspection without exporting its text. Pagination counts
 describe the returned first-page metadata and do not certify source coverage. A first
 page is not complete history, a missing container is not an empty result, and
