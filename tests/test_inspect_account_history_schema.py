@@ -165,6 +165,24 @@ def test_unknown_field_diagnostics_are_bounded_without_claiming_all_fields_were_
     assert "private" not in json.dumps(schema)
 
 
+def test_native_account_type_is_a_fixed_candidate_without_exporting_or_qualifying_its_value():
+    schema = module.project_schema({"items": [{"account_type": "synthetic-private-subaccount-type"}]},
+        start="2026-09-01", end="2026-09-30")
+    row = schema["semantic_checks"]["containers"][0]
+    checks = row["native_field_diagnostics"]
+    account_type = checks["fixed_fields"]["account_type"]
+    assert account_type["present_count"] == 1 and account_type["missing_count"] == 0
+    assert account_type["type_counts"] == {"str": 1}
+    assert account_type["string_format_counts"]["opaque"] == 1
+    assert checks["unrecognized_field_count"] == checks["unrecognized_fields_omitted_count"] == 0
+    assert checks["unrecognized_fields"] == []
+    assert checks["field_contract"] == row["native_identity_stability"] == "unknown"
+    assert row["currency"]["known_currency_counts"] == {"USD": 0}
+    assert row["native_id_fields"]["id"]["present_count"] == 0
+    assert schema["semantic_checks"]["transaction_qualification"] == "not_qualified"
+    assert "synthetic-private-subaccount-type" not in json.dumps(schema)
+
+
 @pytest.mark.parametrize("counts,size,consistency,coverage,expected", [
     ({"page": 1, "per_page": 1000, "total": 1}, 1, "consistent", "reported_single_page", 1),
     ({"page": 1, "per_page": 1000, "total": 0}, 0, "consistent", "reported_single_page", 0),

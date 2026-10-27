@@ -112,7 +112,7 @@ not establish identity stability across pages, reports or revisions. Free-text
 Archived-page `native_field_diagnostics` additionally checks fixed candidate
 labels (`transactionId`, `trans_id`, `record_id`, `activity_id`, `ref_no`,
 `order_id`, `trade_id`, `sequence`, `currency_code`, `ccy`, `trans_type`,
-`trans_code`, `transaction_code`, `cusip`) and the existing type labels. These
+`trans_code`, `transaction_code`, `cusip`, `account_type`) and the existing type labels. These
 are diagnostic name candidates, not confirmed Firstrade field contracts.
 Unrecognized labels are never printed: each is represented only by a heuristic
 name category (`identity_like`, `date_like`, `currency_like`, `type_like`, `other`).
@@ -124,6 +124,10 @@ syntax does not establish a date field's meaning. No values, dynamic labels,
 text classifications, default currencies or synthetic transaction keys are emitted.
 The output keeps `field_contract=unknown`; a candidate ID or UUID shape does not
 prove that it identifies a transaction or stays stable across reports.
+The `account_type` candidate follows the public provider model's
+[`HistoryItem`](https://github.com/morristai/firstrade/blob/36c3c3bdc3f2ff0e2b6f5537ccebc804e6458bf2/src/models/account.rs#L191).
+It describes a subaccount type candidate, not currency, transaction type or a
+transaction ID; its presence does not qualify any business record.
 
 The locked SDK 0.0.39 returns native history JSON without interpreting the row
 schema and selects only page 1. Its public
