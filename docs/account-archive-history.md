@@ -58,6 +58,9 @@ provider error stops inspection without exporting its text. Pagination counts
 describe the returned first-page metadata and do not certify source coverage. A first
 page is not complete history, a missing container is not an empty result, and
 field presence alone does not qualify a transaction as an external flow or fill.
+The fixed `report_date` label follows the upstream SDK's history example in
+[`test.py`](https://github.com/MaxxRK/firstrade-api/blob/main/test.py); it is not
+treated as an execution or settlement date merely because it is present.
 This inspection does not publish account facts, returns, flows or executions,
 deploy an image, change permissions, notify, or create a schedule.
 

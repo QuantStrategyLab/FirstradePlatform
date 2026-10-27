@@ -25,6 +25,13 @@ def test_missing_container_is_unknown_while_real_empty_list_is_observed():
     assert module.project_schema({"items": []})["containers"][0]["row_count"] == 0
 
 
+def test_upstream_documented_report_date_is_recognized_without_exporting_value():
+    result = module.project_schema({"items": [{"report_date": "synthetic-private-date"}]})
+    assert result["containers"][0]["known_field_types"] == {"report_date": ["str"]}
+    assert result["containers"][0]["unlisted_field_count"] == 0
+    assert "synthetic-private-date" not in json.dumps(result)
+
+
 def test_pagination_preserves_zero_without_claiming_complete_history():
     result = module.project_schema({"items": [], "page": 1, "per_page": 1000, "total": 0, "error": ""})
     assert result["pagination_counts"] == {"page": 1, "per_page": 1000, "total": 0}

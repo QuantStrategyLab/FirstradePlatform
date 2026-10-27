@@ -17,7 +17,7 @@ from scripts.inspect_funds_snapshot_schema import configured_account
 from scripts.archive_account_history_page import ArchiveUnavailable, PrivatePageArchive, page_envelope
 
 _CONTAINERS = ("result", "data", "items", "rows", "transactions", "history", "account_history")
-_FIELDS = ("date", "trade_date", "settle_date", "transaction_date", "type", "transaction_type",
+_FIELDS = ("date", "report_date", "trade_date", "settle_date", "transaction_date", "type", "transaction_type",
            "description", "symbol", "quantity", "price", "amount", "net_amount", "currency",
            "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side")
 
