@@ -51,6 +51,112 @@ def test_pagination_preserves_zero_without_claiming_complete_history():
     assert unknown["provider_error_present"] is None
 
 
+def test_archive_date_checks_count_only_unambiguous_formats_and_requested_window():
+    rows = [{"report_date": value} for value in (
+        "2026-09-03", "20260904", "2026/09/05", "09/13/2026", "13/09/2026",
+        "09/10/2026", "2026-10-01", "2026-02-30", "synthetic-private-date", None, 20260901,
+    )] + [{}]
+    schema = module.project_schema({"items": rows}, start="2026-09-01", end="2026-09-30")
+    dates = schema["semantic_checks"]["containers"][0]["report_date"]
+    assert dates == {"present_count": 11, "missing_count": 1, "type_counts": {"str": 9, "NoneType": 1, "int": 1},
+        "parsed_count": 6, "invalid_count": 1, "unknown_format_count": 1, "ambiguous_count": 1,
+        "non_string_count": 2, "in_window_count": 5, "out_of_window_count": 1,
+        "parsed_format_counts": {"iso_date": 2, "compact_date": 1, "year_first_slash": 1,
+                                 "unambiguous_numeric_slash": 2}}
+    exported = json.dumps(schema)
+    assert "synthetic-private-date" not in exported
+    assert "2026-09-03" not in exported and "2026-10-01" not in exported
+    assert schema["semantic_checks"]["transaction_qualification"] == "not_qualified"
+
+
+def test_archive_currency_and_id_checks_never_export_values_or_claim_stable_identity():
+    rows = [
+        {"currency": "USD", "id": "synthetic-private-id", "transaction_id": "synthetic-private-tx"},
+        {"currency": "USD", "id": "synthetic-private-id"},
+        {"currency": "synthetic-private-currency", "id": 7},
+        {"currency": "EUR", "id": " "},
+        {"currency": None, "id": None},
+        {"currency": True, "id": True},
+        {"currency": 123, "id": 1.5},
+        {"synthetic-private-field": "synthetic-private-value"},
+    ]
+    schema = module.project_schema({"items": rows}, start="2026-09-01", end="2026-09-30")
+    checks = schema["semantic_checks"]["containers"][0]
+    assert checks["currency"] == {"present_count": 7, "missing_count": 1,
+        "type_counts": {"str": 4, "NoneType": 1, "bool": 1, "int": 1},
+        "known_currency_counts": {"USD": 2}, "unknown_value_count": 5}
+    assert checks["native_id_fields"]["id"] == {"present_count": 7, "missing_count": 1,
+        "type_counts": {"str": 3, "int": 1, "NoneType": 1, "bool": 1, "float": 1},
+        "nonempty_scalar_count": 3, "distinct_scalar_count": 2, "duplicate_scalar_count": 1}
+    assert checks["native_id_fields"]["transaction_id"]["present_count"] == 1
+    assert checks["native_id_fields"]["reference"]["present_count"] == 0
+    assert checks["native_identity_stability"] == "unknown"
+    exported = json.dumps(schema)
+    assert "synthetic-private" not in exported
+    assert "EUR" not in exported and "123" not in exported
+
+
+def test_numeric_slash_interpretations_that_agree_are_one_unambiguous_date():
+    schema = module.project_schema({"items": [{"report_date": "09/09/2026"}]},
+        start="2026-09-01", end="2026-09-30")
+    dates = schema["semantic_checks"]["containers"][0]["report_date"]
+    assert dates["parsed_count"] == dates["in_window_count"] == 1
+    assert dates["ambiguous_count"] == 0
+    assert dates["parsed_format_counts"]["unambiguous_numeric_slash"] == 1
+    assert "09/09/2026" not in json.dumps(schema)
+
+
+@pytest.mark.parametrize("counts,size,consistency,coverage,expected", [
+    ({"page": 1, "per_page": 1000, "total": 1}, 1, "consistent", "reported_single_page", 1),
+    ({"page": 1, "per_page": 1000, "total": 0}, 0, "consistent", "reported_single_page", 0),
+    ({"page": 1, "per_page": 2, "total": 3}, 2, "consistent", "more_pages_reported", 2),
+    ({"page": 1, "per_page": 1000, "total": 2}, 1, "inconsistent", "unknown", 2),
+    ({"page": 2, "per_page": 1000, "total": 1}, 1, "inconsistent", "unknown", None),
+    ({"page": 0, "per_page": 1000, "total": 0}, 0, "inconsistent", "unknown", None),
+    ({"page": 1, "per_page": 0, "total": 0}, 0, "inconsistent", "unknown", None),
+    ({"page": 1, "per_page": 1000}, 0, "unknown", "unknown", None),
+    ({"page": "synthetic-private-value", "per_page": 1000, "total": 1}, 1, "unknown", "unknown", None),
+])
+def test_archive_pagination_checks_only_report_metadata_consistency(counts, size, consistency, coverage, expected):
+    schema = module.project_schema({"items": [{} for _ in range(size)], **counts},
+        start="2026-09-01", end="2026-09-30")
+    pagination = schema["semantic_checks"]["pagination"]
+    assert pagination["row_count"] == size
+    assert pagination["metadata_consistency"] == consistency
+    assert pagination["page_coverage"] == coverage
+    assert pagination["expected_row_count"] == expected
+    assert schema["coverage"] == "first_page_only_not_complete_history"
+    assert "synthetic-private-value" not in json.dumps(schema)
+
+
+@pytest.mark.parametrize("extra", [
+    {"total_pages": 2}, {"next_page": 2}, {"next_page": "synthetic-private-value"},
+    {"pagination": {"synthetic-private-field": "synthetic-private-value"}},
+])
+def test_uninterpreted_pagination_hints_keep_consistency_and_coverage_unknown(extra):
+    schema = module.project_schema({"items": [{}], "page": 1, "per_page": 1000, "total": 1, **extra},
+        start="2026-09-01", end="2026-09-30")
+    assert schema["semantic_checks"]["pagination"] == {"row_count": 1, "expected_row_count": None,
+        "metadata_consistency": "unknown", "page_coverage": "unknown"}
+    assert schema["coverage"] == "first_page_only_not_complete_history"
+    assert "synthetic-private" not in json.dumps(schema)
+
+
+@pytest.mark.parametrize("payload", [{"unexpected": []}, {"items": [], "rows": []}])
+def test_missing_or_ambiguous_row_containers_never_prove_single_page_coverage(payload):
+    schema = module.project_schema({**payload, "page": 1, "per_page": 1000, "total": 0},
+        start="2026-09-01", end="2026-09-30")
+    assert schema["semantic_checks"]["pagination"] == {"row_count": None, "expected_row_count": None,
+        "metadata_consistency": "unknown", "page_coverage": "unknown"}
+
+
+@pytest.mark.parametrize("start,end", [("synthetic-private-window", "2026-09-30"),
+    ("2026-09-01", None), ("2026-09-30", "2026-09-01")])
+def test_invalid_semantic_window_uses_a_fixed_error_without_private_values(start, end):
+    with pytest.raises(ValueError, match="^history_semantic_window_invalid$"):
+        module.project_schema({"items": []}, start=start, end=end)
+
+
 @pytest.mark.parametrize("value", [True, False, -1, 1000001, 1.5, "synthetic-private-value", {}, []])
 def test_untrusted_pagination_values_are_not_exported_as_counts(value):
     result = module.project_schema({"page": value, "per_page": value, "total": value})
@@ -162,7 +268,9 @@ def test_archived_reader_never_reads_credentials_or_contacts_broker(monkeypatch)
     runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": [account]}),
         "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
         "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state"}
-    raw = b'{"items":[{"trans_str":"synthetic-private-value"}],"error":""}'
+    raw = json.dumps({"items": [{"trans_str": "synthetic-private-value", "report_date": "2026-09-15",
+        "currency": "USD", "id": "synthetic-private-id"}],
+        "page": 1, "per_page": 1000, "total": 1, "error": ""}).encode()
     body, _ = module.page_envelope(raw, account=account, start="2026-09-01", end="2026-09-30",
         source="a" * 40, observed_at="2026-10-27T10:00:00Z")
     expected_hash = module.hashlib.sha256(body).hexdigest()
@@ -190,8 +298,16 @@ def test_archived_reader_never_reads_credentials_or_contacts_broker(monkeypatch)
         archive_generation="456", archive_sha256=expected_hash)
     assert len(calls) == 2 and result["archive_read_only"] is True
     assert result["broker_request_attempts"] == result["cache_reads"] == result["archive_write_requests"] == 0
-    assert result["schema"]["containers"][0]["known_field_types"] == {"trans_str": ["str"]}
-    assert "synthetic-private-value" not in json.dumps(result)
+    assert result["schema"]["containers"][0]["known_field_types"] == {
+        "report_date": ["str"], "currency": ["str"], "id": ["str"], "trans_str": ["str"]}
+    checks = result["schema"]["semantic_checks"]
+    assert checks["containers"][0]["report_date"]["in_window_count"] == 1
+    assert checks["containers"][0]["currency"]["known_currency_counts"] == {"USD": 1}
+    assert checks["containers"][0]["native_identity_stability"] == "unknown"
+    assert checks["pagination"] == {"row_count": 1, "expected_row_count": 1,
+        "metadata_consistency": "consistent", "page_coverage": "reported_single_page"}
+    assert result["schema"]["coverage"] == "first_page_only_not_complete_history"
+    assert "synthetic-private" not in json.dumps(result)
 
 
 @pytest.mark.parametrize("options", [
@@ -238,3 +354,19 @@ def test_reader_main_preserves_failed_stage_and_safe_category(monkeypatch, capsy
     assert module.main() == 1
     assert json.loads(capsys.readouterr().out) == {"status": "stopped",
         "reason": "history_cloud_read_failed", "stage": "cached_username", "failure_category": "permission_denied"}
+
+
+def test_archive_semantic_failure_cannot_put_sensitive_exception_text_in_stdout(monkeypatch, capsys):
+    for key, value in {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main",
+        "GITHUB_RUN_ATTEMPT": "1", "RUNNER_OS": "Linux"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(module.argparse.ArgumentParser, "parse_args", lambda _s:
+        SimpleNamespace(from_date="2026-09-01", to_date="2026-09-30", archive_page=False,
+                        archive_run="123", archive_generation="456", archive_sha256="a" * 64))
+    def fail(*_args, **_kwargs):
+        raise ValueError("synthetic-private-sensitive-field-and-value")
+    monkeypatch.setattr(module, "execute", fail)
+    assert module.main() == 1
+    output = capsys.readouterr().out
+    assert "synthetic-private" not in output
+    assert json.loads(output) == {"status": "stopped", "reason": "history_schema_inspection_unavailable"}

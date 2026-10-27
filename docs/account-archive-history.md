@@ -90,8 +90,32 @@ current runtime account and exact requested window; arbitrary paths are not
 accepted. The reader verifies the pinned object's hash, manifest account/window
 and native-body hash in cloud memory. It never reads the username Secret or
 session cache, contacts the broker, writes an object or publishes business data.
-Only the same fixed-label schema projection leaves the runner. Source coverage
-and transaction qualification remain incomplete.
+The fixed-label schema projection now also includes `semantic_checks` for archived
+pages. It counts parsed, invalid, unsupported and ambiguous `report_date` values
+and dates inside/outside the requested window, without returning the original
+strings. Exact ISO dates, compact year-first dates and year-first slash dates are
+recognized. A numeric slash date is parsed only when its valid month-first and
+day-first interpretations yield one unique date; otherwise it stays ambiguous. No locale
+or timezone is inferred, and a parsed reporting date is not proof of trade or
+settlement date.
+
+Currency checks count only an explicit native `USD` value; absent or other values
+remain unknown and are not defaulted from account balances. Fixed `id`,
+`transaction_id` and `reference` checks expose presence, JSON types and within-page
+distinct/duplicate scalar counts, never their values. Presence or uniqueness does
+not establish identity stability across pages, reports or revisions. Free-text
+`trans_str`, descriptions, signs and amounts are not classified as flows or fills.
+
+When exactly one recognized row container exists, pagination checks compare its
+row count with bounded native `page`, `per_page` and `total` metadata. A matching
+first page whose reported total fits its page size is `reported_single_page`;
+larger totals are `more_pages_reported`. Additional `total_pages`, `next_page` or
+`pagination` hints are not interpreted; their presence leaves consistency and page
+coverage unknown. Inconsistent or missing metadata and ambiguous containers remain
+explicit. This only describes the provider's saved
+response metadata for the requested window: the original first-page coverage and
+`not_qualified` transaction status are preserved. It does not certify complete
+history for that window or for other years, nor publish business records.
 
 The existing failed-stage diagnostic also supports `execution_reports_schema_only`
 with `funds_schema_only=true` and funds-history inspection disabled. It reads at
