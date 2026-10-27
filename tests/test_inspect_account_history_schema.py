@@ -54,11 +54,18 @@ def test_invalid_or_unbounded_schema_is_rejected(payload):
 
 
 @pytest.mark.parametrize("failure", [None, "cache_stale", "cache_read_failed", "provider_error"])
-def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize("archive_page", [False, True])
+def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(tmp_path, monkeypatch, failure, archive_page):
     runtime = {"RUNTIME_TARGET_JSON": json.dumps({"account_selector": ["synthetic-account"]}),
         "FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true",
         "FIRSTRADE_GCS_STATE_BUCKET": "synthetic-state", "FIRSTRADE_SESSION_CACHE_TTL_SECONDS": "86400"}
-    calls, closed = [], []
+    calls, closed, archived = [], [], []
+    class Archive:
+        def __init__(self, bucket): assert bucket == "synthetic-state"
+        def create(self, name, body):
+            archived.append((name, json.loads(body)))
+            return {"archive_verified": True, "archive_write_requests": 1}
+    monkeypatch.setattr(module, "PrivatePageArchive", Archive)
     def run(args, **kwargs):
         calls.append(args)
         assert kwargs["capture_output"] and kwargs["timeout"] == 45
@@ -91,20 +98,23 @@ def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(t
         def get_account_history_read_only(self, account, start, end):
             assert account == "synthetic-account"
             self.read_only_request_attempts += 1
-            return {"items": [], "error": "synthetic-private-error" if failure == "provider_error" else ""}
+            payload = {"items": [], "error": "synthetic-private-error" if failure == "provider_error" else ""}
+            self.read_only_history_response_bytes = json.dumps(payload).encode()
+            return payload
         def close(self): closed.append(True)
     monkeypatch.setattr(module.subprocess, "run", run)
     monkeypatch.setattr(module, "FirstradeBrokerClient", Client)
     for key, value in {"GCP_PROJECT_ID": "synthetic-project", "CLOUD_RUN_REGION": "us-east1",
-        "CLOUD_RUN_SERVICE": "synthetic-service", "RUNNER_TEMP": str(tmp_path)}.items():
+        "CLOUD_RUN_SERVICE": "synthetic-service", "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_RUN_ID": "123", "GITHUB_SHA": "a" * 40}.items():
         monkeypatch.setenv(key, value)
     end = datetime.now(timezone.utc).date() - timedelta(days=1)
     if failure == "cache_read_failed":
         with pytest.raises(ValueError, match="history_cloud_read_unavailable"):
-            module.execute(end.isoformat(), end.isoformat())
+            module.execute(end.isoformat(), end.isoformat(), archive_page=archive_page)
         assert closed == []
     else:
-        result = module.execute(end.isoformat(), end.isoformat())
+        result = module.execute(end.isoformat(), end.isoformat(), archive_page=archive_page)
         assert result["status"] == ("stopped" if failure else "inspected")
         assert result["broker_request_attempts"] == (0 if failure == "cache_stale" else 3)
         if failure == "provider_error":
@@ -112,6 +122,12 @@ def test_cloud_reader_reuses_exact_runtime_cache_and_never_loads_login_secrets(t
             assert "synthetic-private-error" not in json.dumps(result)
         assert result["cache_writes"] == result["business_writes"] == 0
         assert closed == [True]
+        if archive_page and not failure:
+            assert result["archive_verified"] is True
+            assert len(archived) == 1 and archived[0][0].endswith("/123-1.json")
+            assert "synthetic-account" not in archived[0][0]
+        else:
+            assert archived == []
     assert len(calls) == 4
 
 
@@ -147,7 +163,7 @@ def test_reader_main_preserves_failed_stage_and_safe_category(monkeypatch, capsy
         "GITHUB_RUN_ATTEMPT": "1", "RUNNER_OS": "Linux"}.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(module.argparse.ArgumentParser, "parse_args", lambda _s:
-        SimpleNamespace(from_date="2026-10-01", to_date="2026-10-02"))
+        SimpleNamespace(from_date="2026-10-01", to_date="2026-10-02", archive_page=False))
     def fail(*_args): raise module.CloudReadUnavailable("cached_username", "permission_denied")
     monkeypatch.setattr(module, "execute", fail)
     assert module.main() == 1

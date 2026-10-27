@@ -611,6 +611,7 @@ def test_history_read_is_one_exact_cached_get_and_never_writes(tmp_path, monkeyp
     end = datetime.now(timezone.utc).date() - timedelta(days=1)
     start = end - timedelta(days=30)
     assert client.get_account_history_read_only("12345678", start.isoformat(), end.isoformat()) == {"error": "", "items": []}
+    assert client.read_only_history_response_bytes == b'{"error": "", "items": []}'
     assert len(calls) == 3
     assert calls[-1] == ("get", f"https://api3x.firstrade.com/private/account_history?range=cust&range_arr[]={start}&range_arr[]={end}&page=1&account=12345678&per_page=1000", {"timeout": (5, 15), "allow_redirects": False})
     with pytest.raises(FirstradeSafetyError):
@@ -619,6 +620,7 @@ def test_history_read_is_one_exact_cached_get_and_never_writes(tmp_path, monkeyp
         client.session.session.request("get", calls[-1][1])
     assert len(calls) == 3 and store.writes == 0
     client.close()
+    assert client.read_only_history_response_bytes is None
 
 
 @pytest.mark.parametrize("failure", ["timeout", "http", "oversized", "extra_parameters", "duplicate_sdk_request"])

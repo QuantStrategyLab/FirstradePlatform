@@ -274,6 +274,7 @@ class FirstradeBrokerClient:
         self.read_only_transport_enabled = False
         self._readonly_history_url: str | None = None
         self._readonly_history_used = False
+        self.read_only_history_response_bytes: bytes | None = None
         self.read_only_request_attempts = 0
 
     def connect(self, *, force_login: bool = False) -> "FirstradeBrokerClient":
@@ -371,6 +372,8 @@ class FirstradeBrokerClient:
                 raise FirstradeCachedSessionError("read_invalid_payload", stage=read_stage)
             if isinstance(body, dict) and body.get("error"):
                 raise FirstradeCachedSessionError("read_provider_error", stage=read_stage)
+            if history_read:
+                self.read_only_history_response_bytes = response.content
             return response
 
         transport.request = read_only_request
@@ -419,6 +422,7 @@ class FirstradeBrokerClient:
 
     def close(self) -> None:
         self._readonly_history_url = None
+        self.read_only_history_response_bytes = None
         session, self.session = self.session, None
         self.account_data = None
         self.session_reused = False

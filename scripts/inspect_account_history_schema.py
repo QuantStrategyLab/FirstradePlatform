@@ -7,12 +7,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 from application.firstrade_client import (
     FirstradeBrokerClient, FirstradeCachedSessionError, FirstradeCredentials,
 )
 from scripts.inspect_funds_snapshot_schema import configured_account
+from scripts.archive_account_history_page import ArchiveUnavailable, PrivatePageArchive, page_envelope
 
 _CONTAINERS = ("result", "data", "items", "rows", "transactions", "history", "account_history")
 _FIELDS = ("date", "trade_date", "settle_date", "transaction_date", "type", "transaction_type",
@@ -76,7 +78,7 @@ def project_schema(payload):
         "coverage": "first_page_only_not_complete_history", "financial_values_exported": False}
 
 
-def execute(start, end):
+def execute(start, end, *, archive_page=False):
     first, last = date.fromisoformat(start), date.fromisoformat(end)
     today = datetime.now(timezone.utc).date()
     if (first.isoformat() != start or last.isoformat() != end
@@ -106,6 +108,15 @@ def execute(start, end):
     prefix = (runtime.get("FIRSTRADE_STATE_PREFIX") or "firstrade-platform").strip("/")
     if not bucket or runtime.get("FIRSTRADE_PERSIST_SESSION_CACHE", "false").lower() != "true":
         raise ValueError("history_cache_store_unavailable")
+    if archive_page:
+        run_id, source = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_SHA", "")
+        if (not re.fullmatch(r"[1-9][0-9]{0,19}", run_id)
+                or not re.fullmatch(r"[0-9a-f]{40}", source)
+                or not re.fullmatch(r"[A-Za-z0-9._/-]{1,512}", prefix)
+                or any(part in ("", ".", "..") for part in prefix.split("/"))):
+            raise ArchiveUnavailable("archive_scope_invalid")
+        # Check private storage before consuming broker authentication or a page.
+        archive = PrivatePageArchive(bucket)
     # Consume only the existing username and saved tokens, never password or MFA.
     username = cloud("secrets", "versions", "access", "latest", "--secret=firstrade-username", limit=1024).strip()
     if not username:
@@ -133,10 +144,18 @@ def execute(start, end):
             return {"status": "stopped", "reason": "history_provider_reported_error",
                 "broker_request_attempts": client.read_only_request_attempts,
                 "cache_writes": 0, "business_writes": 0}
+        archived = {}
+        if archive_page:
+            body, summary = page_envelope(client.read_only_history_response_bytes,
+                account=account, start=start, end=end, source=source,
+                observed_at=datetime.now(timezone.utc).isoformat())
+            identity = hashlib.sha256(account.encode()).hexdigest()
+            name = f"{prefix}/account-activity/{identity}/{start}_{end}/{run_id}-1.json"
+            archived = {**archive.create(name, body), **summary}
         return {"status": "inspected", "from": start, "to": end,
             "account_selector_matches": True, "schema": schema,
             "broker_request_attempts": client.read_only_request_attempts,
-            "history_page_limit": 1, "cache_writes": 0, "business_writes": 0}
+            "history_page_limit": 1, "cache_writes": 0, "business_writes": 0, **archived}
     except FirstradeCachedSessionError as error:
         return {"status": "stopped", "reason": error.reason_code, "stage": error.stage,
             "http_status": error.http_status, "broker_request_attempts": client.read_only_request_attempts,
@@ -155,9 +174,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--from-date", required=True)
     parser.add_argument("--to-date", required=True)
+    parser.add_argument("--archive-page", action="store_true")
     args = parser.parse_args()
     try:
-        result = execute(args.from_date, args.to_date)
+        options = {"archive_page": True} if args.archive_page else {}
+        result = execute(args.from_date, args.to_date, **options)
+    except ArchiveUnavailable as error:
+        result = {"status": "stopped", "reason": error.reason,
+                  "automatic_retry": False, "business_writes": 0}
     except CloudReadUnavailable as error:
         result = {"status": "stopped", "reason": "history_cloud_read_failed",
                   "stage": error.stage, "failure_category": error.category}
