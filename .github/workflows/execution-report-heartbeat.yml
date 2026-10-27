@@ -3,6 +3,11 @@ name: Execution Report Heartbeat
 on:
   workflow_dispatch:
     inputs:
+      snapshot_only:
+        description: "Collect only the cached-session balance snapshot; skip reports and notifications."
+        required: false
+        type: boolean
+        default: false
       lookback_hours:
         description: "Report lookback window in hours."
         required: false
@@ -34,7 +39,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  account_facts:
+    name: Collect cached-session balance snapshot
+    if: ${{ github.event_name == 'schedule' || inputs.snapshot_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Authenticate to Google Cloud for snapshot
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Collect and verify one balance snapshot
+        run: python3 scripts/sync_cached_account_facts.py
+
   heartbeat:
+    if: ${{ !inputs.snapshot_only }}
     name: Check execution report heartbeat
     runs-on: ubuntu-latest
     timeout-minutes: 15
