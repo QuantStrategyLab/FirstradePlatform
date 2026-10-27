@@ -46,11 +46,106 @@ def cloud_error_category(stderr):
     return "unclassified"
 
 
-def project_schema(payload):
+def _field_summary(rows, field):
+    values = [row[field] for row in rows if field in row]
+    type_names = {str: "str", int: "int", float: "float", bool: "bool",
+                  list: "list", dict: "dict", type(None): "NoneType"}
+    counts = {}
+    for value in values:
+        name = type_names.get(type(value), "unknown")
+        counts[name] = counts.get(name, 0) + 1
+    return values, {"present_count": len(values), "missing_count": len(rows) - len(values),
+                    "type_counts": counts}
+
+
+def _report_date(value):
+    """Recognize only exact date-only forms; never guess a numeric locale."""
+    if not isinstance(value, str):
+        return None, "non_string", None
+    for pattern, fmt, label in (
+        (r"[0-9]{4}-[0-9]{2}-[0-9]{2}", "%Y-%m-%d", "iso_date"),
+        (r"[0-9]{8}", "%Y%m%d", "compact_date"),
+        (r"[0-9]{4}/[0-9]{2}/[0-9]{2}", "%Y/%m/%d", "year_first_slash"),
+    ):
+        if re.fullmatch(pattern, value):
+            try:
+                return datetime.strptime(value, fmt).date(), "parsed", label
+            except ValueError:
+                return None, "invalid", None
+    if re.fullmatch(r"[0-9]{2}/[0-9]{2}/[0-9]{4}", value):
+        candidates = set()
+        for fmt in ("%m/%d/%Y", "%d/%m/%Y"):
+            try:
+                candidates.add(datetime.strptime(value, fmt).date())
+            except ValueError:
+                pass
+        if len(candidates) == 1:
+            return next(iter(candidates)), "parsed", "unambiguous_numeric_slash"
+        return None, "ambiguous" if candidates else "invalid", None
+    return None, "unknown_format", None
+
+
+def _row_semantics(rows, window):
+    dates, date_checks = _field_summary(rows, "report_date")
+    date_checks.update(dict.fromkeys(("parsed_count", "invalid_count", "unknown_format_count",
+        "ambiguous_count", "non_string_count", "in_window_count", "out_of_window_count"), 0))
+    date_checks["parsed_format_counts"] = dict.fromkeys(("iso_date", "compact_date",
+        "year_first_slash", "unambiguous_numeric_slash"), 0)
+    for value in dates:
+        parsed, status, fmt = _report_date(value)
+        date_checks[status + "_count"] += 1
+        if parsed is not None:
+            date_checks["parsed_format_counts"][fmt] += 1
+            date_checks["in_window_count" if window[0] <= parsed <= window[1] else "out_of_window_count"] += 1
+    currencies, currency_checks = _field_summary(rows, "currency")
+    usd_count = sum(type(value) is str and value == "USD" for value in currencies)
+    currency_checks.update(known_currency_counts={"USD": usd_count},
+                           unknown_value_count=len(currencies) - usd_count)
+    native_ids = {}
+    for field in ("id", "transaction_id", "reference"):
+        values, checks = _field_summary(rows, field)
+        scalars = [(type(value), value) for value in values
+                   if type(value) is int or (type(value) is str and value.strip())]
+        checks.update(nonempty_scalar_count=len(scalars), distinct_scalar_count=len(set(scalars)),
+                      duplicate_scalar_count=len(scalars) - len(set(scalars)))
+        native_ids[field] = checks
+    return {"report_date": date_checks, "currency": currency_checks,
+            "native_id_fields": native_ids, "native_identity_stability": "unknown"}
+
+
+def _pagination_semantics(containers, counts, labels):
+    row_count = containers[0]["row_count"] if len(containers) == 1 else None
+    result = {"row_count": row_count, "expected_row_count": None,
+              "metadata_consistency": "unknown", "page_coverage": "unknown"}
+    if (row_count is None or any(value is None for value in counts.values())
+            or any(label in labels for label in ("total_pages", "next_page", "pagination"))):
+        return result
+    page, per_page, total = (counts[key] for key in ("page", "per_page", "total"))
+    if page != 1 or per_page < 1:
+        result["metadata_consistency"] = "inconsistent"
+        return result
+    expected = min(per_page, total)
+    result["expected_row_count"] = expected
+    result["metadata_consistency"] = "consistent" if row_count == expected else "inconsistent"
+    if row_count == expected:
+        result["page_coverage"] = "reported_single_page" if total <= per_page else "more_pages_reported"
+    return result
+
+
+def project_schema(payload, *, start=None, end=None):
     """Expose fixed field labels/types and counts; never values or dynamic names."""
     if not isinstance(payload, (dict, list)):
         raise ValueError("history_schema_invalid")
-    result = []
+    window = None
+    if start is not None or end is not None:
+        try:
+            first, last = date.fromisoformat(start), date.fromisoformat(end)
+            if first.isoformat() != start or last.isoformat() != end or first > last:
+                raise ValueError
+            window = first, last
+        except (ValueError, TypeError):
+            raise ValueError("history_semantic_window_invalid") from None
+    result, semantic_containers = [], []
     def visit(value, path, depth):
         if depth > 4:
             raise ValueError("history_schema_depth_exceeded")
@@ -62,6 +157,9 @@ def project_schema(payload):
                 "known_field_types": {key: sorted({type(row[key]).__name__ for row in value if key in row})
                                       for key in _FIELDS if key in keys},
                 "unlisted_field_count": len(keys - set(_FIELDS))})
+            if window is not None:
+                semantic_containers.append({"path": path, "row_count": len(value),
+                                            **_row_semantics(value, window)})
         elif isinstance(value, dict):
             for key in _CONTAINERS:
                 if key in value and isinstance(value[key], (dict, list)):
@@ -74,11 +172,16 @@ def project_schema(payload):
     provider_error_present = None
     if isinstance(payload, dict) and "error" in payload:
         provider_error_present = payload["error"] not in (None, "", False)
-    return {"containers": result, "pagination_labels_present": [key for key in
+    schema = {"containers": result, "pagination_labels_present": [key for key in
         ("page", "per_page", "total", "total_pages", "next_page", "pagination")
         if isinstance(payload, dict) and key in payload],
         "pagination_counts": pagination_counts, "provider_error_present": provider_error_present,
         "coverage": "first_page_only_not_complete_history", "financial_values_exported": False}
+    if window is not None:
+        schema["semantic_checks"] = {"containers": semantic_containers,
+            "pagination": _pagination_semantics(result, pagination_counts, schema["pagination_labels_present"]),
+            "transaction_qualification": "not_qualified"}
+    return schema
 
 
 def execute(start, end, *, archive_page=False, archive_run="", archive_generation="", archive_sha256=""):
@@ -127,7 +230,7 @@ def execute(start, end, *, archive_page=False, archive_run="", archive_generatio
         name = f"{prefix}/account-activity/{identity}/{start}_{end}/{archive_run}-1.json"
         body = archive.read_pinned(name, archive_generation, archive_sha256)
         payload = native_page_from_archive(body, account=account, start=start, end=end)
-        schema = project_schema(payload)
+        schema = project_schema(payload, start=start, end=end)
         if schema["provider_error_present"] is True:
             raise ArchiveUnavailable("archive_provider_error_present")
         return {"status": "inspected", "from": start, "to": end,
