@@ -272,8 +272,14 @@ def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
     return {"status": "projected", "uploaded": any(r["uploaded"] for r in results), "targets": len(results)}
 
 
+def _state_prefix(binding):
+    # Keep existing reservations authoritative until an explicit state migration.
+    return (binding.get("QSL_NOTIFICATION_MARKER_GCS_URI")
+            or binding["DIGEST_CANDIDATES_GCS_URI"]).rstrip("/")
+
+
 def _reserve(event, binding, *, now, store, state=None, recovered=False, severity=1):
-    prefix = binding["DIGEST_CANDIDATES_GCS_URI"].rstrip("/")
+    prefix = _state_prefix(binding)
     tracker = IncidentTracker(MarkerStore(store, prefix, now))
     decision = tracker.observe(event, state=state or event.event_kind, severity=severity, recovered=recovered)
     if decision.action == "coverage_unknown":
@@ -447,7 +453,7 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
                     try:
                         fact = event.to_candidate()
                         digest = hashlib.sha256(json.dumps(fact, sort_keys=True).encode()).hexdigest()
-                        uri = binding["DIGEST_CANDIDATES_GCS_URI"].rstrip("/") + f"/_notification_events/{digest}.json"
+                        uri = _state_prefix(binding) + f"/_notification_events/{digest}.json"
                         version, previous = store.read(uri)
                         if previous != fact and not store.compare_and_set(uri, version, fact):
                             raise RuntimeError("notification_event_concurrent_update")

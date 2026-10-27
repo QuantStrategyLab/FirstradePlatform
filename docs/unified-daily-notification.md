@@ -23,6 +23,17 @@ projection; disabled targets stay disabled. Do not infer private identities.
 The producer aggregates every unique cycle in the completed 06:00 SGT window;
 missing evidence is unknown, never zero. No new collector or scheduler is added.
 
+`QSL_NOTIFICATION_MARKER_GCS_URI` optionally separates incident reservations,
+delivery receipts and heartbeat event facts from `DIGEST_CANDIDATES_GCS_URI`.
+Use a dedicated per-account prefix so the runtime needs mutable access only to
+that state prefix and its exact daily candidate objects. Candidate paths and
+the central receiver contract stay unchanged. When the variable is absent or
+empty, state retains its existing paths under the candidate prefix. For an
+already enabled target, preserve that location until its original reservations
+and receipts have been migrated; changing the prefix alone would discard the
+history used to prevent duplicate alerts. Per-target bindings may set the
+variable independently.
+
 No deployment, variable application, IAM, secret or live message is authorized
 by this PR. Source adoption and delivery require separate approved release work.
 
