@@ -5,6 +5,8 @@ import unittest
 from application.execution_receipt_adapter import (
     attach_strategy_result_execution_receipt,
     attach_unknown_failure_execution_receipt,
+    is_expected_funding_skip,
+    strategy_result_report_status,
 )
 
 
@@ -90,6 +92,38 @@ class ExecutionReceiptAdapterTest(unittest.TestCase):
 
         self.assertEqual(report["execution_receipt"]["outcome"], "risk_blocked")
 
+    def test_confirmed_funding_skip_is_healthy_no_action(self) -> None:
+        result = _funding_skip()
+        report = _report()
+        attach_strategy_result_execution_receipt(report, result, dry_run=False)
+        self.assertTrue(is_expected_funding_skip(result))
+        self.assertEqual(strategy_result_report_status(result), "ok")
+        self.assertEqual(report["execution_receipt"]["outcome"], "no_action")
+        self.assertEqual(report["execution_receipt"]["broker_confirmation"], "not_applicable")
+
+    def test_funding_label_does_not_hide_other_failures_or_uncertainty(self) -> None:
+        for overrides in (
+            {"error": "offline failure"},
+            {"errors": ["offline failure"]},
+            {"strategy_run_persistence_error": "offline failure"},
+            {"strategy_plugin_error": "offline failure"},
+            {"orders_pending_count": 1},
+            {"execution_status": "pending_reconciliation"},
+            {"broker_submission_done": True},
+            {"action_done": True},
+            {"submitted_orders": [{}]},
+            {"execution_blocking_skips": [{"reason": "quote_unavailable"}]},
+            {"execution_blocking_skips": []},
+            {"execution_blocking_skips": ["invalid"]},
+            {"ok": False},
+        ):
+            with self.subTest(overrides=overrides):
+                self.assertFalse(is_expected_funding_skip({**_funding_skip(), **overrides}))
+
+    def test_funding_skip_with_independent_error_keeps_failed_report(self) -> None:
+        result = {**_funding_skip(), "strategy_run_persistence_error": "offline failure"}
+        self.assertEqual(strategy_result_report_status(result), "error")
+
     def test_dry_run_never_claims_submission(self) -> None:
         report = _report()
         report["dry_run"] = True
@@ -101,3 +135,28 @@ class ExecutionReceiptAdapterTest(unittest.TestCase):
         )
 
         self.assertEqual(report["execution_receipt"]["outcome"], "no_action")
+
+    def test_dry_run_exception_is_failed_without_live_submission_uncertainty(self) -> None:
+        report = _report()
+        report["dry_run"] = True
+        attach_unknown_failure_execution_receipt(report)
+        self.assertEqual(report["execution_receipt"]["outcome"], "failed")
+        self.assertEqual(report["execution_receipt"]["broker_confirmation"], "not_applicable")
+
+
+def _funding_skip() -> dict[str, object]:
+    return {
+        "ok": True,
+        "strategy_run_stage": "FUNDING_BLOCKED",
+        "funding_blocked": True,
+        "execution_blocked": True,
+        "execution_block_retryable": True,
+        "action_done": False,
+        "broker_submission_done": False,
+        "submitted_orders": [],
+        "execution_blocking_skips": [{"reason": "insufficient_cash"}],
+        "skipped_orders": [
+            {"reason": "below_trade_threshold"},
+            {"reason": "insufficient_cash"},
+        ],
+    }

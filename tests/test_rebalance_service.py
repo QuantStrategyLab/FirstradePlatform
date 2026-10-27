@@ -1239,7 +1239,8 @@ def test_run_strategy_cycle_retries_live_funding_block_after_cash_arrives(monkey
 
     latest_payload = store.writes[-2][1]
     assert result["action_done"] is False
-    assert result["ok"] is False
+    assert result["ok"] is True
+    assert "error" not in result
     assert result["execution_blocked"] is True
     assert result["execution_block_retryable"] is True
     assert result["funding_blocked"] is True

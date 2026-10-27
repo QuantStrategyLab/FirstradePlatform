@@ -34,7 +34,20 @@ example, a temporary quote failure or insufficient settled cash. It writes a
 durable create-only claim immediately before the first live broker request, so
 an accepted, rejected, pending, timed-out, or otherwise unknown broker request
 is never sent again automatically. Funding blocks notify once and can retry on
-the bounded scheduler backoff or the next run inside the strategy window.
+the next scheduled run inside the strategy window. Other zero-submission blocks
+may use the bounded Scheduler error backoff.
+
+Confirmed funding-only skips with no broker submission or pending reconciliation
+are successful no-action cycles, with the insufficient-cash reason retained in
+the report. They return HTTP 200 to avoid Scheduler error retries; the existing
+later scheduled cycles can still retry after funds arrive. Quote failures, risk
+blocks, technical errors and uncertain submissions retain their failure or
+reconciliation status. The submission claim and live order gates are unchanged.
+
+The pinned QuantPlatformKit revision includes the shared receipt fix that keeps
+dry-run technical exceptions failed without claiming a live submission. Source
+adoption still requires deploying the resulting image; a merged pin alone does
+not update the serving runtime.
 
 ## Direct vs snapshot-backed profiles
 
