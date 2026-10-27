@@ -832,6 +832,12 @@ def run_strategy_cycle(
     execution_blocked = bool(blocking_skips)
     funding_blocked = is_funding_block(blocking_skips)
     funding_block = funding_blocked and not execution_result.action_done
+    expected_funding_skip = (
+        funding_block
+        and not execution_result.broker_submission_done
+        and not submitted_orders
+        and not execution_result.pending_reconciliation
+    )
     strategy_run_stage = (
         "PENDING_RECONCILIATION"
         if execution_result.pending_reconciliation
@@ -854,7 +860,7 @@ def run_strategy_cycle(
     )
     print("signal_snapshot " + json.dumps(signal_snapshot, ensure_ascii=False), flush=True)
     result = {
-        "ok": not execution_blocked,
+        "ok": not execution_blocked or expected_funding_skip,
         "api_kind": "unofficial-reverse-engineered",
         "account": account,
         "strategy_profile": strategy_runtime.profile,
@@ -891,7 +897,8 @@ def run_strategy_cycle(
         result["execution_blocked"] = True
         result["execution_block_retryable"] = not submission_claim_acquired
         result["execution_blocking_skips"] = blocking_skips
-        result["error"] = "Strategy execution blocked; see execution_blocking_skips."
+        if not expected_funding_skip:
+            result["error"] = "Strategy execution blocked; see execution_blocking_skips."
     if funding_blocked:
         result["funding_blocked"] = True
         if str((existing_run or {}).get("stage") or "").upper() == "FUNDING_BLOCKED":

@@ -51,6 +51,8 @@ from application.rebalance_service import run_strategy_cycle
 from application.execution_receipt_adapter import (
     attach_strategy_result_execution_receipt,
     attach_unknown_failure_execution_receipt,
+    is_expected_funding_skip,
+    strategy_result_report_status,
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 from application.broker_reconciliation import (
@@ -334,6 +336,8 @@ def _strategy_result_diagnostics(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _strategy_result_http_status(result: dict[str, Any]) -> int:
+    if is_expected_funding_skip(result):
+        return 200
     if result.get("execution_blocked") and result.get("execution_block_retryable"):
         return 500
     return 200
@@ -425,7 +429,7 @@ def _run_strategy_cycle_with_report(
         attach_strategy_result_execution_receipt(report, result, dry_run=dry_run)
         finalize_runtime_report(
             report,
-            status="ok" if result.get("ok", True) else "error",
+            status=strategy_result_report_status(result),
             summary=_strategy_result_summary(result, dry_run=dry_run),
             diagnostics=_strategy_result_diagnostics(result),
         )

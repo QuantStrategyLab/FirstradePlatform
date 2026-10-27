@@ -357,7 +357,7 @@ def test_run_endpoint_skips_when_market_closed(monkeypatch):
     assert payload["submitted_orders"] == []
 
 
-def test_run_endpoint_returns_500_for_retryable_funding_block(monkeypatch):
+def test_run_endpoint_accepts_confirmed_funding_skip_without_http_retry(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_STRATEGY_ON_HTTP", "true")
     monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setattr(main, "_should_skip_for_market_hours", lambda: (False, None))
@@ -365,21 +365,47 @@ def test_run_endpoint_returns_500_for_retryable_funding_block(monkeypatch):
         main,
         "_run_strategy_cycle_with_report",
         lambda **_kwargs: {
-            "ok": False,
+            "ok": True,
+            "strategy_run_stage": "FUNDING_BLOCKED",
+            "action_done": False,
+            "broker_submission_done": False,
+            "submitted_orders": [],
+            "execution_blocking_skips": [{"reason": "insufficient_cash"}],
             "execution_blocked": True,
             "execution_block_retryable": True,
             "funding_blocked": True,
-            "error": "Strategy execution blocked; see execution_blocking_skips.",
         },
     )
     client = main.app.test_client()
 
     response = client.post("/run")
 
-    assert response.status_code == 500
+    assert response.status_code == 200
     payload = response.get_json()
     assert payload["funding_blocked"] is True
     assert payload["execution_block_retryable"] is True
+
+
+def test_funding_skip_persists_healthy_report_and_keeps_reason(monkeypatch):
+    persisted = []
+    result = {
+        "ok": True,
+        "strategy_run_stage": "FUNDING_BLOCKED",
+        "funding_blocked": True,
+        "execution_blocked": True,
+        "execution_block_retryable": True,
+        "action_done": False,
+        "broker_submission_done": False,
+        "submitted_orders": [],
+        "execution_blocking_skips": [{"reason": "insufficient_cash"}],
+        "skipped_orders": [{"reason": "insufficient_cash"}],
+    }
+    monkeypatch.setattr(main, "run_strategy_cycle", lambda **_kwargs: result)
+    monkeypatch.setattr(main, "_persist_runtime_report", lambda report: persisted.append(report))
+    assert main._run_strategy_cycle_with_report(dry_run_override=False) is result
+    assert persisted[0]["status"] == "ok"
+    assert persisted[0]["summary"]["orders_skipped"] == [{"reason": "insufficient_cash"}]
+    assert main._strategy_result_http_status({**result, "error": "offline failure"}) == 500
 
 
 def test_run_endpoint_returns_500_for_retryable_execution_block(monkeypatch):

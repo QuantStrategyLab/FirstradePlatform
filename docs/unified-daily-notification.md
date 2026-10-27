@@ -6,7 +6,7 @@ immediate confirmed order notices. Failed, pending, uncertain, risk, persistence
 and authentication outcomes retain immediate alerts. Healthy idle cycles and
 routine plugin observations do not produce individual pushes.
 
-QPK source reference: `5181f2d6a44b935f7b82c46bc9e77439297e18d5` (notification modules; same as the QPK pin).
+QPK source reference: `5d0714201f3813f68a9833083cd21f6d61e5b702` (notification modules; same as the QPK pin).
 
 The notification modules are imported directly from the QPK dependency pinned in
 `pyproject.toml` and `uv.lock`; no vendored QPK notification snapshot is kept in
