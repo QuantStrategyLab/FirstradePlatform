@@ -17,16 +17,7 @@ from scripts.inspect_funds_snapshot_schema import configured_account
 _CONTAINERS = ("result", "data", "items", "rows", "transactions", "history", "account_history")
 _FIELDS = ("date", "trade_date", "settle_date", "transaction_date", "type", "transaction_type",
            "description", "symbol", "quantity", "price", "amount", "net_amount", "currency",
-           "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side",
-           "action", "activity_date", "activity_type", "currency_code", "process_date",
-           "settlement_date", "trans_date", "trans_type", "transaction_code", "record_id")
-# Predetermined labels only: never export an arbitrary provider key or its value.
-_FIELD_SPELLINGS = tuple(dict.fromkeys(
-    spelling for key in _FIELDS for spelling in (
-        key, key.split("_")[0] + "".join(part.title() for part in key.split("_")[1:]),
-        key.replace("_", ""),
-    )
-))
+           "fee", "fees", "commission", "id", "transaction_id", "reference", "status", "side")
 
 
 class CloudReadUnavailable(ValueError):
@@ -64,8 +55,8 @@ def project_schema(payload):
             keys = set().union(*(row.keys() for row in value)) if value else set()
             result.append({"path": path, "row_count": len(value),
                 "known_field_types": {key: sorted({type(row[key]).__name__ for row in value if key in row})
-                                      for key in _FIELD_SPELLINGS if key in keys},
-                "unlisted_field_count": len(keys - set(_FIELD_SPELLINGS))})
+                                      for key in _FIELDS if key in keys},
+                "unlisted_field_count": len(keys - set(_FIELDS))})
         elif isinstance(value, dict):
             for key in _CONTAINERS:
                 if key in value and isinstance(value[key], (dict, list)):

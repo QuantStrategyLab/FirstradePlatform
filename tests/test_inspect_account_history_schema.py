@@ -25,20 +25,6 @@ def test_missing_container_is_unknown_while_real_empty_list_is_observed():
     assert module.project_schema({"items": []})["containers"][0]["row_count"] == 0
 
 
-def test_fixed_field_spellings_expose_types_without_values_or_dynamic_names():
-    private = "synthetic-private-value"
-    row = {"tradeDate": private, "transactiontype": private, "currencyCode": private,
-           "process_date": private, "action": private, "recordId": private,
-           private: private, "accountNumber": private}
-    result = module.project_schema({"items": [row]})
-    assert result["containers"][0]["known_field_types"] == {
-        key: ["str"] for key in row if key not in (private, "accountNumber")}
-    assert result["containers"][0]["unlisted_field_count"] == 2
-    assert private not in json.dumps(result)
-    assert "accountNumber" not in json.dumps(result)
-    assert result["coverage"] == "first_page_only_not_complete_history"
-
-
 def test_pagination_preserves_zero_without_claiming_complete_history():
     result = module.project_schema({"items": [], "page": 1, "per_page": 1000, "total": 0, "error": ""})
     assert result["pagination_counts"] == {"page": 1, "per_page": 1000, "total": 0}
