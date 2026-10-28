@@ -43,7 +43,8 @@ class FirstradeCachedSessionError(FirstradePlatformError):
 
     def __init__(self, reason_code: str, *, stage: str = "cache", http_status: int | None = None):
         if reason_code not in {
-            "cache_missing_or_stale", "cache_tokens_incomplete", "read_timeout",
+            "cache_missing_or_stale", "cache_missing", "cache_stale", "cache_invalid",
+            "cache_read_failed", "cache_config_error", "cache_tokens_incomplete", "read_timeout",
             "read_network_error", "read_http_error", "read_invalid_payload",
             "read_provider_error", "account_data_invalid",
         } or stage not in {"cache", "userinfo", "account_list", "account_read"}:
@@ -319,7 +320,7 @@ class FirstradeBrokerClient:
             or not self.credentials.username.strip() or not self.credentials.reuse_session
         ):
             raise FirstradeSafetyError("Firstrade cached-only connection requires a fresh non-trading client.")
-        payload = self._load_session_cache(Path(self.credentials.cookie_dir))
+        payload = self._load_read_only_session_cache(Path(self.credentials.cookie_dir))
         if not payload:
             raise FirstradeCachedSessionError("cache_missing_or_stale")
         if not isinstance(payload.get("access-token"), str) or not payload["access-token"]:
@@ -444,6 +445,33 @@ class FirstradeBrokerClient:
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
         return cookie_dir / f"ft_session_{self._session_cache_identity()}.json"
+
+    def _load_read_only_session_cache(self, cookie_dir: Path) -> dict[str, Any] | None:
+        if not self.credentials.persist_session_cache and self._session_cache_store is None:
+            return self._load_session_cache(cookie_dir)
+        try:
+            store = self._session_state_store()
+        except Exception:
+            raise FirstradeCachedSessionError("cache_config_error") from None
+        if store is None:
+            raise FirstradeCachedSessionError("cache_config_error")
+        try:
+            payload = store.read_json(self._session_state_key())
+        except Exception:
+            raise FirstradeCachedSessionError("cache_read_failed") from None
+        if payload is None:
+            raise FirstradeCachedSessionError("cache_missing")
+        if not self._is_valid_session_cache_payload(payload):
+            try:
+                saved_at = float(payload.get("saved_at") or 0.0)
+            except (AttributeError, TypeError, ValueError):
+                saved_at = 0.0
+            if isfinite(saved_at) and saved_at > 0 and not 0 <= time() - saved_at <= max(
+                1, int(self.credentials.session_cache_ttl_seconds or 1)
+            ):
+                raise FirstradeCachedSessionError("cache_stale")
+            raise FirstradeCachedSessionError("cache_invalid")
+        return payload
 
     def _load_session_cache(self, cookie_dir: Path) -> dict[str, Any] | None:
         path = self._session_cache_path(cookie_dir)

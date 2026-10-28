@@ -37,6 +37,20 @@ API or page acceptance result.
 
 ## Cached account-history source inspection
 
+Cached-only account facts and history reads use the shared session cache as the
+authority when persistent session caching is enabled. They do not fall back to a
+local instance cache if shared storage is unavailable, missing, invalid, or
+stale. Local-only configurations continue to use the local cache. This rule does
+not change the normal login path or refresh a broker session.
+
+The fixed cache diagnostics distinguish `cache_config_error`,
+`cache_read_failed`, `cache_missing`, `cache_stale`, and `cache_invalid`;
+`cache_tokens_incomplete` identifies a missing required token. A successful
+cache read does not prove that Firstrade still accepts the session: an upstream
+401 remains `read_http_error` at the relevant read stage. The account-facts
+endpoint returns the sanitized `readonly_client_unavailable` response and logs
+the fixed diagnostic, without retrying or starting a login.
+
 `Inspect cached account history schema` reads one first page for the current
 serving runtime's exact account and at most 31 closed UTC dates within the past
 year. It uses the same configured deployment identity, the existing username

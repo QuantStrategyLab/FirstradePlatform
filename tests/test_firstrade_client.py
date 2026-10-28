@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -473,6 +474,81 @@ def test_read_only_connection_reuses_cache_without_auth_or_writes(tmp_path, monk
     assert client.read_only_transport_enabled is False
 
 
+def test_read_only_prefers_shared_cache_over_valid_local_cache(tmp_path, monkeypatch):
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    path = client._session_cache_path(tmp_path / "absent")
+    path.parent.mkdir()
+    path.write_text(json.dumps({"saved_at": 1000, "ftat": "old", "sid": "old", "access-token": "old"}))
+    client.connect_read_only()
+    assert client.session.session.headers["access-token"] == "synthetic-access"
+    assert store.writes == 0 and calls == []
+    client.close()
+
+
+@pytest.mark.parametrize("failure,reason", [
+    ("error", "cache_read_failed"), ("missing", "cache_missing"),
+    ("stale", "cache_stale"), ("invalid", "cache_invalid"),
+])
+def test_read_only_shared_cache_failures_do_not_use_local(tmp_path, monkeypatch, failure, reason):
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    path = client._session_cache_path(tmp_path / "absent")
+    path.parent.mkdir()
+    path.write_text(json.dumps({"saved_at": 1000, "ftat": "old", "sid": "old", "access-token": "old"}))
+    key = client._session_state_key()
+    if failure == "error":
+        def fail(_key):
+            raise RuntimeError("private storage error")
+        store.read_json = fail
+    elif failure == "missing":
+        del store.payloads[key]
+    elif failure == "stale":
+        store.payloads[key]["saved_at"] = 1
+        from dataclasses import replace
+        client.credentials = replace(client.credentials, session_cache_ttl_seconds=20)
+    else:
+        store.payloads[key]["saved_at"] = "invalid"
+    with pytest.raises(FirstradeCachedSessionError) as error:
+        client.connect_read_only()
+    assert error.value.reason_code == reason
+    assert "private storage error" not in str(error.value)
+    assert store.writes == 0 and calls == []
+
+
+def test_read_only_rejects_missing_shared_cache_configuration(tmp_path, monkeypatch):
+    from dataclasses import replace
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    client._session_cache_store = None
+    client.credentials = replace(client.credentials, persist_session_cache=True, gcs_state_bucket="")
+    with pytest.raises(FirstradeCachedSessionError) as error:
+        client.connect_read_only()
+    assert error.value.reason_code == "cache_config_error"
+    assert store.writes == 0 and calls == []
+
+
+def test_read_only_sanitizes_shared_store_initialization_failure(tmp_path, monkeypatch):
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    def fail():
+        raise RuntimeError("private store configuration")
+    monkeypatch.setattr(client, "_session_state_store", fail)
+    with pytest.raises(FirstradeCachedSessionError) as error:
+        client.connect_read_only()
+    assert error.value.reason_code == "cache_config_error"
+    assert "private store configuration" not in str(error.value)
+    assert store.writes == 0 and calls == []
+
+
+def test_read_only_local_cache_still_supported_without_shared_store(tmp_path, monkeypatch):
+    client, store, calls = _cached_read_only_client(tmp_path, monkeypatch)
+    client._session_cache_store = None
+    path = client._session_cache_path(tmp_path / "absent")
+    path.parent.mkdir()
+    path.write_text(json.dumps({"saved_at": 1000, "ftat": "local", "sid": "local", "access-token": "local"}))
+    client.connect_read_only()
+    assert client.session.session.headers["access-token"] == "local"
+    assert store.writes == 0 and calls == []
+    client.close()
+
+
 @pytest.mark.parametrize("saved_at", [None, 0, "bad", float("nan"), float("inf"), 1002, -1, 1])
 def test_read_only_connection_rejects_missing_or_expired_cache(tmp_path, monkeypatch, saved_at):
     client, store, calls = _cached_read_only_client(tmp_path, monkeypatch, saved_at=saved_at)
@@ -673,7 +749,7 @@ def test_read_only_reports_missing_cache_before_any_provider_read(tmp_path, monk
     store.payloads.clear()
     with pytest.raises(FirstradeCachedSessionError) as error:
         client.connect_read_only()
-    assert error.value.reason_code == "cache_missing_or_stale"
+    assert error.value.reason_code == "cache_missing"
     assert error.value.stage == "cache"
     assert calls == []
 
