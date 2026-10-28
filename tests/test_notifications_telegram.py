@@ -3,6 +3,33 @@ from __future__ import annotations
 from notifications.telegram import render_cycle_notification, render_cycle_summary
 
 
+def test_funding_block_reason_is_localized_in_both_notification_formats():
+    result = {
+        "strategy_profile": "ibit_dca",
+        "execution": {},
+        "submitted_orders": [],
+        "skipped_orders": [
+            {"symbol": "IBIT", "reason": "below_trade_threshold"},
+            {"reason": "insufficient_cash"},
+        ],
+        "execution_blocked": True,
+        "funding_blocked": True,
+        "execution_blocking_skips": [{"reason": "insufficient_cash"}],
+    }
+
+    for lang, label in (("zh", "可用现金不足"), ("en", "insufficient cash")):
+        notification = render_cycle_notification(result, lang=lang)
+        for message in (render_cycle_summary(result, lang=lang), notification.compact_text):
+            assert label in message
+            assert "insufficient_cash" not in message
+            assert "IBIT" in message
+            if lang == "zh":
+                assert "低于调仓阈值" in message
+
+    assert result["execution_blocking_skips"][0]["reason"] == "insufficient_cash"
+    assert result["skipped_orders"][1]["reason"] == "insufficient_cash"
+
+
 def test_no_trade_heartbeat_shows_broker_account_values_in_both_locales():
     result = {
         "account": "****1234",
