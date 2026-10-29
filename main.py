@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from notifications.telegram import build_translator
 
+import hashlib
+import json
 import os
 import re
 import traceback
@@ -409,6 +411,22 @@ def _should_skip_for_market_hours() -> tuple[bool, dict[str, Any] | None]:
     return True, _market_open_skip_payload(market_open=False, error=error)
 
 
+def _verified_account_facts_binding(account: str, settings: PlatformRuntimeSettings) -> str | None:
+    """Bind the account selected by this cycle to the existing facts identity."""
+    target = settings.runtime_target
+    scope = getattr(target, "account_scope", None)
+    deployment = getattr(target, "deployment_selector", None)
+    service = _service_name()
+    configured = os.environ.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID", "")
+    if not all(isinstance(value, str) and value for value in (account, scope, deployment, service)):
+        return None
+    identity = {"platform": "firstrade", "service_name": service,
+                "deployment_selector": deployment, "account_scope": scope,
+                "broker_account_id": account}
+    actual = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    return actual if actual == configured else None
+
+
 def _run_strategy_cycle_with_report(
     *,
     dry_run_override: bool | None = None,
@@ -418,14 +436,31 @@ def _run_strategy_cycle_with_report(
     settings = _runtime_settings(dry_run_override=dry_run_override)
     dry_run = bool(settings.dry_run_only)
     report = _build_runtime_report(settings, dry_run=dry_run)
+    verified_binding = None
+
+    def capture_verified_account(account: str) -> None:
+        nonlocal verified_binding
+        verified_binding = _verified_account_facts_binding(account, settings)
+
+    def persist_private_report() -> str | None:
+        if verified_binding is not None:
+            report["account_facts_source_binding_id"] = verified_binding
+        try:
+            return _persist_runtime_report(report)
+        finally:
+            report.pop("account_facts_source_binding_id", None)
+
     from notifications.unified import enabled, notify_cycle
     unified = enabled() and send_cycle_notification
     try:
-        result = run_strategy_cycle(
-            runtime_settings=settings,
-            send_cycle_notification=False if unified else send_cycle_notification,
-            dispatch_plugin_alerts=dispatch_plugin_alerts,
-        )
+        cycle_options = {
+            "runtime_settings": settings,
+            "send_cycle_notification": False if unified else send_cycle_notification,
+            "dispatch_plugin_alerts": dispatch_plugin_alerts,
+        }
+        if os.environ.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"):
+            cycle_options["verified_account_callback"] = capture_verified_account
+        result = run_strategy_cycle(**cycle_options)
         attach_strategy_result_execution_receipt(report, result, dry_run=dry_run)
         finalize_runtime_report(
             report,
@@ -434,7 +469,7 @@ def _run_strategy_cycle_with_report(
             diagnostics=_strategy_result_diagnostics(result),
         )
         try:
-            report_path = _persist_runtime_report(report)
+            report_path = persist_private_report()
             if report_path:
                 print(f"execution_report {report_path}", flush=True)
         except Exception as persist_exc:
@@ -463,7 +498,7 @@ def _run_strategy_cycle_with_report(
         attach_unknown_failure_execution_receipt(report)
         finalize_runtime_report(report, status="error")
         try:
-            report_path = _persist_runtime_report(report)
+            report_path = persist_private_report()
             if report_path:
                 print(f"execution_report {report_path}", flush=True)
         except Exception as persist_exc:

@@ -506,6 +506,7 @@ def run_strategy_cycle(
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
     send_cycle_notification: bool = True,
     dispatch_plugin_alerts: bool = True,
+    verified_account_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     now = _utcnow()
     settings = runtime_settings or load_platform_runtime_settings(project_id_resolver=get_project_id)
@@ -551,6 +552,8 @@ def run_strategy_cycle(
         if expected_account is not None
         else client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
     )
+    if expected_account is not None and verified_account_callback is not None:
+        verified_account_callback(account)
     strategy_runtime = load_strategy_runtime(
         settings.strategy_profile,
         runtime_settings=settings,
