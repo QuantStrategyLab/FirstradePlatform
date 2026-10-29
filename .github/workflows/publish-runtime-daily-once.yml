@@ -3,6 +3,10 @@ name: Publish one Firstrade runtime daily projection
 on:
   workflow_dispatch:
     inputs:
+      preflight_only:
+        description: Check authentication only; do not read or publish reports
+        type: boolean
+        default: true
       business_date:
         description: One New York business date (YYYY-MM-DD)
         type: string
@@ -42,10 +46,16 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --frozen --no-dev
       - name: Authenticate existing report reader
+        if: ${{ !inputs.preflight_only }}
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v3
+        if: ${{ !inputs.preflight_only }}
+      - name: Check existing receiver authentication without data writes
+        if: ${{ inputs.preflight_only }}
+        run: PYTHONPATH=. uv run --no-sync python -m scripts.publish_runtime_daily --preflight
       - name: Publish one protected projection
+        if: ${{ !inputs.preflight_only }}
         run: PYTHONPATH=. uv run --no-sync python -m scripts.publish_runtime_daily

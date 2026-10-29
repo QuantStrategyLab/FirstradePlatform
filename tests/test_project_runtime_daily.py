@@ -146,3 +146,23 @@ def test_redirect_is_not_followed_and_unknown_is_not_retried(monkeypatch):
     assert publisher._NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.test") is None
     assert publisher.publish_once(env, now=datetime(2026, 10, 29, 20, tzinfo=timezone.utc), opener=opener) == "unconfirmed"
     assert opener.calls == 1
+
+
+def test_auth_preflight_accepts_only_exact_safe_json_without_retry(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    from scripts import publish_runtime_daily as publisher
+
+    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
+    env = {"EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync"}
+    class Opener:
+        def __init__(self, code, body): self.code, self.body, self.calls = code, body, 0
+        def open(self, request, timeout):
+            self.calls += 1
+            assert request.data == b"{" and timeout == 20
+            raise HTTPError(request.full_url, self.code, "ignored", {}, io.BytesIO(self.body))
+    for code, body, expected in ((400, b'{"ok":false,"error":"request body must be valid JSON"}', "verified"),
+                                 (400, b'{}', "unavailable"), (401, b'{}', "unavailable"),
+                                 (403, b'{}', "unavailable"), (302, b'{}', "unavailable")):
+        opener = Opener(code, body)
+        assert publisher.auth_preflight(env, opener=opener) == expected and opener.calls == 1
