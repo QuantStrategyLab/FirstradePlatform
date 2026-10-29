@@ -29,6 +29,8 @@ def test_qpk_dependent_heartbeats_use_one_locked_uv_runtime_per_job() -> None:
 
     for name, scripts in qpk_scripts.items():
         workflow = (ROOT / ".github/workflows" / name).read_text()
+        if name == "execution-report-heartbeat.yml":
+            workflow = workflow.split("  runtime_daily:\n", 1)[0]
 
         assert workflow.count(setup_uv) == 1
         assert workflow.count("uv sync --frozen --no-dev") == 1
@@ -52,7 +54,7 @@ def test_runtime_monitor_workflows_retry_gcp_authentication() -> None:
     for name in ("execution-report-heartbeat.yml", "runtime-guard.yml"):
         workflow = (ROOT / ".github/workflows" / name).read_text()
         if name == "execution-report-heartbeat.yml":
-            workflow = workflow.split("  heartbeat:\n", 1)[1]
+            workflow = workflow.split("  heartbeat:\n", 1)[1].split("  runtime_daily:\n", 1)[0]
 
         assert workflow.count("google-github-actions/auth@v3") == 2
         assert "id: gcp_auth_primary" in workflow
