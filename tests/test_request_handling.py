@@ -688,3 +688,38 @@ def test_reconciliation_missing_account_stops_before_client(monkeypatch):
     response = main.app.test_client().post("/reconcile")
     assert response.status_code == 503
     assert calls == []
+
+
+def test_verified_account_binding_is_private_and_only_persisted_after_actual_match(monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+
+    account = "synthetic-account"
+    target = SimpleNamespace(account_scope="live", deployment_selector="synthetic-deployment")
+    settings = SimpleNamespace(runtime_target=target, dry_run_only=False)
+    identity = {"platform": "firstrade", "service_name": "synthetic-service",
+                "deployment_selector": "synthetic-deployment", "account_scope": "live",
+                "broker_account_id": account}
+    binding = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    monkeypatch.setattr(main, "_service_name", lambda: "synthetic-service")
+    monkeypatch.setenv("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID", binding)
+    assert main._verified_account_facts_binding(account, settings) == binding
+    assert main._verified_account_facts_binding("another", settings) is None
+    assert main._verified_account_facts_binding(account, SimpleNamespace(runtime_target=None)) is None
+
+    monkeypatch.setattr(main, "_runtime_settings", lambda **_: settings)
+    monkeypatch.setattr(main, "_build_runtime_report", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(main, "attach_strategy_result_execution_receipt", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "finalize_runtime_report", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "_strategy_result_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(main, "_strategy_result_diagnostics", lambda *_args, **_kwargs: {})
+    saved = []
+    monkeypatch.setattr(main, "_persist_runtime_report", lambda report: saved.append(dict(report)))
+    result = {"ok": True}
+    def cycle(**kwargs):
+        kwargs["verified_account_callback"](account)
+        return result
+    monkeypatch.setattr(main, "run_strategy_cycle", cycle)
+    assert main._run_strategy_cycle_with_report(send_cycle_notification=False) is result
+    assert saved == [{"account_facts_source_binding_id": binding}]
+    assert binding not in json.dumps(result)
