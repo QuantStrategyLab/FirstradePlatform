@@ -453,12 +453,14 @@ def _run_strategy_cycle_with_report(
     from notifications.unified import enabled, notify_cycle
     unified = enabled() and send_cycle_notification
     try:
-        result = run_strategy_cycle(
-            runtime_settings=settings,
-            send_cycle_notification=False if unified else send_cycle_notification,
-            dispatch_plugin_alerts=dispatch_plugin_alerts,
-            verified_account_callback=capture_verified_account,
-        )
+        cycle_options = {
+            "runtime_settings": settings,
+            "send_cycle_notification": False if unified else send_cycle_notification,
+            "dispatch_plugin_alerts": dispatch_plugin_alerts,
+        }
+        if os.environ.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"):
+            cycle_options["verified_account_callback"] = capture_verified_account
+        result = run_strategy_cycle(**cycle_options)
         attach_strategy_result_execution_receipt(report, result, dry_run=dry_run)
         finalize_runtime_report(
             report,

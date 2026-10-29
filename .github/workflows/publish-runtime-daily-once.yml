@@ -8,9 +8,9 @@ on:
         type: boolean
         default: true
       business_date:
-        description: One New York business date (YYYY-MM-DD)
+        description: One New York business date (YYYY-MM-DD), required for publication
         type: string
-        required: true
+        required: false
 
 permissions:
   contents: read
