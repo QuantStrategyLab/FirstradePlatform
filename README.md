@@ -123,7 +123,7 @@ uv run --no-sync python scripts/check_qpk_pin_consistency.py
 
 ## Useful docs
 
-- [Isolated paper command consumer](docs/paper_execution_command_consumer.md)
+- [Isolated paper command consumer](docs/paper-execution-command-consumer.md)
 
 ## Community and security
 
