@@ -169,3 +169,43 @@ jobs:
           DIGEST_TARGET_BINDINGS_JSON: ${{ secrets.DIGEST_TARGET_BINDINGS_JSON }}
           DIGEST_NOTIFICATION_SCHEDULE_JSON: ${{ vars.DIGEST_NOTIFICATION_SCHEDULE_JSON }}
         run: uv run --no-sync python scripts/emit_unified_digest_candidates.py
+
+  runtime_daily:
+    name: Publish a fresh runtime daily projection
+    if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: firstrade-runtime-daily-once
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RUNTIME_HEARTBEAT_REPORT_PLATFORM: firstrade
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE }}
+      FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY }}
+      FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID }}
+      EXECUTION_REPORT_GCS_URI: ${{ vars.EXECUTION_REPORT_GCS_URI || secrets.EXECUTION_REPORT_GCS_URI }}
+      EXECUTION_EVIDENCE_SYNC_URL: ${{ vars.EXECUTION_EVIDENCE_SYNC_URL }}
+      EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
+      RUNTIME_TARGET_JSON: ${{ secrets.RUNTIME_TARGET_JSON }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+      - name: Install locked dependencies
+        run: uv sync --frozen --no-dev
+      - name: Authenticate existing report reader
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Publish fresh daily projection once
+        run: |
+          set -euo pipefail
+          RUNTIME_DAILY_BUSINESS_DATE="$(TZ=America/New_York date +%F)"
+          export RUNTIME_DAILY_BUSINESS_DATE
+          PYTHONPATH=. uv run --no-sync python -m scripts.publish_runtime_daily
