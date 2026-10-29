@@ -44,7 +44,7 @@ jobs:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       FIRSTRADE_ACCOUNT_FACTS_TARGET_ID: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_TARGET_ID }}
       RUNTIME_DAILY_COMPARE_NONCE: ${{ inputs.compare_nonce }}
-      RUNTIME_TARGET_JSON: ${{ vars.RUNTIME_TARGET_JSON || secrets.RUNTIME_TARGET_JSON }}
+      RUNTIME_TARGET_JSON: ${{ secrets.RUNTIME_TARGET_JSON }}
       RUNTIME_DAILY_BUSINESS_DATE: ${{ inputs.business_date }}
     steps:
       - uses: actions/checkout@v6
