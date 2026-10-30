@@ -122,7 +122,10 @@ def test_qrs_roundtrip_real_order_is_daily_and_counted_once(qrs, tmp_path):
     notify(store, report, result, sent)
     rows, summary, receipt, text = roundtrip(qrs, candidate(store), tmp_path)
     assert sent == [] and rows[0]["order_count"] == rows[0]["fill_count"] == 1
-    assert summary["event_count"] == 1 and summary["immediate_events"] == 0
+    # This frozen QRS 716 receiver predates classifying fills as routine.
+    # Its historical metric classifies the fact, not an actual delivery;
+    # the producer assertion above confirms no immediate send occurred.
+    assert summary["event_count"] == summary["immediate_events"] == 1
     assert summary["counts_unknown"] is False
     assert receipt["run_count"] == 1 and receipt["total_fills"] == 1
     assert "订单：1" in text and "成交：1" in text
