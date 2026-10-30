@@ -1,5 +1,23 @@
 # Saved account history
 
+## Snapshot request log diagnosis
+
+The existing `Diagnose cached-balance stage failure` workflow also has a
+default-off `snapshot_request_logs_only` mode. It requires the exact current
+main SHA, the approved main ref, `run_readonly_diagnostic=true`, and a past UTC
+window of at most 30 minutes. It cannot be combined with a schema inspection.
+It reads bounded Scheduler completion and Cloud Run request logs for the fixed
+account-facts sync target, then reads application logs only for a uniquely
+identified request trace. Truncated or inaccessible reads remain explicit; the
+Scheduler-to-request association is based only on target and time, not a
+proven common invocation. Only fixed categories, HTTP status codes and counts
+are printed. No Scheduler job, broker request or sync is invoked.
+The serving application's ordinary text logs may not carry a request trace;
+in that case the application failure stays unknown even when request logs exist.
+`unique_trace` means the one candidate request has a valid trace identifier;
+it does not establish that an application log matched it or that the Scheduler
+attempt caused that request. Unrecognized reasons remain `unknown`.
+
 `Publish saved account history day` previews one existing UTC day by default.
 It reads private funds archives in the cloud runner with the existing deployment
 identity. It never authenticates to Firstrade, invokes a broker service, or

@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      snapshot_request_logs_only:
+        description: Read bounded snapshot request logs as fixed safe categories only
+        required: false
+        default: false
+        type: boolean
       failure_window_start:
         description: UTC RFC3339 start time for the failed stage deployment
         required: true
@@ -77,8 +82,13 @@ jobs:
           FUNDS_SCHEMA_ONLY: ${{ inputs.funds_schema_only }}
           FUNDS_HISTORY_SCHEMA_ONLY: ${{ inputs.funds_history_schema_only }}
           EXECUTION_REPORTS_SCHEMA_ONLY: ${{ inputs.execution_reports_schema_only }}
+          SNAPSHOT_REQUEST_LOGS_ONLY: ${{ inputs.snapshot_request_logs_only }}
         run: |
           set -euo pipefail
+          if [ "${SNAPSHOT_REQUEST_LOGS_ONLY}" = "true" ] && { [ "${FUNDS_SCHEMA_ONLY}" = "true" ] || [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ] || [ "${EXECUTION_REPORTS_SCHEMA_ONLY}" = "true" ]; }; then
+            echo "Snapshot request logs cannot be combined with schema inspection." >&2
+            exit 1
+          fi
           if [ "${FUNDS_HISTORY_SCHEMA_ONLY}" = "true" ] && [ "${FUNDS_SCHEMA_ONLY}" != "true" ]; then
             echo "History inspection requires funds_schema_only." >&2
             exit 1
@@ -137,7 +147,7 @@ jobs:
           version: ">= 416.0.0"
 
       - name: Read private Cloud Run, IAM, Scheduler, and audit evidence
-        if: inputs.funds_schema_only != true
+        if: inputs.funds_schema_only != true && inputs.snapshot_request_logs_only != true
         env:
           EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
         run: |
@@ -185,6 +195,10 @@ jobs:
             --window-start "${FAILURE_WINDOW_START}" --window-end "${FAILURE_WINDOW_END}" \
             --scheduler-jobs "${scheduler_file}" --audit-entries "${audit_file}" \
             --audit-status "${audit_status}"
+
+      - name: Summarize bounded snapshot request logs
+        if: inputs.snapshot_request_logs_only == true
+        run: python3 -m scripts.diagnose_snapshot_request_logs
 
       - name: Inspect existing private funds snapshot schema
         if: inputs.funds_schema_only == true
