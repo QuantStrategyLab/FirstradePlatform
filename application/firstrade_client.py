@@ -278,8 +278,10 @@ class FirstradeBrokerClient:
         self.read_only_history_response_bytes: bytes | None = None
         self.read_only_request_attempts = 0
 
-    def connect(self, *, force_login: bool = False) -> "FirstradeBrokerClient":
-        """Log in (or reuse cache). force_login skips cache reuse but still saves the new cache."""
+    def connect(self, *, force_login: bool = False, defer_cache_save: bool = False) -> "FirstradeBrokerClient":
+        """Log in or reuse cache; forced callers may defer saving until validation."""
+        if defer_cache_save and not force_login:
+            raise FirstradeSafetyError("Deferred cache saving requires a forced login.")
         self.read_only_transport_enabled = False
         self.credentials.require_login_fields()
         session_factory = self._session_factory
@@ -310,7 +312,8 @@ class FirstradeBrokerClient:
         self.session = session
         self.account_data = account_data_factory(session)
         self.session_reused = False
-        self._save_session_cache(cookie_dir)
+        if not defer_cache_save:
+            self._save_session_cache(cookie_dir)
         return self
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
@@ -574,6 +577,39 @@ class FirstradeBrokerClient:
             store.write_json(self._session_state_key(), payload)
         except Exception:
             return
+
+    def save_verified_session_cache(self) -> None:
+        """Persist a validated forced-login session; fail closed on shared-store failure."""
+        if not self.credentials.reuse_session or not self.credentials.persist_session_cache or self.session is None:
+            raise FirstradeSafetyError("Validated session cache is unavailable.")
+        session_obj = getattr(self.session, "session", None)
+        headers = getattr(session_obj, "headers", {}) or {}
+        cookies = {}
+        if hasattr(session_obj, "cookies"):
+            try:
+                cookies = session_obj.cookies.get_dict()
+            except Exception:
+                cookies = {}
+        payload = {
+            "access-token": headers.get("access-token"),
+            "ftat": headers.get("ftat"),
+            "sid": headers.get("sid"),
+            "cookies": cookies,
+            "saved_at": time(),
+        }
+        if any(not isinstance(payload[key], str) or not payload[key].strip()
+               for key in ("access-token", "ftat", "sid")):
+            raise FirstradeSafetyError("Validated session cache is unavailable.")
+        try:
+            store = self._session_state_store()
+            if store is None or store.write_json(self._session_state_key(), payload) is not True:
+                raise FirstradeSafetyError("Validated session cache is unavailable.")
+        except Exception:
+            raise FirstradeSafetyError("Validated session cache is unavailable.") from None
+        try:
+            self._session_cache_path(Path(self.credentials.cookie_dir)).write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            pass
 
     def _session_state_store(self) -> GcsStateStore | None:
         if self._session_cache_store is not None:

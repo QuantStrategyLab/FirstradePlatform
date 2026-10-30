@@ -7,7 +7,7 @@ from application.firstrade_client import FirstradeCredentials, FirstradeMfaRequi
 from application.session_check_service import run_forced_session_renewal
 
 ORDER_METHODS = ("place_stock_order", "place_order", "submit_order", "cancel_order", "preview_order")
-READ_METHODS = {"connect", "select_account", "get_balances"}
+READ_METHODS = {"connect", "select_account", "get_balances", "save_verified_session_cache"}
 
 
 def _credentials(**overrides):
@@ -31,8 +31,8 @@ class _RecordingClient:
             raise AssertionError(f"order method reached: {name}")
         raise AttributeError(name)
 
-    def connect(self, *, force_login=False):
-        self.calls.append(("connect", force_login))
+    def connect(self, *, force_login=False, defer_cache_save=False):
+        self.calls.append(("connect", (force_login, defer_cache_save)))
         return self
 
     def select_account(self, requested=None):
@@ -42,6 +42,9 @@ class _RecordingClient:
     def get_balances(self, account):
         self.calls.append(("get_balances", account))
         return {"cash": 1}
+
+    def save_verified_session_cache(self):
+        self.calls.append(("save_verified_session_cache", None))
 
 
 def _factory(created):
@@ -62,7 +65,8 @@ def test_forced_renewal_logs_in_once_read_only():
     assert len(created) == 1
     client = created[0]
     assert client.live_trading_enabled is False
-    assert client.calls[0] == ("connect", True)
+    assert client.calls[0] == ("connect", (True, True))
+    assert [call[0] for call in client.calls] == ["connect", "select_account", "get_balances", "save_verified_session_cache"]
     assert {name for name, _ in client.calls} <= READ_METHODS
     assert "12345979" not in str(result)
 
@@ -117,8 +121,70 @@ def test_connect_force_login_skips_cached_session(tmp_path):
         order_factory=lambda *_a: (_ for _ in ()).throw(AssertionError("order factory reached")),
     )
     client._try_cached_session = lambda *a, **k: events.append("cached") or True
+    client._save_session_cache = lambda *_args: events.append("saved")
     client.connect(force_login=True)
-    assert events == ["login"]
+    assert events == ["login", "saved"]
+
+
+@pytest.mark.parametrize("scenario", ["success", "auto_single", "empty_balances", "wrong_account", "auto_multiple", "balances_fail", "store_false", "store_error"])
+@pytest.mark.parametrize("invalid_token", [None, ("access-token", None), ("access-token", 123), ("access-token", "  "), ("ftat", None), ("ftat", 123), ("ftat", "  "), ("sid", None), ("sid", 123), ("sid", "  ")])
+def test_renewal_commits_shared_cache_only_after_account_and_balance_validation(tmp_path, scenario, invalid_token):
+    from application.firstrade_client import FirstradeBrokerClient, FirstradePlatformError
+
+    events = []
+
+    class Store:
+        def write_json(self, key, value):
+            events.append("write")
+            if scenario == "store_error":
+                raise RuntimeError("private storage error")
+            return scenario != "store_false"
+
+    class Session:
+        def __init__(self, **_kwargs):
+            headers = {"access-token": "synthetic", "ftat": "synthetic", "sid": "synthetic"}
+            if invalid_token:
+                headers[invalid_token[0]] = invalid_token[1]
+            self.session = type("Transport", (), {"headers": headers, "cookies": None})()
+
+        def login(self):
+            events.append("login")
+            return False
+
+    class Data:
+        account_numbers = ["12345678", "87654321"] if scenario == "auto_multiple" else ["12345678"]
+        account_balances = {}
+
+        def __init__(self, _session):
+            pass
+
+        def get_account_balances(self, _account):
+            events.append("balances")
+            if scenario == "balances_fail":
+                raise FirstradePlatformError("synthetic failure")
+            if scenario == "empty_balances":
+                return {}
+            return {"synthetic": 1}
+
+    def factory(credentials, *, live_trading_enabled):
+        return FirstradeBrokerClient(credentials, live_trading_enabled=live_trading_enabled,
+            session_factory=Session, account_data_factory=Data, session_cache_store=Store())
+
+    requested = "" if scenario in {"auto_single", "auto_multiple"} else "87654321" if scenario == "wrong_account" else "12345678"
+    def run():
+        return run_forced_session_renewal(credentials=_credentials(cookie_dir=str(tmp_path)), client_factory=factory,
+            env_reader=lambda key, default=None: requested if key == "FIRSTRADE_ACCOUNT" else default)
+
+    if scenario in {"success", "auto_single", "empty_balances"} and invalid_token is None:
+        result = run()
+        assert result["session_renewed"] is True
+        assert result["balances_read"] is (scenario != "empty_balances")
+        assert events == ["login", "balances", "write"]
+    else:
+        with pytest.raises(FirstradePlatformError) as error:
+            run()
+        assert "private storage error" not in str(error.value)
+        assert events.count("write") == (1 if scenario in {"store_false", "store_error"} and invalid_token is None else 0)
 
 
 # --- HTTP route ---------------------------------------------------------------------------
