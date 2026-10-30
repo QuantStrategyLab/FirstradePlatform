@@ -466,10 +466,11 @@ def run_forced_session_renewal(
     client_factory: Callable[..., FirstradeBrokerClient] = FirstradeBrokerClient,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ) -> dict[str, Any]:
-    """Manual read-only session renewal: one fresh login, persist the session cache, read balances.
+    """Manual session renewal: fresh login, select account, read balances, then persist cache.
 
     Bypasses (never reads, writes, or deletes) the monthly session-check marker. The client is
     always built with live trading disabled and only account-read methods are called.
+    A successful result requires the shared cache write to complete successfully.
     """
 
     resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
@@ -478,9 +479,10 @@ def run_forced_session_renewal(
     client = client_factory(resolved_credentials, live_trading_enabled=False)
     if getattr(client, "live_trading_enabled", False):
         raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
-    client.connect(force_login=True)
+    client.connect(force_login=True, defer_cache_save=True)
     account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
     balances = client.get_balances(account)
+    client.save_verified_session_cache()
     print(
         "Firstrade forced session renewal "
         f"session_reused={bool(getattr(client, 'session_reused', False))} "

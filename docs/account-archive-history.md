@@ -1,5 +1,15 @@
 # Saved account history
 
+## Manual session renewal
+
+Manual session renewal selects the configured account, or the sole returned
+account when no account is configured, and completes the balance read before
+writing its session cache. A successful response requires the shared cache
+store to acknowledge the write. It does not prove a later snapshot succeeded;
+an empty balance response remains visible through `balances_read=false`.
+When a write fails or its outcome is unknown, inspect the existing state and
+request outcome before taking another action; do not blindly retry.
+
 ## Snapshot request log diagnosis
 
 The existing `Diagnose cached-balance stage failure` workflow also has a
