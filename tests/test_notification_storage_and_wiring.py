@@ -110,7 +110,8 @@ def test_candidate_slot_cannot_mix_accounts_even_if_misconfigured():
     report, result = source()
     notify(store, report, result, sent)
     other = {**ENV, "DIGEST_OPAQUE_ACCOUNT_UID": "another-opaque", "DIGEST_TARGET_ID": "another-target"}
-    assert notify(store, report, result, sent, env=other)["route"] == "immediate_fallback"
+    assert notify(store, report, result, sent, env=other)["route"] == "failed"
+    assert sent == []
     assert candidate(store)["runs"][0]["opaque_account_uid"] == "opaque-synthetic"
 
 
@@ -132,7 +133,13 @@ def test_main_on_writes_report_then_candidate_and_preserves_cycle_options(monkey
     monkeypatch.setattr(main, "_build_runtime_report", lambda *a, **kw: deepcopy(report))
     monkeypatch.setattr(main, "attach_strategy_result_execution_receipt", lambda *a, **kw: None)
     monkeypatch.setattr(main, "finalize_runtime_report", lambda *a, **kw: None)
-    monkeypatch.setattr(main, "_persist_runtime_report", lambda *a: store.calls.append(("report",)) or "synthetic")
+    from quant_platform_kit.common.runtime_reports import build_runtime_report_cloud_uri
+    def persist_report(value):
+        store.calls.append(("report",))
+        uri = build_runtime_report_cloud_uri(value, cloud_prefix_uri=ENV["EXECUTION_REPORT_GCS_URI"])
+        value.setdefault("artifacts", {})["runtime_report_cloud_uri"] = uri
+        return uri
+    monkeypatch.setattr(main, "_persist_runtime_report", persist_report)
     monkeypatch.setattr(unified, "GcsJsonStore", lambda: store)
     def cycle(**kwargs):
         store.calls.append(("cycle", kwargs["send_cycle_notification"], kwargs["dispatch_plugin_alerts"]))
@@ -178,3 +185,4 @@ def test_healthy_candidate_write_failure_is_an_alert_and_is_not_repeated(monkeyp
             now=NOW + timedelta(minutes=offset), env=ENV, store=store)
         assert result["candidate_persisted"] is False
     assert sent == ["storage failure"]
+

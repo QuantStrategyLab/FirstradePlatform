@@ -301,6 +301,21 @@ def _publish_cycle_notification(
     return delivery_sent
 
 
+def _report_unarchived_direct_coverage(result, *, settings, notification_sender=None):
+    from notifications.unified import alert_text, coverage_locale, cycle_kind
+    routine = cycle_kind(result) in {"routine_cycle", "order_submitted", "fill"}
+    if routine and result.get("dry_run_only") is True:
+        return True
+    if routine or result.get("routine_observation_counts"):
+        result["notification_digest_coverage_error"] = "daily_digest_coverage_unconfirmed"
+        try:
+            sender = notification_sender or build_sender(settings.tg_token, settings.tg_chat_id)
+            sender(alert_text("candidate_write_failure", coverage_locale()))
+        except Exception:
+            print("notification_consolidation_failed; coverage_unknown", flush=True)
+    return routine
+
+
 def _should_publish_cycle_notification(result: Mapping[str, Any]) -> bool:
     from quant_platform_kit.notifications.digest_routing import daily_digest_enabled
     if daily_digest_enabled() and (result.get("ok") is False or any(result.get(key) for key in (
@@ -419,9 +434,9 @@ def publish_strategy_plugin_alerts(
     log_message: Callable[..., Any] = print,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ):
-    from quant_platform_kit.notifications.digest_routing import immediate_plugin_signals
+    from notifications.digest_snapshot.digest_routing import immediate_plugin_signals
     return dispatch_strategy_plugin_alerts(
-        immediate_plugin_signals(signals),
+        immediate_plugin_signals(signals, mode="daily_digest"),
         notification_settings=settings,
         translator=translator,
         strategy_label=settings.strategy_profile,
@@ -896,6 +911,9 @@ def run_strategy_cycle(
             len(submitted_orders) if execution_result.pending_reconciliation else 0
         ),
     }
+    if dispatch_plugin_alerts:
+        from notifications.digest_snapshot.digest_candidates import routine_observation_counts
+        result["routine_observation_counts"] = routine_observation_counts(strategy_plugin_signals)
     if execution_blocked:
         result["execution_blocked"] = True
         result["execution_block_retryable"] = not submission_claim_acquired
@@ -952,7 +970,17 @@ def run_strategy_cycle(
         except Exception as exc:
             result["strategy_run_persisted"] = False
             result["strategy_run_persistence_error"] = f"{type(exc).__name__}: {exc}"
-    if send_cycle_notification and _should_publish_cycle_notification(result):
+    routine_without_archive = send_cycle_notification and _report_unarchived_direct_coverage(
+        result, settings=settings, notification_sender=notification_sender)
+    if routine_without_archive:
+        result["notification_sent"] = False
+        result["notification_suppressed"] = True
+        if result.get("dry_run_only") is True:
+            result["notification_suppressed_reason"] = "dry_run_preview"
+        else:
+            result["notification_suppressed_reason"] = "daily_digest_coverage_unconfirmed"
+            result["notification_error"] = "daily_digest_coverage_unconfirmed"
+    elif send_cycle_notification and _should_publish_cycle_notification(result):
         try:
             result["notification_sent"] = _publish_cycle_notification(
                 result,

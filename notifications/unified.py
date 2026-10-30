@@ -12,12 +12,12 @@ import hashlib
 import json
 import os
 
-from quant_platform_kit.notifications import digest_archive
-from quant_platform_kit.notifications.digest_candidates import project_reports
-from quant_platform_kit.notifications.digest_routing import defer_routine_cycle_to_digest
-from quant_platform_kit.notifications.unified_contract import (
+from notifications.digest_snapshot import digest_archive
+from notifications.digest_snapshot.digest_candidates import project_reports
+from notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
+from notifications.digest_snapshot.unified_contract import (
     CandidatePersistenceError, IncidentTracker, NotificationEvent,
-    effective_notification_mode, order_identity_digest, route_notification_event,
+    order_identity_digest, route_notification_event,
     sgt_business_window, unified_notification_enabled,
 )
 
@@ -28,6 +28,16 @@ TARGET_KEYS = ("platform_id", "strategy_profile", "service_name", "account_scope
 
 def enabled(env=None):
     return unified_notification_enabled(os.environ if env is None else env, FLAG)
+
+
+def coverage_locale(env=None):
+    """Resolve only the new coverage diagnostics; leave legacy locale intact."""
+    env = os.environ if env is None else env
+    for key in ("QSL_NOTIFY_LANG", "NOTIFY_LANG"):
+        value = str(env.get(key) or "").strip().lower()
+        if value:
+            return "en" if value.startswith("en") else "zh"
+    return "zh"
 
 
 class GcsJsonStore:
@@ -134,7 +144,7 @@ def _row(report, binding, target, now):
         event = _event(report, binding, "routine_cycle")
         if event.coverage_status != "known" or target.get("dry_run_only") is not True:
             raise ValueError("candidate_preview_identity_unknown")
-        return dict(platform_id=event.platform_id, strategy_profile=event.strategy_profile,
+        row = dict(platform_id=event.platform_id, strategy_profile=event.strategy_profile,
             opaque_account_uid=event.opaque_account_uid, target_id=event.target_id,
             business_day=sgt_business_window(event.occurred_at).business_day.isoformat(),
             actually_ran=True, dry_run=True, as_of=event.occurred_at.isoformat(),
@@ -142,9 +152,18 @@ def _row(report, binding, target, now):
             order_count=None, fill_count=None, cycle_count=1, evidence_provenance="candidates",
             field_status={"order_count": "unknown", "fill_count": "unknown"},
             persistence_status="persisted", delivery_status="pending_central")
-    row = project_reports([report], expected_target=target,
-        opaque_account_uid=binding["DIGEST_OPAQUE_ACCOUNT_UID"], target_id=binding["DIGEST_TARGET_ID"],
-        now=now)["runs"][0]
+    else:
+        row = project_reports([report], expected_target=target,
+            opaque_account_uid=binding["DIGEST_OPAQUE_ACCOUNT_UID"], target_id=binding["DIGEST_TARGET_ID"],
+            now=now)["runs"][0]
+    observations = (report.get("summary") or {}).get("routine_observation_counts")
+    if observations is not None:
+        allowed = {"watch", "opportunity_watch", "panic_reversal", "taco_rebound"}
+        if not isinstance(observations, dict) or any(
+            key not in allowed or type(value) is not int or value < 0 for key, value in observations.items()
+        ):
+            raise ValueError("candidate_plugin_observations_invalid")
+        row["routine_observation_counts"] = dict(observations)
     row["field_status"] = {key: "known" if row[key] is not None else "unknown"
                            for key in ("order_count", "fill_count")}
     return row
@@ -197,6 +216,8 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
         for run_id, row in rows.items():
             old = sources.get(run_id)
             if old and old != row:
+                if ("routine_observation_counts" in old) != ("routine_observation_counts" in row) or old.get("routine_observation_counts") != row.get("routine_observation_counts"):
+                    raise ValueError("candidate_plugin_observations_conflict")
                 # Retain an observed alert or contradictory counts; never erase it
                 # with a later healthy snapshot of the same source run.
                 row = _aggregate([old, row])
@@ -204,7 +225,10 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                 row.update(order_count=None, fill_count=None,
                     field_status={"order_count": "unknown", "fill_count": "unknown"})
             sources[run_id] = row
-        facts.update(events)
+        for key, fact in events.items():
+            if key in facts and facts[key] != fact:
+                raise ValueError("candidate_notification_event_conflict")
+            facts[key] = fact
         identity = ("platform_id", "strategy_profile", "opaque_account_uid", "target_id", "business_day", "dry_run")
         source_rows = list(sources.values())
         if any(any(row.get(key) != source_rows[0].get(key) for key in identity) for row in source_rows):
@@ -238,8 +262,6 @@ def persist_report_candidate(report, fact, *, env, now, store):
 
 
 def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
-    if not enabled(env):
-        return digest_archive.emit(env, now=now, read=read)
     current = now or datetime.now(timezone.utc)
     store = store or GcsJsonStore()
     results = []
@@ -267,7 +289,7 @@ def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
                 rows[report["run_id"]] = _row(report, selected, target, current)
                 events[event.to_candidate()["dedupe_key"]] = event.to_candidate()
             _merge(store, uri, rows, events, idle=payload["runs"][0] if not rows else None, archive=True)
-        mapped = {**binding, "QSL_ROUTINE_NOTIFICATION_MODE": effective_notification_mode(binding, FLAG)}
+        mapped = {**binding, "QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest"}
         results.append(digest_archive.emit(mapped, now=current, read=capture, upload=upload))
     return {"status": "projected", "uploaded": any(r["uploaded"] for r in results), "targets": len(results)}
 
@@ -326,6 +348,44 @@ def _tracked(event, binding, *, now, store, send, state=None, recovered=False, s
     return _record_ack(tracker, decision, outcome, event=event)
 
 
+def known_pending_orders(result):
+    """A bounded broker ACK proof; it does not imply an execution or fill."""
+    orders = result.get("submitted_orders")
+    if (result.get("execution_status") != "pending_reconciliation" or result.get("ok") is not True
+            or result.get("broker_submission_done") is not True or not isinstance(orders, (list, tuple))
+            or not orders or type(result.get("orders_pending_count")) is not int
+            or result["orders_pending_count"] != len(orders)):
+        return False
+    skipped = result.get("skipped_orders") or []
+    harmless_skips = {"below_trade_threshold", "buy_notional_below_minimum"}
+    if not isinstance(skipped, (list, tuple)) or any(
+        not isinstance(item, Mapping) or item.get("reason") not in harmless_skips for item in skipped
+    ):
+        return False
+    if any(result.get(key) for key in (
+        "error", "errors", "auth_expired", "execution_blocked", "execution_blocking_skips",
+        "strategy_run_persistence_error", "report_persistence_error", "strategy_plugin_error",
+        "strategy_plugin_alert_error", "notification_error", "notification_attention_reason_codes",
+        "reconciliation_required", "outcome_unknown", "submission_halted",
+    )):
+        return False
+    ids = []
+    for order in orders:
+        if not isinstance(order, Mapping):
+            return False
+        raw = order.get("raw_payload") or {}
+        if (not isinstance(raw, Mapping) or any(order.get(key) or raw.get(key) for key in (
+            "error", "errors", "fail_reason", "reconciliation_required", "outcome_unknown",
+        ))):
+            return False
+        status = "".join(ch for ch in str(order.get("status") or "").lower() if ch.isalnum())
+        identity = order.get("broker_order_id")
+        if status not in {"accepted", "submitted", "partiallyfilled"} or not isinstance(identity, str) or not identity.strip():
+            return False
+        ids.append(identity)
+    return len(ids) == len(set(ids))
+
+
 def cycle_kind(result):
     if result.get("auth_expired"):
         return "auth_failure"
@@ -334,7 +394,7 @@ def cycle_kind(result):
     if result.get("execution_blocked") or result.get("execution_blocking_skips"):
         return "blocked_run"
     orders = result.get("submitted_orders") or []
-    if result.get("orders_pending_count") or result.get("pending_reconciliation"):
+    if (result.get("orders_pending_count") or result.get("pending_reconciliation")) and not known_pending_orders(result):
         return "order_status_unknown"
     if result.get("ok") is False or any(result.get(k) for k in (
         "error", "errors", "strategy_run_persistence_error", "report_persistence_error", "strategy_plugin_error",
@@ -346,18 +406,19 @@ def cycle_kind(result):
     evidence = dict(result)
     if not evidence.get("execution_status") and result.get("ok") is True:
         evidence["execution_status"] = "completed"
+    known_pending = known_pending_orders(result)
     if defer_routine_cycle_to_digest(evidence, submitted_order_count=len(orders), submitted_orders=orders,
-                                    mode="daily_digest", include_orders=True):
-        return "fill" if orders else "routine_cycle"
+                                    mode="daily_digest", include_orders=True, known_pending=known_pending):
+        return "order_submitted" if known_pending else "fill" if orders else "routine_cycle"
     return "order_status_unknown" if orders else "real_error"
 
 
 def notify_cycle(report, result, *, settings, send, send_failure=None, env=None, now=None, store=None):
     env = os.environ if env is None else env
-    if not enabled(env):
-        return {"route": "legacy", "candidate_persisted": False, "transport_acknowledged": send() is True}
     current = now or datetime.now(timezone.utc)
     kind = cycle_kind(result)
+    if not enabled(env) and kind not in {"routine_cycle", "order_submitted", "fill"}:
+        return {"route": "legacy", "candidate_persisted": False, "transport_acknowledged": send() is True}
     try:
         binding, _ = _binding(env, report)
         store = store or GcsJsonStore()
@@ -366,7 +427,9 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
         digest = order_identity_digest(json.dumps(sorted(ids))) if ids and all(ids) else None
         if kind in {"order_submitted", "fill"} and not digest:
             kind = "order_status_unknown"
-        event = _event(report, binding, kind, reason="cycle_" + kind, order_digest=digest)
+        event = _event(report, binding, kind,
+                       reason=None if kind == "routine_cycle" else "cycle_" + kind,
+                       order_digest=digest)
         if digest:
             event = replace(event, incident_reason="order_" + digest + "_" + kind)
         def immediate():
@@ -377,7 +440,7 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
                 return persist_report_candidate(report, fact, env=env, now=current, store=store)
             except Exception as exc:
                 raise CandidatePersistenceError("notification_candidate_write_unconfirmed") from exc
-        routed = route_notification_event(event, env={**env, "QSL_DIGEST_ROUTINE_ORDERS": "false"}, flag_key=FLAG,
+        routed = route_notification_event(event, env=env, flag_key=FLAG,
             persist_candidate=persist,
             legacy=send, immediate=immediate)
         if kind == "routine_cycle" and routed.candidate_persisted:
@@ -394,15 +457,32 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
         return {"route": routed.route, "candidate_persisted": routed.candidate_persisted, **delivery}
     except CandidatePersistenceError:
         # Store failure is an alert, never a healthy zero-trade claim.
+        attempted = False
+        def send_coverage():
+            nonlocal attempted
+            attempted = True
+            return send_failure()
         try:
             failure = replace(event, event_kind="real_error", incident_reason="notification_candidate_write_failure")
-            delivery = _tracked(failure, binding, now=current, store=store, send=send_failure or send)
+            if send_failure is None:
+                raise ValueError("notification_failure_sender_missing")
+            delivery = _tracked(failure, binding, now=current, store=store, send=send_coverage)
             return {"route": "immediate_fallback", "candidate_persisted": False, **delivery}
         except Exception:
             print("notification_consolidation_failed; coverage_unknown", flush=True)
+            if send_failure is not None and not attempted:
+                try:
+                    send_failure()
+                except Exception:
+                    pass
             return {"route": "failed", "candidate_persisted": False, "transport_acknowledged": False}
     except Exception:
         print("notification_consolidation_failed; coverage_unknown", flush=True)
+        if kind in {"routine_cycle", "order_submitted", "fill"} and send_failure is not None:
+            try:
+                send_failure()
+            except Exception:
+                pass
         # Unreadable marker state must never result in an untracked retry.
         return {"route": "failed", "candidate_persisted": False, "transport_acknowledged": False}
 
@@ -410,7 +490,9 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
 def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=(), read=digest_archive._read,
                      incident_reason="execution_receipt", affected_keys=None, service_name=None):
     env = os.environ if env is None else env
-    if not enabled(env):
+    was_healthy = kind == "healthy_heartbeat"
+    attempted = False
+    if not enabled(env) and kind != "healthy_heartbeat":
         return {"candidate_persisted": False, "fallback_acknowledged": send() is True}
     try:
         store = store or GcsJsonStore()
@@ -463,6 +545,7 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
         claimed = [(tracker, decision, event) for tracker, decision, event in decisions if decision.action == "send"]
         if claimed:
             try:
+                attempted = True
                 outcome = send()
             except Exception:
                 for tracker, decision, event in claimed:
@@ -478,6 +561,11 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
         return {"candidate_persisted": persisted, "deliveries": delivery}
     except Exception:
         print("notification_consolidation_failed; coverage_unknown", flush=True)
+        if was_healthy and not attempted:
+            try:
+                send()
+            except Exception:
+                pass
         return {"candidate_persisted": False, "failed": True}
 
 

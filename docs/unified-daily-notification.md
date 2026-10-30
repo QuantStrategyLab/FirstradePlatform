@@ -1,20 +1,23 @@
 # Unified daily notification (code only)
 
-`QSL_ROUTINE_NOTIFICATION_MODE` defaults to `immediate`. Exact `daily_digest`
-opts into one central bilingual digest. `QSL_DIGEST_ROUTINE_ORDERS=false` retains
-immediate confirmed order notices. Failed, pending, uncertain, risk, persistence
-and authentication outcomes retain immediate alerts. Healthy idle cycles and
-routine plugin observations do not produce individual pushes.
+Successful orders, no-trade cycles, healthy receipt checks and routine plugin
+observations are recorded for the next scheduled daily digest in the selected
+Chinese or English language, in both
+notification modes. Actual unknown outcomes, failures, risk, persistence and
+authentication incidents retain immediate alerts. A candidate or archive write
+failure produces a separate localized coverage alert without a trade message.
+An accepted order with complete matching evidence is not a confirmed fill;
+missing, contradictory or failed reconciliation evidence stays attention.
 
-QPK source reference: `5d0714201f3813f68a9833083cd21f6d61e5b702` (notification modules; same as the QPK pin).
+Notification-only source snapshot: QPK revision
+`2b04882058666ebc81d1650d93fa2105ec4ba3d8`. The trading dependency remains
+at its separate existing pin in `pyproject.toml` and `uv.lock`.
 
-The notification modules are imported directly from the QPK dependency pinned in
-`pyproject.toml` and `uv.lock`; no vendored QPK notification snapshot is kept in
-this repository. The pinned QPK revision is the single reviewed source for these
-modules. Existing QPK/strategy pins, order execution, funding, risk, account
+The notification snapshot is isolated from the trading dependency. Existing
+QPK/strategy pins, order execution, funding, risk, account
 enablement and durable report writes are unchanged.
 
-Before enabling routing, validate the exact active target's private archived
+Before deploying the policy, validate the exact active target's private archived
 report, candidate store and QRS receiver. Existing cloud monitor wiring uses
 `RUNTIME_TARGET_ENABLED=true`, exact protected `RUNTIME_TARGET_JSON`,
 `EXECUTION_REPORT_GCS_URI`, `DIGEST_CANDIDATES_GCS_URI`, `DIGEST_STORE_TARGET`,
@@ -22,6 +25,7 @@ report, candidate store and QRS receiver. Existing cloud monitor wiring uses
 projection; disabled targets stay disabled. Do not infer private identities.
 The producer aggregates every unique cycle in the completed 06:00 SGT window;
 missing evidence is unknown, never zero. No new collector or scheduler is added.
+The manual healthy-heartbeat option cannot force an immediate success message.
 
 `QSL_NOTIFICATION_MARKER_GCS_URI` optionally separates incident reservations,
 delivery receipts and heartbeat event facts from `DIGEST_CANDIDATES_GCS_URI`.

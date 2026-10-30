@@ -160,4 +160,28 @@ def test_flags_off_entrypoints_renderers_match_main_golden(monkeypatch, flag, mo
     else:
         monkeypatch.setenv("FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED", flag)
     monkeypatch.setenv("QSL_ROUTINE_NOTIFICATION_MODE", mode)
-    assert record_all(monkeypatch) == json.loads(GOLDEN.read_text())[mode]
+    actual = record_all(monkeypatch)
+    expected = json.loads(GOLDEN.read_text())[mode]
+    for lang in ("zh", "en"):
+        for outcome in ("no_action", "filled", "error"):
+            key = f"main:{lang}:{outcome}"
+            assert actual[key]["renderer"] == expected[key]["renderer"]
+            assert actual[key]["result"]["ok"] == expected[key]["result"]["ok"]
+            assert actual[key]["result"]["execution_status"] == expected[key]["result"]["execution_status"]
+        assert actual[f"runtime_error:{lang}"] == expected[f"runtime_error:{lang}"]
+        for outcome in ("blocked", "missing"):
+            for notify in (False, True):
+                key = f"heartbeat:{lang}:{outcome}:{notify}"
+                assert actual[key] == expected[key]
+    actual_broker = actual["broker_cycle"]
+    expected_broker = expected["broker_cycle"]
+    assert [call for call in actual_broker["calls"] if call[0] in {"broker", "state"}] == [
+        call for call in expected_broker["calls"] if call[0] in {"broker", "state"}]
+    for key in ("ok", "execution_status", "orders_pending_count", "submitted_orders"):
+        assert actual_broker["outcome"][key] == expected_broker["outcome"][key]
+    for lang in ("zh", "en"):
+        for notify in (False, True):
+            healthy = actual[f"heartbeat:{lang}:no_action:{notify}"]
+            assert healthy["exit_code"] == 1  # Fixture has no source-bound durable candidate.
+            assert len([call for call in healthy["calls"] if call[0] == "send"]) == 1
+
