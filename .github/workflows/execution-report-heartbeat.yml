@@ -80,7 +80,6 @@ jobs:
       RUNTIME_HEARTBEAT_REJECT_STAGES: ${{ vars.RUNTIME_HEARTBEAT_REJECT_STAGES }}
       RUNTIME_HEARTBEAT_MARKET_AWARE: ${{ vars.RUNTIME_HEARTBEAT_MARKET_AWARE || 'true' }}
       RUNTIME_HEARTBEAT_NOTIFY_ON_SUCCESS: ${{ github.event_name == 'workflow_dispatch' && inputs.notify_on_success && 'true' || 'false' }}
-      RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH: ${{ runner.temp }}/firstrade-coverage-${{ github.run_id }}-${{ github.run_attempt }}
       RUNTIME_HEARTBEAT_MARKET_CALENDAR: ${{ vars.FIRSTRADE_MARKET_CALENDAR }}
       RUNTIME_HEARTBEAT_MARKET_TIMEZONE: ${{ vars.FIRSTRADE_MARKET_TIMEZONE }}
       RUNTIME_HEARTBEAT_PUBLICATION_GRACE_MINUTES: ${{ vars.RUNTIME_HEARTBEAT_PUBLICATION_GRACE_MINUTES || '30' }}
@@ -145,6 +144,8 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Check recent execution report
+        env:
+          RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH: ${{ runner.temp }}/firstrade-coverage-${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run --no-sync python scripts/execution_report_heartbeat.py
 
       - name: Publish read-only runtime execution evidence
@@ -160,6 +161,7 @@ jobs:
       - name: Publish existing reports as unified digest candidates
         if: ${{ !cancelled() && steps.install_runtime_deps.outcome == 'success' && (steps.gcp_auth_primary.outcome == 'success' || steps.gcp_auth_retry.outcome == 'success') }}
         env:
+          RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH: ${{ runner.temp }}/firstrade-coverage-${{ github.run_id }}-${{ github.run_attempt }}
           # This projection reads existing archives after the completed daily window.
           QSL_ROUTINE_NOTIFICATION_MODE: daily_digest
           RUNTIME_TARGET_ENABLED: ${{ vars.RUNTIME_TARGET_ENABLED }}

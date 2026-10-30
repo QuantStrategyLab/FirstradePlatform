@@ -496,8 +496,9 @@ def _run_strategy_cycle_with_report(
                 result["notification_consolidation"] = {"route": "preview", "candidate_persisted": False}
                 result["notification_sent"] = False
                 return result
-            send_failure = lambda: build_sender(settings.tg_token, settings.tg_chat_id)(
-                alert_text("candidate_write_failure", coverage_locale()))
+            def send_failure():
+                return build_sender(settings.tg_token, settings.tg_chat_id)(
+                    alert_text("candidate_write_failure", coverage_locale()))
             if not _report_archive_confirmed(report, report_path):
                 if routine or result.get("routine_observation_counts"):
                     try:
