@@ -53,6 +53,20 @@ def _resource(row, kind, project, service, location):
             == (service if kind == 'cloud_run_revision' else service + '-account-facts-sync-scheduler'))
 
 
+def _classification(row):
+    msg = row.get('textPayload')
+    if not isinstance(msg, str):
+        return None
+    client = re.search(r'account_facts_sync client failed exc_type=\w+ reason=([a-z_]+) stage=([a-z_]+) http_status=(None|[1-5][0-9]{2})(?:\s|$)', msg)
+    other = re.search(r'account_facts_sync (?:collect|build|publish) failed reason=([a-z_]+)(?:\s|$)', msg)
+    if client and client.group(1) in REASONS and client.group(2) in STAGES:
+        return (client.group(1), client.group(2),
+                None if client.group(3) == 'None' else int(client.group(3)))
+    if other and other.group(1) in REASONS:
+        return (other.group(1), 'unclassified', None)
+    return None
+
+
 def summarize(rows, app_rows, project, service, region, run_region=None):
     run_region = run_region or region
     job = f'projects/{project}/locations/{region}/jobs/{service}-account-facts-sync-scheduler'
@@ -94,18 +108,7 @@ def summarize(rows, app_rows, project, service, region, run_region=None):
     matched = [row for row in app_rows if _resource(row, 'cloud_run_revision', project, service, run_region)
                and row.get('trace') == trace and not row.get('httpRequest')]
     result['app_match_count'] = len(matched)
-    classifications = []
-    for row in matched:
-        msg = row.get('textPayload')
-        if not isinstance(msg, str):
-            continue
-        client = re.search(r'account_facts_sync client failed exc_type=\w+ reason=([a-z_]+) stage=([a-z_]+) http_status=(None|[1-5][0-9]{2})(?:\s|$)', msg)
-        other = re.search(r'account_facts_sync (?:collect|build|publish) failed reason=([a-z_]+)(?:\s|$)', msg)
-        if client and client.group(1) in REASONS and client.group(2) in STAGES:
-            classifications.append((client.group(1), client.group(2),
-                                    None if client.group(3) == 'None' else int(client.group(3))))
-        elif other and other.group(1) in REASONS:
-            classifications.append((other.group(1), 'unclassified', None))
+    classifications = [value for row in matched if (value := _classification(row)) is not None]
     if len(matched) == 1 and len(classifications) == 1:
         result['app_reason'], result['app_stage'], result['app_http_status'] = classifications[0]
     return result
@@ -164,7 +167,30 @@ def run(project, service, region, run_region, start, end, *, read=_read_logs):
     output['app_read_status'] = app_status
     if app_status != 'ok':
         return {**output, **partial}
-    return {**output, **summarize(rows, app_rows, project, service, region, run_region)}
+    result = {**output, **summarize(rows, app_rows, project, service, region, run_region)}
+    if result['app_match_count']:
+        return result
+    candidate_filter = (f'{window} AND resource.type="cloud_run_revision" '
+                        f'AND resource.labels.project_id="{project}" AND resource.labels.location="{run_region}" '
+                        f'AND resource.labels.service_name="{service}" AND textPayload:"account_facts_sync"')
+    candidate_status, candidates = read(candidate_filter, project)
+    result.update(candidate_read_status=candidate_status, candidate_count=None,
+                  candidate_relation='unknown', candidate_reason='unknown',
+                  candidate_stage='unknown', candidate_http_status=None)
+    if candidate_status != 'ok':
+        return result
+    candidates = [row for row in candidates if _resource(row, 'cloud_run_revision', project, service, run_region)
+                  and not row.get('httpRequest') and isinstance(row.get('textPayload'), str)
+                  and 'account_facts_sync' in row['textPayload']]
+    result['candidate_count'] = len(candidates)
+    if len(candidates) == 1:
+        result['candidate_relation'] = 'same_service_and_window_only'
+        classification = _classification(candidates[0])
+        if classification is not None:
+            result['candidate_reason'], result['candidate_stage'], result['candidate_http_status'] = classification
+    elif len(candidates) > 1:
+        result['candidate_relation'] = 'ambiguous'
+    return result
 
 
 def main():
@@ -177,7 +203,8 @@ def main():
     except Exception:
         output = {'status': 'unavailable'}
     print(json.dumps(output, sort_keys=True))
-    return 0 if output['status'] == 'ok' and output.get('app_read_status') not in {'permission_denied', 'unavailable', 'truncated'} else 1
+    failures = {'permission_denied', 'unavailable', 'truncated'}
+    return 0 if output['status'] == 'ok' and output.get('app_read_status') not in failures and output.get('candidate_read_status') not in failures else 1
 
 
 if __name__ == '__main__':

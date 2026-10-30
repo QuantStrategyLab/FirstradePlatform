@@ -108,6 +108,41 @@ class SnapshotLogDiagnosticTest(unittest.TestCase):
             run(PROJECT, SERVICE, 'us-central1', 'us-central1',
                 '2026-10-30T01:00:00Z', '2026-10-30T02:00:01Z', read=forbidden)
 
+    def test_untraced_app_log_is_only_an_unassociated_candidate(self):
+        calls = []
+        untraced = app(); del untraced['trace']
+        def read(query, project):
+            calls.append(query)
+            return ('ok', [[scheduler(), request()], [], [untraced]][len(calls) - 1])
+        result = run(PROJECT, SERVICE, 'us-central1', 'us-central1',
+                     '2026-10-30T01:57:00Z', '2026-10-30T02:10:00Z', read=read)
+        self.assertEqual(result['app_reason'], 'unknown')
+        self.assertEqual(result['candidate_relation'], 'same_service_and_window_only')
+        self.assertEqual(result['candidate_reason'], 'cache_missing')
+        self.assertEqual(result['candidate_count'], 1)
+        self.assertIn('textPayload', calls[2])
+
+    def test_multiple_or_truncated_candidates_never_classified(self):
+        for status, rows in [('ok', [app(), app()]), ('truncated', [app()])]:
+            calls = []
+            def read(query, project):
+                calls.append(query)
+                return [('ok', [scheduler(), request()]), ('ok', []), (status, rows)][len(calls) - 1]
+            result = run(PROJECT, SERVICE, 'us-central1', 'us-central1',
+                         '2026-10-30T01:57:00Z', '2026-10-30T02:10:00Z', read=read)
+            self.assertEqual(result['candidate_reason'], 'unknown')
+
+    def test_unrecognized_candidate_never_exposes_payload(self):
+        calls = []
+        unsafe = app('secret-account-123'); del unsafe['trace']
+        def read(query, project):
+            calls.append(query)
+            return ('ok', [[scheduler(), request()], [], [unsafe]][len(calls) - 1])
+        result = run(PROJECT, SERVICE, 'us-central1', 'us-central1',
+                     '2026-10-30T01:57:00Z', '2026-10-30T02:10:00Z', read=read)
+        self.assertEqual(result['candidate_reason'], 'unknown')
+        self.assertNotIn('secret-account-123', str(result))
+
 
 if __name__ == '__main__':
     unittest.main()
