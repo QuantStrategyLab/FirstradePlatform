@@ -7,7 +7,7 @@ import json
 import pytest
 
 from notifications import unified
-from quant_platform_kit.notifications.digest_candidates import cycle_evidence
+from notifications.digest_snapshot.digest_candidates import cycle_evidence
 
 NOW = datetime(2026, 10, 17, 0, tzinfo=timezone.utc)
 TARGET = dict(platform_id="firstrade", strategy_profile="synthetic", service_name="synthetic-service",
@@ -104,7 +104,7 @@ def test_candidate_rows_keep_each_runs_counts_and_events_separate():
     for run_id, row in rows.items():
         assert len(row["notification_events"]) == 1
         assert {event["source_run_id"] for event in row["notification_events"]} == {run_id}
-    assert len(sent) == 1
+    assert not sent
 
 
 def test_former_top_level_ledger_migrates_to_per_run_rows_without_recounting():
@@ -149,18 +149,16 @@ def test_delivery_requires_sender_receipt_and_uncertain_is_not_resent(outcome, e
     assert second["delivery_status"] == "duplicate" and len(sends) == 1
 
 
-def test_real_orders_remain_immediate_and_unknown_fills_stay_null():
+def test_real_orders_are_deferred_and_unknown_fills_stay_null():
     store, sent = Store(), []
     report, result = source(status="completed", orders=[{"status": "filled", "broker_order_id": "synthetic-order"}])
-    assert notify(store, report, result, sent)["transport_acknowledged"] is True
-    assert len(sent) == 1
-    assert notify(store, report, result, sent)["delivery_status"] == "duplicate"
-    assert len(sent) == 1
+    assert notify(store, report, result, sent)["route"] == "digest_candidate"
+    assert not sent
+    assert notify(store, report, result, sent)["route"] == "digest_candidate"
+    assert not sent
     row = candidate(store)["runs"][0]
     assert row["order_count"] == 1 and row["fill_count"] is None
     assert next(k for k in store.calls if k[0] == "cas")
-    assert store.calls.index(("send",)) > next(i for i, c in enumerate(store.calls)
-        if c[0] == "cas" and "/_notification_markers/" in c[1])
 
 
 @pytest.mark.parametrize("status,changes,kind", [
@@ -199,16 +197,18 @@ def test_proven_recovery_then_reworsening_and_severity_increase_are_new_events()
     assert len(sent) == 4
 
 
-def test_candidate_failure_preserves_routine_send_but_marker_failure_never_blind_sends():
+def test_candidate_failure_sends_only_coverage_alert_and_marker_failure_stays_safe():
     store, sent = Store(), []
     store.fail_candidates = True
     report, result = source()
-    assert notify(store, report, result, sent)["route"] == "immediate_fallback"
-    assert len(sent) == 1
+    outcome = unified.notify_cycle(report, result, settings=None, env=ENV, now=NOW, store=store,
+        send=lambda: sent.append("routine"), send_failure=lambda: sent.append("coverage") or True)
+    assert outcome["candidate_persisted"] is False
+    assert sent == ["coverage"]
     store.fail_reads = True
     report, result = source(status="blocked", execution_blocked=True)
     assert notify(store, report, result, sent)["route"] == "failed"
-    assert len(sent) == 1
+    assert sent == ["coverage"]
 
 
 def test_uncertain_ack_and_out_of_order_observation_do_not_resend():

@@ -270,7 +270,7 @@ def _build_runtime_report(settings: PlatformRuntimeSettings, *, dry_run: bool) -
 def _plugin_report_fields(result: dict[str, Any]) -> dict[str, Any]:
     fields: dict[str, Any] = {}
     for key, value in result.items():
-        if key == "strategy_plugins" or key.startswith("strategy_plugin_alert_"):
+        if key in {"strategy_plugins", "routine_observation_counts"} or key.startswith("strategy_plugin_alert_"):
             fields[key] = value
     return fields
 
@@ -305,14 +305,13 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
         summary["orders_skipped"] = skipped_orders
     if execution_notes:
         summary["execution_notes"] = execution_notes
-    from quant_platform_kit.notifications.digest_routing import daily_digest_enabled
-    from notifications.unified import enabled
-    if enabled() or daily_digest_enabled():
-        from quant_platform_kit.notifications.digest_candidates import cycle_evidence
-        evidence = dict(result)
-        if not evidence.get("execution_status") and result.get("ok") is True:
-            evidence["execution_status"] = "completed"
-        summary["notification_digest"] = cycle_evidence(evidence, submitted_orders, dry_run=dry_run)
+    from notifications.digest_snapshot.digest_candidates import cycle_evidence
+    from notifications.unified import known_pending_orders
+    evidence = dict(result)
+    if not evidence.get("execution_status") and result.get("ok") is True:
+        evidence["execution_status"] = "completed"
+    summary["notification_digest"] = cycle_evidence(evidence, submitted_orders, dry_run=dry_run,
+                                                      known_pending=known_pending_orders(result))
     return summary
 
 
@@ -354,6 +353,20 @@ def _persist_runtime_report(report: dict[str, Any]) -> str | None:
     if isinstance(persisted, str):
         return persisted
     return getattr(persisted, "gcs_uri", None) or getattr(persisted, "local_path", None)
+
+
+def _report_archive_confirmed(report: dict[str, Any], report_path: str | None) -> bool:
+    from quant_platform_kit.common.runtime_reports import build_runtime_report_cloud_uri
+    prefix = os.getenv("QSL_EXECUTION_REPORT_GCS_URI") or os.getenv("EXECUTION_REPORT_GCS_URI")
+    if not prefix or not isinstance(report_path, str):
+        return False
+    try:
+        expected = build_runtime_report_cloud_uri(report, cloud_prefix_uri=prefix)
+    except (TypeError, ValueError):
+        return False
+    artifacts = report.get("artifacts")
+    return (isinstance(artifacts, dict) and report_path == expected
+            and artifacts.get("runtime_report_cloud_uri") == expected)
 
 
 def _force_strategy_run_env() -> bool:
@@ -450,8 +463,8 @@ def _run_strategy_cycle_with_report(
         finally:
             report.pop("account_facts_source_binding_id", None)
 
-    from notifications.unified import enabled, notify_cycle
-    unified = enabled() and send_cycle_notification
+    from notifications.unified import notify_cycle
+    unified = bool(send_cycle_notification)
     try:
         cycle_options = {
             "runtime_settings": settings,
@@ -468,21 +481,38 @@ def _run_strategy_cycle_with_report(
             summary=_strategy_result_summary(result, dry_run=dry_run),
             diagnostics=_strategy_result_diagnostics(result),
         )
+        report_path = None
         try:
             report_path = persist_private_report()
             if report_path:
                 print(f"execution_report {report_path}", flush=True)
         except Exception as persist_exc:
             print(f"failed to persist execution report: {persist_exc}", flush=True)
-            if unified:
-                result["report_persistence_error"] = "execution_report_write_unconfirmed"
         if unified:
             from application.rebalance_service import _publish_cycle_notification
-            from notifications.unified import alert_text
+            from notifications.unified import alert_text, coverage_locale, cycle_kind
+            routine = cycle_kind(result) in {"routine_cycle", "order_submitted", "fill"}
+            if dry_run and routine:
+                result["notification_consolidation"] = {"route": "preview", "candidate_persisted": False}
+                result["notification_sent"] = False
+                return result
+            def send_failure():
+                return build_sender(settings.tg_token, settings.tg_chat_id)(
+                    alert_text("candidate_write_failure", coverage_locale()))
+            if not _report_archive_confirmed(report, report_path):
+                if routine or result.get("routine_observation_counts"):
+                    try:
+                        send_failure()
+                    except Exception:
+                        print("notification_consolidation_failed; coverage_unknown", flush=True)
+                if routine:
+                    result["notification_consolidation"] = {"route": "failed", "candidate_persisted": False}
+                    result["notification_sent"] = False
+                    return result
+                result["report_persistence_error"] = "execution_report_write_unconfirmed"
             delivery = notify_cycle(report, result, settings=settings,
                 send=lambda: _publish_cycle_notification(result, settings=settings),
-                send_failure=lambda: build_sender(settings.tg_token, settings.tg_chat_id)(
-                    alert_text("candidate_write_failure", settings.notify_lang)))
+                send_failure=send_failure)
             result["notification_consolidation"] = delivery
             result["notification_sent"] = delivery.get("transport_acknowledged") is True
             if delivery.get("route") == "digest_candidate":

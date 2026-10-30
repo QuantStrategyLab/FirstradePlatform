@@ -115,13 +115,16 @@ def test_qrs_roundtrip_zero_order_run_is_known_zero(qrs, tmp_path):
     assert "本轮 0 单" in text
 
 
-def test_qrs_roundtrip_real_order_is_immediate_and_counted_once(qrs, tmp_path):
+def test_qrs_roundtrip_real_order_is_daily_and_counted_once(qrs, tmp_path):
     store, sent = Store(), []
     report, result = source(status="completed", orders=[{"status": "filled",
         "broker_order_id": "synthetic-order", "fills": [{"execution_id": "synthetic-fill"}]}])
     notify(store, report, result, sent)
     rows, summary, receipt, text = roundtrip(qrs, candidate(store), tmp_path)
-    assert len(sent) == 1 and rows[0]["order_count"] == rows[0]["fill_count"] == 1
+    assert sent == [] and rows[0]["order_count"] == rows[0]["fill_count"] == 1
+    # This frozen QRS 716 receiver predates classifying fills as routine.
+    # Its historical metric classifies the fact, not an actual delivery;
+    # the producer assertion above confirms no immediate send occurred.
     assert summary["event_count"] == summary["immediate_events"] == 1
     assert summary["counts_unknown"] is False
     assert receipt["run_count"] == 1 and receipt["total_fills"] == 1
@@ -141,3 +144,4 @@ def test_qrs_roundtrip_duplicate_runtime_archive_and_intake_observations_do_not_
     assert summary["event_count"] == 1 and summary["count_conflicts"] == 0
     assert summary["counts_unknown"] is False and receipt["run_count"] == 1
     assert sent == []
+

@@ -14,7 +14,7 @@ on:
         type: string
         default: "36"
       notify_on_success:
-        description: "Opt in to normal healthy-check notifications for this manual run."
+        description: "Record the healthy check for the daily digest; no immediate message is sent."
         required: false
         type: boolean
         default: false
@@ -96,6 +96,7 @@ jobs:
       FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
       FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX }}
       NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'zh' }}
+      QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG }}
       GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME }}
@@ -114,6 +115,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install locked runtime dependencies
+        id: install_runtime_deps
         run: |
           set -euo pipefail
           uv sync --frozen --no-dev
@@ -131,6 +133,7 @@ jobs:
         run: sleep 10
 
       - name: Retry Google Cloud authentication
+        id: gcp_auth_retry
         if: ${{ steps.gcp_auth_primary.outcome == 'failure' }}
         uses: google-github-actions/auth@v3
         with:
@@ -141,6 +144,8 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Check recent execution report
+        env:
+          RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH: ${{ runner.temp }}/firstrade-coverage-${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run --no-sync python scripts/execution_report_heartbeat.py
 
       - name: Publish read-only runtime execution evidence
@@ -154,10 +159,10 @@ jobs:
           EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
 
       - name: Publish existing reports as unified digest candidates
-        if: ${{ success() && (github.event_name == 'schedule' || vars.FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED == 'true' || vars.QSL_ROUTINE_NOTIFICATION_MODE == 'daily_digest') }}
+        if: ${{ !cancelled() && steps.install_runtime_deps.outcome == 'success' && (steps.gcp_auth_primary.outcome == 'success' || steps.gcp_auth_retry.outcome == 'success') }}
         env:
+          RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH: ${{ runner.temp }}/firstrade-coverage-${{ github.run_id }}-${{ github.run_attempt }}
           # This projection reads existing archives after the completed daily window.
-          # Keep the service's notification mode and immediate order/alert route unchanged.
           QSL_ROUTINE_NOTIFICATION_MODE: daily_digest
           RUNTIME_TARGET_ENABLED: ${{ vars.RUNTIME_TARGET_ENABLED }}
           RUNTIME_TARGET_JSON: ${{ vars.RUNTIME_TARGET_JSON || secrets.RUNTIME_TARGET_JSON }}
