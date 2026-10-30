@@ -5,32 +5,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import json
 import os
-from notifications.unified import emit_candidates, enabled  # noqa: E402
-
-
-def _check_binding_modes(env):
-    if env.get("QSL_ROUTINE_NOTIFICATION_MODE") != "daily_digest":
-        return
-    raw = env.get("DIGEST_TARGET_BINDINGS_JSON", "").strip()
-    if not raw:
-        return
-    bindings = json.loads(raw)
-    if not isinstance(bindings, list) or any(not isinstance(row, dict) for row in bindings):
-        raise ValueError("candidate_bindings_invalid")
-    if any(row.get("QSL_ROUTINE_NOTIFICATION_MODE", "daily_digest") != "daily_digest" for row in bindings):
-        raise ValueError("candidate_binding_mode_override")
+from notifications.unified import emit_candidates  # noqa: E402
 
 
 def main():
     try:
-        _check_binding_modes(os.environ)
-        if not enabled():
-            from quant_platform_kit.notifications.digest_archive import main as legacy_main
-            return legacy_main()
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0
     except Exception:
         print(json.dumps({"status": "candidate_projection_failed", "uploaded": False}))
+        from notifications.unified import alert_text, coverage_locale
+        from scripts.execution_report_heartbeat import _send_telegram
+        marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
+        try:
+            attempted = bool(marker and Path(marker).read_text().strip() in {"attempted", "acknowledged"})
+        except OSError:
+            attempted = False
+        if not attempted:
+            _send_telegram(alert_text("candidate_write_failure", coverage_locale()))
         return 1
 
 if __name__ == "__main__":

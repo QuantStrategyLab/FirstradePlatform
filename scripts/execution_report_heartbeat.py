@@ -11,6 +11,7 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -769,11 +770,26 @@ def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=N
 
 def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True,
                            now: dt.datetime | None = None, recovery_reports=(), affected_keys=None) -> int:
-    from notifications.unified import alert_text, enabled, notify_heartbeat
-    if enabled():
-        message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", _notification_locale())
+    from notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat
+    if quiet_eligible or enabled():
+        locale = coverage_locale() if quiet_eligible else _notification_locale()
+        message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", locale)
+        def send_attention():
+            marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
+            if quiet_eligible and marker:
+                try:
+                    Path(marker).write_text("attempted\n")
+                except OSError:
+                    pass
+            acknowledged = _send_telegram(message[:3900])
+            if quiet_eligible and acknowledged is True and marker:
+                try:
+                    Path(marker).write_text("acknowledged\n")
+                except OSError:
+                    pass
+            return acknowledged
         result = notify_heartbeat(kind="healthy_heartbeat" if quiet_eligible else "receipt_unacceptable",
-            send=lambda: _send_telegram(message[:3900]), now=now or dt.datetime.now(dt.timezone.utc),
+            send=send_attention, now=now or dt.datetime.now(dt.timezone.utc),
             recovery_reports=recovery_reports, affected_keys=affected_keys)
         return 1 if result.get("failed") or not result.get("candidate_persisted") else 0
     if quiet_eligible and not _env_bool("RUNTIME_HEARTBEAT_NOTIFY_ON_SUCCESS", False):
