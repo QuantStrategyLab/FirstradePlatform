@@ -879,12 +879,12 @@ def main(now: dt.datetime | None = None) -> int:
                 f"({target_names})"
             )
         )
-        return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduled_window_due"), now=now)
+        return 0
     if not runtime_targets:
         schedule_skip_reason = _heartbeat_skip_reason_for_schedule(due_since, now)
         if schedule_skip_reason:
             print(f"Execution report heartbeat skipped for {name}: {schedule_skip_reason}")
-            return _send_normal_heartbeat(name, _notice("heartbeat_no_scheduler_run_due"), now=now)
+            return 0
     if due_targets:
         required_services = filter_services_for_targets(
             required_services,

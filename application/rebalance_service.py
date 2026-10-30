@@ -974,7 +974,12 @@ def run_strategy_cycle(
         result, settings=settings, notification_sender=notification_sender)
     if routine_without_archive:
         result["notification_sent"] = False
-        result["notification_error"] = "daily_digest_coverage_unconfirmed"
+        result["notification_suppressed"] = True
+        if result.get("dry_run_only") is True:
+            result["notification_suppressed_reason"] = "dry_run_preview"
+        else:
+            result["notification_suppressed_reason"] = "daily_digest_coverage_unconfirmed"
+            result["notification_error"] = "daily_digest_coverage_unconfirmed"
     elif send_cycle_notification and _should_publish_cycle_notification(result):
         try:
             result["notification_sent"] = _publish_cycle_notification(

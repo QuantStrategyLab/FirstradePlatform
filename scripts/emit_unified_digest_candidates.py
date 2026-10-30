@@ -8,8 +8,21 @@ import os
 from notifications.unified import emit_candidates  # noqa: E402
 
 
+def _check_binding_modes(env):
+    raw = env.get("DIGEST_TARGET_BINDINGS_JSON")
+    bindings = json.loads(raw) if raw else []
+    if not isinstance(bindings, list) or not all(isinstance(item, dict) for item in bindings):
+        raise ValueError("candidate_bindings_invalid")
+    mode = str(env.get("QSL_ROUTINE_NOTIFICATION_MODE") or "").strip().lower()
+    for binding in bindings:
+        override = binding.get("QSL_ROUTINE_NOTIFICATION_MODE")
+        if override is not None and str(override).strip().lower() != mode:
+            raise ValueError("candidate_binding_mode_conflict")
+
+
 def main():
     try:
+        _check_binding_modes(os.environ)
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0
     except Exception:

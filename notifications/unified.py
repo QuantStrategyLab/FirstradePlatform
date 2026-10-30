@@ -427,7 +427,9 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
         digest = order_identity_digest(json.dumps(sorted(ids))) if ids and all(ids) else None
         if kind in {"order_submitted", "fill"} and not digest:
             kind = "order_status_unknown"
-        event = _event(report, binding, kind, reason="cycle_" + kind, order_digest=digest)
+        event = _event(report, binding, kind,
+                       reason=None if kind == "routine_cycle" else "cycle_" + kind,
+                       order_digest=digest)
         if digest:
             event = replace(event, incident_reason="order_" + digest + "_" + kind)
         def immediate():
