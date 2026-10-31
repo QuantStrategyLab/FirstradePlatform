@@ -71,6 +71,8 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 ## Do not
 
+- Only the owner, or a reviewer explicitly authorized by the owner, may apply the `owner-approved` label; coding agents must never apply it to their own PRs.
+
 - Do not remove the default dry-run behaviour or weaken the live order gates in
   `application/firstrade_client.py`.
 - Do not add credentials, cookies, account identifiers, balances or raw order
