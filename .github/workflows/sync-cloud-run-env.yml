@@ -894,6 +894,10 @@ jobs:
       - name: Resolve Cloud Run sync targets
         id: strategy_requirements
         if: steps.env_sync_config.outputs.enabled == 'true'
+        env:
+          # The planner fails closed when it cannot read the control-plane
+          # platform config; authenticate the bundled-schema fallback fetch.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sync_plan_json="$(uv run --no-sync python scripts/build_cloud_run_env_sync_plan.py --json)"
