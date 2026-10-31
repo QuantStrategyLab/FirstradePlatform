@@ -26,30 +26,8 @@ def _target_json(profile="russell_top50_leader_rotation") -> str:
 
 def test_runtime_execution_window_uses_generic_env(monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS", "7")
-    monkeypatch.setenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS", "3")
 
-    assert (
-        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
-        == 7
-    )
-    assert (
-        _runtime_execution_window_trading_days_env("tech_communication_pullback_enhancement")
-        == 7
-    )
-
-
-def test_runtime_execution_window_keeps_legacy_tech_env(monkeypatch):
-    monkeypatch.delenv("FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS", raising=False)
-    monkeypatch.setenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS", "5")
-
-    assert (
-        _runtime_execution_window_trading_days_env("tech_communication_pullback_enhancement")
-        == 5
-    )
-    assert (
-        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
-        is None
-    )
+    assert _runtime_execution_window_trading_days_env() == 7
 
 
 def test_reserved_cash_policy_defaults_to_zero(monkeypatch):
@@ -322,7 +300,7 @@ def test_runtime_execution_window_rejects_invalid_generic_env(monkeypatch, raw_v
         ValueError,
         match="FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS",
     ):
-        _runtime_execution_window_trading_days_env("russell_top50_leader_rotation")
+        _runtime_execution_window_trading_days_env()
 
 
 def test_market_signal_handoff_index_infers_from_execution_report_bucket():

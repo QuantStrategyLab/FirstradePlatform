@@ -1,7 +1,7 @@
 name: FT session-check marker reset
 
-# Ops-only: back up / delete / restore the fixed October 2026 monthly session-check
-# marker so one read-only /probe session renewal can run. No broker call, no trading.
+# Ops-only: back up / delete / restore one monthly session-check marker so a
+# single read-only /probe session renewal can run. No broker call, no trading.
 on:
   workflow_dispatch:
     inputs:
@@ -14,6 +14,21 @@ on:
           - status
           - backup_and_delete
           - restore
+      strategy_profile:
+        description: "Profile segment of the marker path (e.g. ibit_smart_dca)"
+        required: true
+        type: string
+        default: ibit_smart_dca
+      year_month:
+        description: "Marker month as YYYY_MM"
+        required: true
+        type: string
+        default: "2026_10"
+      backup_suffix:
+        description: "Backup suffix as YYYYMMDD"
+        required: true
+        type: string
+        default: "20261010"
 
 permissions:
   contents: read
@@ -39,6 +54,9 @@ jobs:
       FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
       FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
       ACTION: ${{ inputs.action }}
+      STRATEGY_PROFILE_SEGMENT: ${{ inputs.strategy_profile }}
+      YEAR_MONTH: ${{ inputs.year_month }}
+      BACKUP_SUFFIX: ${{ inputs.backup_suffix }}
     steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -58,9 +76,13 @@ jobs:
             echo "state bucket unavailable" >&2
             exit 1
           fi
-          base="gs://${FIRSTRADE_GCS_STATE_BUCKET#gs://}/${FIRSTRADE_STATE_PREFIX}/session-checks/auto/ibit_smart_dca/2026_10"
+          # Reject anything that could escape the marker prefix before building the path.
+          [[ "${STRATEGY_PROFILE_SEGMENT}" =~ ^[a-z0-9_]+$ ]] || { echo "invalid strategy_profile" >&2; exit 2; }
+          [[ "${YEAR_MONTH}" =~ ^[0-9]{4}_[0-9]{2}$ ]] || { echo "invalid year_month" >&2; exit 2; }
+          [[ "${BACKUP_SUFFIX}" =~ ^[0-9]{8}$ ]] || { echo "invalid backup_suffix" >&2; exit 2; }
+          base="gs://${FIRSTRADE_GCS_STATE_BUCKET#gs://}/${FIRSTRADE_STATE_PREFIX}/session-checks/auto/${STRATEGY_PROFILE_SEGMENT}/${YEAR_MONTH}"
           marker="${base}/latest.json"
-          backup="${base}/latest.json.bak-20261010"
+          backup="${base}/latest.json.bak-${BACKUP_SUFFIX}"
           show() {
             for obj in "${marker}" "${backup}"; do
               if gcloud storage objects describe "${obj}" --format='value(update_time,size)' >/tmp/d 2>/dev/null; then

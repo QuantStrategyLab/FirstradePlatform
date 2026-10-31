@@ -271,9 +271,7 @@ def load_platform_runtime_settings(
         ibit_zscore_exit_allow_outside_execution_window=_optional_bool_env(
             "IBIT_ZSCORE_EXIT_ALLOW_OUTSIDE_EXECUTION_WINDOW"
         ),
-        runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(
-            strategy_definition.profile
-        ),
+        runtime_execution_window_trading_days=_runtime_execution_window_trading_days_env(),
         market_signal_handoff_index_uri=_resolve_market_signal_handoff_index_uri(),
         market_signal_handoff_manifest_uri=_first_non_empty(
             os.getenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI"),
@@ -529,12 +527,9 @@ def _optional_int(raw_value: str | None) -> int | None:
     return int(value)
 
 
-def _runtime_execution_window_trading_days_env(strategy_profile: str) -> int | None:
-    raw_value = os.getenv("FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
+def _runtime_execution_window_trading_days_env() -> int | None:
     env_name = "FIRSTRADE_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS"
-    if raw_value is None and strategy_profile == "tech_communication_pullback_enhancement":
-        raw_value = os.getenv("FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS")
-        env_name = "FIRSTRADE_TECH_RUNTIME_EXECUTION_WINDOW_TRADING_DAYS"
+    raw_value = os.getenv(env_name)
     if raw_value is None or not str(raw_value).strip():
         return None
     try:
