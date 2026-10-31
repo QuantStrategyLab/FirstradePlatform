@@ -528,3 +528,80 @@ def test_module_cli_runs_from_repository_root_without_pythonpath(tmp_path):
     assert summary["failure_categories"] == ["image"]
     assert PRIVATE_SERVICE not in summarized.stdout
     assert PRIVATE_MESSAGE not in summarized.stdout
+
+
+def test_cache_projection_uses_serving_revision_and_fixed_scheduler_paths():
+    service = {'metadata': {'name': 'synthetic-service'}, 'status': {
+        'url': 'https://synthetic.example', 'conditions': [{'type': 'Ready', 'status': 'True'}], 'latestReadyRevisionName': 'newer',
+        'latestCreatedRevisionName': 'newer', 'traffic': [{'revisionName': 'serving', 'percent': 100}]}}
+    revisions = [{'metadata': {'name': 'serving'}, 'spec': {'containers': [{'env': [
+        {'name': 'FIRSTRADE_SESSION_CACHE_TTL_SECONDS', 'value': '86400'},
+        {'name': 'FIRSTRADE_REUSE_SESSION', 'value': 'true'},
+        {'name': 'FIRSTRADE_PERSIST_SESSION_CACHE', 'value': 'true'},
+        {'name': 'FIRSTRADE_SESSION_CHECK_POLICY', 'value': 'auto'},
+        {'name': 'FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP', 'value': 'false'},
+        {'name': 'PRIVATE_TOKEN', 'value': 'secret-value'},
+    ]}]}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}},
+        {'metadata': {'name': 'newer'}, 'spec': {'containers': [{'env': [
+            {'name': 'FIRSTRADE_SESSION_CACHE_TTL_SECONDS', 'value': '1'}]}]}}]
+    jobs = [{'name': 'projects/synthetic-project/locations/us-central1/jobs/synthetic-service-account-facts-sync-scheduler',
+             'state': 'ENABLED', 'schedule': '20 22 * * *', 'timeZone': 'Etc/UTC',
+             'httpTarget': {'uri': 'https://synthetic.example/account-facts-sync', 'httpMethod': 'POST'}}]
+    result = diagnostic.cache_metadata_summary(service, revisions, jobs, 'synthetic-service',
+                                               'synthetic-project', 'us-central1')
+    assert result['session_cache_ttl_seconds'] == 86400
+    assert result['reuse_session'] is True
+    assert result['persist_session_cache'] is True
+    assert result['session_check_policy'] == 'auto'
+    assert result['session_check_http_enabled'] is False
+    assert result['schedulers']['account_facts_sync']['state'] == 'enabled'
+    assert result['schedulers']['account_facts_sync']['schedule'] == '20 22 * * *'
+    assert 'secret-value' not in str(result)
+    assert 'synthetic-service' not in str(result)
+    assert 'synthetic.example' not in str(result)
+
+
+def test_cache_projection_unverified_serving_and_ambiguous_values_are_unknown():
+    service = {'metadata': {'name': 'synthetic-service'}, 'status': {
+        'url': 'https://synthetic.example', 'conditions': [{'type': 'Ready', 'status': 'True'}], 'latestReadyRevisionName': 'serving',
+        'traffic': [{'revisionName': 'serving', 'percent': 100}]}}
+    rev = {'metadata': {'name': 'serving'}, 'spec': {'containers': [{'env': [
+        {'name': 'FIRSTRADE_SESSION_CACHE_TTL_SECONDS', 'value': '86400'},
+        {'name': 'FIRSTRADE_SESSION_CACHE_TTL_SECONDS', 'value': '123'},
+        {'name': 'FIRSTRADE_REUSE_SESSION', 'valueFrom': {'secretKeyRef': {'name': 'secret-value'}}},
+    ]}]}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]}}
+    result = diagnostic.cache_metadata_summary(service, [rev], [], 'synthetic-service', 'synthetic-project', 'us-central1')
+    assert result['session_cache_ttl_seconds'] is None
+    assert result['reuse_session'] is None
+    assert result['persist_session_cache'] is None
+    assert result['session_check_policy'] is None
+    assert 'secret-value' not in str(result)
+    service['status']['traffic'].append({'revisionName': 'other', 'percent': 1})
+    result = diagnostic.cache_metadata_summary(service, [rev], [], 'synthetic-service', 'synthetic-project', 'us-central1')
+    assert result['serving_revision_qualified'] is None
+    assert result['session_cache_ttl_seconds'] is None
+
+
+def test_cache_metadata_scheduler_scope_and_ambiguous_jobs_fail_closed():
+    service = {'metadata': {'name': 'synthetic-service'}, 'status': {
+        'url': 'https://synthetic.example', 'conditions': [{'type': 'Ready', 'status': 'True'}],
+        'traffic': [{'revisionName': 'serving', 'percent': 100}]}}
+    rev = {'metadata': {'name': 'serving'}, 'status': {'conditions': [{'type': 'Ready', 'status': 'True'}]},
+           'spec': {'containers': [{'env': [{'name': 'FIRSTRADE_SESSION_CACHE_TTL_SECONDS', 'value': '86400'}]}]}}
+    job = {'name': 'projects/synthetic-project/locations/us-central1/jobs/synthetic-service-session-renew-scheduler',
+           'state': 'ENABLED', 'schedule': 'private-secret', 'timeZone': 'private-secret',
+           'httpTarget': {'uri': 'https://synthetic.example/session-renew', 'httpMethod': 'POST'}}
+    result = diagnostic.cache_metadata_summary(service, [rev], [job], 'synthetic-service', 'synthetic-project', 'us-central1')
+    assert result['schedulers']['session_renew']['state'] == 'enabled'
+    assert result['schedulers']['session_renew']['schedule'] is None
+    assert result['schedulers']['session_renew']['time_zone'] is None
+    assert 'private-secret' not in str(result)
+    wrong_target = {**job, 'httpTarget': {'uri': 'https://foreign.example/session-renew', 'httpMethod': 'POST'}}
+    assert diagnostic.cache_metadata_summary(service, [rev], [wrong_target], 'synthetic-service', 'synthetic-project',
+                                             'us-central1')['schedulers']['session_renew']['state'] is None
+    assert diagnostic.cache_metadata_summary(service, [rev], [job, job], 'synthetic-service', 'synthetic-project',
+                                             'us-central1')['schedulers']['session_renew']['state'] is None
+    assert diagnostic.cache_metadata_summary(service, [rev], None, 'synthetic-service', 'synthetic-project',
+                                             'us-central1')['schedulers']['session_renew']['match_count'] is None
+    assert diagnostic.cache_metadata_summary(service, [rev, rev], [job], 'synthetic-service', 'synthetic-project',
+                                             'us-central1')['session_cache_ttl_seconds'] is None

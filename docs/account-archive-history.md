@@ -10,6 +10,16 @@ an empty balance response remains visible through `balances_read=false`.
 When a write fails or its outcome is unknown, inspect the existing state and
 request outcome before taking another action; do not blindly retry.
 
+## Serving cache metadata
+
+The existing read-only failed-stage diagnostic reports explicit cache TTL, reuse,
+persistence, session-check policy and HTTP flag only from the unique Ready
+revision receiving all traffic. Missing, ambiguous, secret-backed or invalid
+values remain null; no default is inferred from a source label. The same summary
+reports fixed account-facts, session-renew and probe scheduler metadata only when
+its configured job and service target match. These are scheduling facts, not
+proof of execution or cache freshness. No cache object or credential is read.
+
 ## Snapshot request log diagnosis
 
 The existing `Diagnose cached-balance stage failure` workflow also has a
