@@ -18,7 +18,9 @@ main SHA, the approved main ref, `run_readonly_diagnostic=true`, and a past UTC
 window of at most 30 minutes. It cannot be combined with a schema inspection.
 It reads bounded Scheduler completion and Cloud Run request logs for the fixed
 account-facts sync target, then reads application logs for a uniquely
-identified request trace. If none match, it also reads bounded text logs with
+identified request trace. Structured failure logs carry the request trace only when
+the Cloud Trace header and project ID are valid; their fields use fixed categories.
+Older text logs remain supported. If none match, it also reads bounded logs with
 the fixed account-facts marker from the same service and window. These are
 unassociated candidates: even a single candidate does not establish that it
 belongs to the request. Multiple candidates are ambiguous and truncated or
@@ -26,7 +28,7 @@ inaccessible reads remain explicit; the
 Scheduler-to-request association is based only on target and time, not a
 proven common invocation. Only fixed categories, HTTP status codes and counts
 are printed. No Scheduler job, broker request or sync is invoked.
-The serving application's ordinary text logs may not carry a request trace;
+Older serving application text logs may not carry a request trace;
 in that case the application failure stays unknown even when request logs exist.
 `unique_trace` means the one candidate request has a valid trace identifier;
 it does not establish that an application log matched it or that the Scheduler

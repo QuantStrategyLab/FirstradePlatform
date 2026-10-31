@@ -33,6 +33,37 @@ class SnapshotLogDiagnosticTest(unittest.TestCase):
         self.assertNotIn(URL, str(result))
         self.assertNotIn(TRACE, str(result))
 
+    def test_structured_entry_is_correlated_and_validated(self):
+        row = app(); row.pop('textPayload')
+        row['jsonPayload'] = {'message': 'account_facts_sync failed', 'reason': 'cache_stale',
+                              'stage': 'cache', 'http_status': None}
+        result = summarize([scheduler(), request()], [row], PROJECT, SERVICE, 'us-central1')
+        self.assertEqual(result['app_reason'], 'cache_stale')
+        for field, unsafe in [('reason', 'secret-account'), ('stage', 'secret-account'), ('http_status', True)]:
+            changed = {**row, 'jsonPayload': {**row['jsonPayload'], field: unsafe}}
+            result = summarize([scheduler(), request()], [changed], PROJECT, SERVICE, 'us-central1')
+            self.assertEqual(result['app_reason'], 'unknown')
+            self.assertNotIn('secret-account', str(result))
+        foreign = {**row, 'resource': {'type': 'cloud_run_revision', 'labels': {
+            'project_id': PROJECT, 'location': 'us-central1', 'service_name': 'other'}}}
+        self.assertEqual(summarize([scheduler(), request()], [foreign], PROJECT, SERVICE, 'us-central1')['app_reason'], 'unknown')
+        self.assertEqual(summarize([scheduler(), request()], [row, app()], PROJECT, SERVICE, 'us-central1')['app_reason'], 'unknown')
+
+    def test_structured_untraced_log_is_only_candidate(self):
+        row = app(); row.pop('textPayload'); row.pop('trace')
+        row['jsonPayload'] = {'message': 'account_facts_sync failed', 'reason': 'cache_stale',
+                              'stage': 'cache', 'http_status': None}
+        queries = []
+        def read(query, project):
+            queries.append(query)
+            return ('ok', [[scheduler(), request()], [], [row]][len(queries) - 1])
+        result = run(PROJECT, SERVICE, 'us-central1', 'us-central1',
+                     '2026-10-30T01:57:00Z', '2026-10-30T02:10:00Z', read=read)
+        self.assertEqual(result['app_reason'], 'unknown')
+        self.assertEqual(result['candidate_reason'], 'cache_stale')
+        self.assertEqual(result['candidate_relation'], 'same_service_and_window_only')
+        self.assertIn('jsonPayload.message', queries[2])
+
     def test_no_trace_or_multiple_requests_are_never_correlated(self):
         no_trace = request(); del no_trace['trace']
         for rows in ([scheduler(), no_trace], [scheduler(), request(), request()]):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -8,23 +10,147 @@ pytest.importorskip("flask")
 
 import main
 from application.account_facts_readonly import AccountFactsUnavailable
+from application.account_facts_publisher import AccountFactsPublishError
 from application.firstrade_client import FirstradeCachedSessionError
 
 
-def test_cached_failure_logs_only_closed_stage_without_changing_public_contract(monkeypatch, caplog):
-    _configure(monkeypatch)
+def test_cached_failure_logs_correlate_without_changing_response(monkeypatch, capsys):
+    from scripts.diagnose_snapshot_request_logs import summarize
+    from tests.test_snapshot_log_diagnostic import PROJECT, SERVICE, scheduler, request as request_log
 
+    _configure(monkeypatch)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", PROJECT)
     def failed_client():
         raise FirstradeCachedSessionError("read_http_error", stage="userinfo", http_status=401)
-
     monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", failed_client)
-    with caplog.at_level("WARNING"):
-        response = main.app.test_client().post(
-            "/account-facts-sync", headers={"Authorization": "Bearer synthetic-facts-token"},
-        )
+    trace_id = "A" * 32
+    response = main.app.test_client().post(
+        "/account-facts-sync", headers={"Authorization": "Bearer synthetic-facts-token",
+                                        "X-Cloud-Trace-Context": trace_id + "/123;o=1"})
     assert response.status_code == 503
     assert response.json == {"ok": False, "error": "readonly_client_unavailable"}
-    assert "reason=read_http_error stage=userinfo http_status=401" in caplog.text
+    line = capsys.readouterr().out.strip()
+    payload = json.loads(line)
+    trace = payload.pop("logging.googleapis.com/trace")
+    entry = {"resource": {"type": "cloud_run_revision", "labels": {
+        "project_id": PROJECT, "location": "us-central1", "service_name": SERVICE}},
+        "trace": trace, "jsonPayload": payload}
+    result = summarize([scheduler(), request_log()], [entry], PROJECT, SERVICE, "us-central1")
+    assert result["app_reason"] == "read_http_error"
+    assert result["app_stage"] == "userinfo"
+    assert result["app_http_status"] == 401
+    assert "synthetic-facts-token" not in line
+    assert "synthetic-native-id" not in line
+
+
+@pytest.mark.parametrize("header,project", [(None, "example-project"), ("bad", "example-project"),
+                                             ("a" * 32, None),
+                                             ("a" * 32 + "/1;o=1", "bad/project")])
+def test_failure_omits_invalid_or_absent_trace(monkeypatch, capsys, header, project):
+    _configure(monkeypatch)
+    if project is None:
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    else:
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", project)
+    def failed_client():
+        raise FirstradeCachedSessionError("cache_stale", stage="cache")
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", failed_client)
+    headers = {"Authorization": "Bearer synthetic-facts-token"}
+    if header is not None:
+        headers["X-Cloud-Trace-Context"] = header
+    response = main.app.test_client().post("/account-facts-sync", headers=headers)
+    assert response.status_code == 503
+    assert "logging.googleapis.com/trace" not in json.loads(capsys.readouterr().out)
+
+
+def test_failure_trace_is_request_local_under_concurrency(monkeypatch, capsys):
+    _configure(monkeypatch)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "example-project")
+    def failed_client():
+        raise FirstradeCachedSessionError("cache_stale", stage="cache")
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", failed_client)
+    def invoke(char):
+        return main.app.test_client().post("/account-facts-sync", headers={
+            "Authorization": "Bearer synthetic-facts-token", "X-Cloud-Trace-Context": char * 32}).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(invoke, ["a", "b"])) == [503, 503]
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {r["logging.googleapis.com/trace"] for r in rows} == {
+        "projects/example-project/traces/" + c * 32 for c in ["a", "b"]}
+
+
+
+def test_log_fields_reject_untrusted_values(monkeypatch, capsys):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "example-project")
+    with main.app.test_request_context(headers={"X-Cloud-Trace-Context": "a" * 32,
+                                                "Authorization": "Bearer private-secret"}):
+        main._log_account_facts_failure("private-secret", "private-stage", "401")
+    output = capsys.readouterr().out
+    record = json.loads(output)
+    assert record["reason"] == "unknown"
+    assert record["stage"] == "unclassified"
+    assert record["http_status"] is None
+    assert "private-secret" not in output
+    assert "private-stage" not in output
+
+
+
+@pytest.mark.parametrize("reason", ["provider_value_invalid", "snapshot_invalid", "private-secret"])
+def test_unlisted_failure_reason_is_unknown_without_changing_http(monkeypatch, capsys, reason):
+    from scripts.diagnose_snapshot_request_logs import summarize
+    from tests.test_snapshot_log_diagnostic import PROJECT, SERVICE, scheduler, request as request_log
+    _configure(monkeypatch)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", PROJECT)
+    client = FakeClient()
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", lambda: client)
+    def fail(*args, **kwargs):
+        raise AccountFactsUnavailable(reason)
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", fail)
+    response = main.app.test_client().post("/account-facts-sync", headers={
+        "Authorization": "Bearer synthetic-facts-token", "X-Cloud-Trace-Context": "a" * 32})
+    assert response.status_code == 503
+    assert response.json == {"ok": False, "error": reason}
+    line = capsys.readouterr().out
+    payload = json.loads(line)
+    assert payload['reason'] == 'unknown'
+    assert reason not in line
+    trace = payload.pop('logging.googleapis.com/trace')
+    row = {'resource': {'type': 'cloud_run_revision', 'labels': {
+        'project_id': PROJECT, 'location': 'us-central1', 'service_name': SERVICE}},
+        'trace': trace, 'jsonPayload': payload}
+    assert summarize([scheduler(), request_log()], [row], PROJECT, SERVICE, 'us-central1')['app_reason'] == 'unknown'
+
+
+
+@pytest.mark.parametrize("fail_at", ["write", "flush"])
+@pytest.mark.parametrize("failure,expected_status,expected_reason", [
+    ("collect", 503, "provider_value_invalid"), ("publish", 502, "sync_unavailable"),
+])
+def test_stdout_write_failure_preserves_http_response(monkeypatch, failure, expected_status, expected_reason, fail_at):
+    _configure(monkeypatch)
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", lambda: FakeClient())
+    def collect(*args, **kwargs):
+        if failure == "collect":
+            raise AccountFactsUnavailable(expected_reason)
+        return {}
+    def publish(*args, **kwargs):
+        raise AccountFactsPublishError(expected_reason)
+    monkeypatch.setattr(main, "collect_firstrade_account_facts", collect)
+    monkeypatch.setattr(main, "build_firstrade_account_snapshot", lambda *args, **kwargs: {})
+    monkeypatch.setattr(main, "publish_firstrade_account_snapshot", publish)
+    class BrokenOutput:
+        def write(self, value):
+            if fail_at == "write":
+                raise OSError("private-error")
+        def flush(self):
+            if fail_at == "flush":
+                raise OSError("private-error")
+    with monkeypatch.context() as patch:
+        patch.setattr(main.sys, "stdout", BrokenOutput())
+        response = main.app.test_client().post("/account-facts-sync", headers={
+            "Authorization": "Bearer synthetic-facts-token"})
+    assert response.status_code == expected_status
+    assert response.json == {"ok": False, "error": expected_reason}
 
 
 def _configure(monkeypatch, **overrides):
