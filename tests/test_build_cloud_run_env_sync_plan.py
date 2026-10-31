@@ -33,6 +33,7 @@ def runtime_target_json(
 def test_build_cloud_run_env_sync_plan_legacy_mode_without_telegram():
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE": "firstrade-platform-service",
         "NOTIFY_LANG": "zh",
         "RUNTIME_TARGET_JSON": runtime_target_json(
@@ -77,6 +78,7 @@ def test_build_cloud_run_env_sync_plan_carries_balance_facts_config_but_not_toke
     }
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE": "firstrade-platform-service",
         "NOTIFY_LANG": "en",
         "RUNTIME_TARGET_JSON": runtime_target_json(
@@ -117,6 +119,7 @@ def test_per_service_facts_config_fallback_applies_only_to_current_firstrade_tar
     ]
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE": current_service,
         "CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(
             {"defaults": {"NOTIFY_LANG": "en"}, "targets": targets}
@@ -155,6 +158,7 @@ def test_per_service_facts_config_fallback_applies_only_to_current_firstrade_tar
 def test_build_cloud_run_env_sync_plan_requires_snapshot_for_snapshot_backed_profile():
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE": "firstrade-platform-service",
         "NOTIFY_LANG": "en",
         "RUNTIME_TARGET_JSON": runtime_target_json(
@@ -194,6 +198,7 @@ def test_build_cloud_run_env_sync_plan_skips_snapshot_requirements_when_disabled
     }
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(payload),
         "FIRSTRADE_FEATURE_SNAPSHOT_PATH": "gs://stale-paper/snapshot.csv",
         "FIRSTRADE_FEATURE_SNAPSHOT_MANIFEST_PATH": "gs://stale-paper/snapshot.csv.manifest.json",
@@ -220,6 +225,7 @@ def test_build_cloud_run_env_sync_plan_skips_snapshot_requirements_when_disabled
 def test_build_cloud_run_env_sync_plan_requires_notify_lang():
     env = {
         **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
         "CLOUD_RUN_SERVICE": "firstrade-platform-service",
         "RUNTIME_TARGET_JSON": runtime_target_json(
             "tqqq_growth_income",
@@ -237,3 +243,28 @@ def test_build_cloud_run_env_sync_plan_requires_notify_lang():
 
     assert result.returncode != 0
     assert "firstrade-platform-service:NOTIFY_LANG" in result.stderr
+
+
+def test_build_cloud_run_env_sync_plan_fails_closed_without_platform_config():
+    env = {
+        **os.environ,
+        "PATH": "/nonexistent-bin",
+        "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+        "NOTIFY_LANG": "en",
+        "RUNTIME_TARGET_JSON": runtime_target_json(
+            "tqqq_growth_income",
+            service_name="firstrade-platform-service",
+        ),
+    }
+    env.pop("PLATFORM_CONFIG_JSON", None)
+
+    result = subprocess.run(
+        [sys.executable, str(SYNC_PLAN_SCRIPT_PATH), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "platform config unavailable" in result.stderr
+    assert "refusing to plan environment removals" in result.stderr

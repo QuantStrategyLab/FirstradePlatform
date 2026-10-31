@@ -269,25 +269,42 @@ OPTIONAL_TARGET_ENV = PLATFORM_GENERIC_ENV + (
 PLATFORM_CONFIG_ENV = "PLATFORM_CONFIG_JSON"
 
 
+def _require_platform_config_object(config: object, source: str) -> dict:
+    if not isinstance(config, dict):
+        raise ValueError(f"{source} must contain a JSON object")
+    return config
+
+
 def _load_platform_config(env: Mapping[str, str]) -> dict:
     """Load platform-config.json, preferring explicit env var, falling back to a
-    bundled copy or fetching from the QuantRuntimeSettings repo."""
+    bundled copy or fetching from the QuantRuntimeSettings repo.
+
+    Planning must stop when none of those sources is available: an empty config
+    silently drops every strategy-derived variable into ``remove_env_vars``.
+    """
     raw = str(env.get(PLATFORM_CONFIG_ENV, "") or "").strip()
     if raw:
         try:
-            return json.loads(raw)
+            loaded = json.loads(raw)
         except json.JSONDecodeError:
-            pass
-        path = Path(raw)
-        if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
-        raise FileNotFoundError(f"PLATFORM_CONFIG_JSON file not found: {raw}")
+            path = Path(raw)
+            if not path.exists():
+                raise FileNotFoundError(f"PLATFORM_CONFIG_JSON file not found: {raw}")
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        return _require_platform_config_object(loaded, PLATFORM_CONFIG_ENV)
 
     bundled = ROOT / "platform-config.json"
     if bundled.exists():
-        return json.loads(bundled.read_text(encoding="utf-8"))
+        return _require_platform_config_object(
+            json.loads(bundled.read_text(encoding="utf-8")), "bundled platform-config.json"
+        )
 
     import subprocess
+
+    unavailable = (
+        "platform config unavailable: set PLATFORM_CONFIG_JSON or authenticate gh; "
+        "refusing to plan environment removals"
+    )
     try:
         result = subprocess.run(
             ["gh", "api",
@@ -295,13 +312,19 @@ def _load_platform_config(env: Mapping[str, str]) -> dict:
              "--jq", ".content"],
             capture_output=True, text=True, timeout=15,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            import base64
-            return json.loads(base64.b64decode(result.stdout.strip()).decode("utf-8"))
-    except Exception:
-        pass
-
-    return {}
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(unavailable) from exc
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError(unavailable)
+    import base64
+    try:
+        loaded = json.loads(base64.b64decode(result.stdout.strip()).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise RuntimeError("platform config response is invalid") from exc
+    try:
+        return _require_platform_config_object(loaded, "platform config response")
+    except ValueError as exc:
+        raise RuntimeError("platform config response is invalid") from exc
 
 def build_sync_plan(env: Mapping[str, str] = os.environ) -> dict[str, object]:
     platform_config = _load_platform_config(env)
