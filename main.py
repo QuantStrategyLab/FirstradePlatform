@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import traceback
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -112,6 +113,38 @@ _ASSIGNMENT_RE = re.compile(
 
 def get_project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT")
+
+
+# These fields are the complete public diagnostic vocabulary for this route.
+_ACCOUNT_FACTS_LOG_REASONS = frozenset({
+    "cache_config_error", "cache_read_failed", "cache_missing", "cache_stale",
+    "cache_invalid", "cache_tokens_incomplete", "cache_missing_or_stale",
+    "read_timeout", "read_network_error", "read_http_error", "read_invalid_payload",
+    "read_provider_error", "account_data_invalid", "account_identity_unavailable",
+    "account_identity_mismatch", "account_list_empty", "balances_unavailable",
+    "positions_unavailable", "readonly_client_unavailable", "sync_unavailable",
+    "sync_rejected", "sync_ack_invalid", "configuration_incomplete",
+    "account_facts_unavailable", "runtime_target_mismatch",
+})
+_ACCOUNT_FACTS_LOG_STAGES = frozenset({"cache", "userinfo", "account_list", "account_read", "unclassified"})
+
+
+def _log_account_facts_failure(reason: object, stage: object = "unclassified", http_status: object = None) -> None:
+    reason = reason if isinstance(reason, str) and reason in _ACCOUNT_FACTS_LOG_REASONS else "unknown"
+    stage = stage if isinstance(stage, str) and stage in _ACCOUNT_FACTS_LOG_STAGES else "unclassified"
+    status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
+    entry = {"severity": "WARNING", "message": "account_facts_sync failed",
+             "reason": reason, "stage": stage, "http_status": status}
+    project = get_project_id()
+    header = request.headers.get("X-Cloud-Trace-Context", "")
+    trace = re.fullmatch(r"([0-9a-fA-F]{32})(?:/[0-9]+)?(?:;o=[01])?", header)
+    if isinstance(project, str) and re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project) and trace:
+        entry["logging.googleapis.com/trace"] = f"projects/{project}/traces/{trace.group(1).lower()}"
+    try:
+        sys.stdout.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        sys.stdout.flush()
+    except OSError:
+        pass
 
 
 def _flag(name: str, default: str = "false") -> bool:
@@ -1080,37 +1113,20 @@ def account_facts_sync():
             account_scope=str(runtime_target.account_scope),
         )
     except AccountFactsUnavailable as exc:
-        accounts_len = -1
-        try:
-            if client is not None:
-                accounts_len = len(client.account_numbers())
-        except Exception:
-            accounts_len = -1
-        app.logger.warning(
-            "account_facts_sync collect failed reason=%s expected=%s accounts_len=%s",
-            exc.reason_code,
-            mask_account_id(config.account_id or ""),
-            accounts_len,
-        )
+        _log_account_facts_failure(exc.reason_code)
         return jsonify({"ok": False, "error": exc.reason_code}), 503
     except AccountFactsPublishError as exc:
-        app.logger.warning("account_facts_sync build failed reason=%s", exc.reason_code)
+        _log_account_facts_failure(exc.reason_code)
         return jsonify({"ok": False, "error": exc.reason_code}), 503
     except FirstradePlatformError as exc:
-        # connect_read_only / cached session failures land here (not AccountFactsUnavailable).
-        app.logger.warning(
-            "account_facts_sync client failed exc_type=%s reason=%s stage=%s http_status=%s",
-            type(exc).__name__,
-            exc.reason_code if isinstance(exc, FirstradeCachedSessionError) else "unclassified",
+        _log_account_facts_failure(
+            exc.reason_code if isinstance(exc, FirstradeCachedSessionError) else "readonly_client_unavailable",
             exc.stage if isinstance(exc, FirstradeCachedSessionError) else "unclassified",
             exc.http_status if isinstance(exc, FirstradeCachedSessionError) else None,
         )
         return jsonify({"ok": False, "error": "readonly_client_unavailable"}), 503
-    except Exception as exc:
-        app.logger.warning(
-            "account_facts_sync unavailable exc_type=%s",
-            type(exc).__name__,
-        )
+    except Exception:
+        _log_account_facts_failure("account_facts_unavailable")
         return jsonify({"ok": False, "error": "account_facts_unavailable"}), 503
     finally:
         if client is not None:
@@ -1122,7 +1138,7 @@ def account_facts_sync():
     try:
         publish_firstrade_account_snapshot(payload, config)
     except AccountFactsPublishError as exc:
-        app.logger.warning("account_facts_sync publish failed reason=%s", exc.reason_code)
+        _log_account_facts_failure(exc.reason_code)
         status = 502 if exc.reason_code.startswith("sync_") else 503
         return jsonify({"ok": False, "error": exc.reason_code}), status
     app.logger.info("account_facts_sync published ok")
