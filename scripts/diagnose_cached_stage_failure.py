@@ -9,6 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from scripts.verify_cached_diagnostic_stage import (
     DIAGNOSTIC_TAG,
@@ -303,6 +304,80 @@ def _control_summary(policy: Any, jobs: Any) -> dict[str, Any]:
     }
 
 
+
+def cache_metadata_summary(service: Any, revisions: Any, jobs: Any, expected_service: str,
+                           expected_project: str, scheduler_region: str) -> dict[str, Any]:
+    """Project explicit, uniquely attributable metadata without returning source values."""
+    unknown = {"session_cache_ttl_seconds": None, "reuse_session": None,
+               "persist_session_cache": None, "session_check_policy": None,
+               "session_check_http_enabled": None}
+    result = {"serving_revision_qualified": None, **unknown, "schedulers": {}}
+    status = service.get("status") if isinstance(service, dict) else None
+    meta = service.get("metadata") if isinstance(service, dict) else None
+    traffic = status.get("traffic") if isinstance(status, dict) else None
+    valid_rows = isinstance(traffic, list) and all(isinstance(r, dict) and type(r.get("percent", 0)) is int
+                                                    and 0 <= r.get("percent", 0) <= 100 for r in traffic)
+    positive = [r for r in traffic if r.get("percent", 0) > 0] if valid_rows else []
+    serving_name = positive[0].get("revisionName") if len(positive) == 1 else None
+    matches = [r for r in revisions if isinstance(r, dict) and isinstance(r.get("metadata"), dict)
+               and r["metadata"].get("name") == serving_name] if isinstance(revisions, list) else []
+    if (isinstance(meta, dict) and meta.get("name") == expected_service and _ready(service) is True
+            and isinstance(serving_name, str) and bool(serving_name) and len(positive) == 1
+            and positive[0].get("percent") == 100
+            and len(matches) == 1 and _ready(matches[0]) is True):
+        result["serving_revision_qualified"] = True
+        spec = matches[0].get("spec")
+        containers = spec.get("containers") if isinstance(spec, dict) else None
+        env = containers[0].get("env") if isinstance(containers, list) and len(containers) == 1 and isinstance(containers[0], dict) else None
+        def explicit(name: str) -> str | None:
+            if not isinstance(env, list) or not all(isinstance(e, dict) for e in env):
+                return None
+            found = [e for e in env if e.get("name") == name]
+            if len(found) != 1 or 'valueFrom' in found[0] or 'valueSource' in found[0]:
+                return None
+            value = found[0].get("value")
+            return value.strip().lower() if isinstance(value, str) else None
+        ttl = explicit("FIRSTRADE_SESSION_CACHE_TTL_SECONDS")
+        if ttl and re.fullmatch(r"[0-9]{1,9}", ttl) and int(ttl) > 0:
+            result["session_cache_ttl_seconds"] = int(ttl)
+        for field, name in (("reuse_session", "FIRSTRADE_REUSE_SESSION"),
+                            ("persist_session_cache", "FIRSTRADE_PERSIST_SESSION_CACHE"),
+                            ("session_check_http_enabled", "FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP")):
+            value = explicit(name)
+            result[field] = (value == "true") if value in {"true", "false"} else None
+        policy = explicit("FIRSTRADE_SESSION_CHECK_POLICY")
+        result["session_check_policy"] = ({"auto": "auto", "always": "always", "run": "always",
+            "true": "always", "1": "always", "skip": "skip", "never": "skip", "disabled": "skip",
+            "off": "skip", "false": "skip", "0": "skip"}).get(policy)
+
+    base = status.get("url") if isinstance(status, dict) else None
+    jobs_valid = isinstance(jobs, list) and all(isinstance(j, dict) for j in jobs)
+    for label, suffix, path in (("account_facts_sync", "account-facts-sync-scheduler", "/account-facts-sync"),
+                                ("session_renew", "session-renew-scheduler", "/session-renew"),
+                                ("session_check", "probe-scheduler", "/probe")):
+        item = {"match_count": None, "state": None, "schedule": None, "time_zone": None}
+        if jobs_valid and isinstance(meta, dict) and meta.get("name") == expected_service and isinstance(base, str):
+            expected_name = f"projects/{expected_project}/locations/{scheduler_region}/jobs/{expected_service}-{suffix}"
+            selected = [j for j in jobs if j.get("name") == expected_name]
+            item["match_count"] = len(selected)
+            if len(selected) == 1:
+                job = selected[0]
+                target = job.get("httpTarget")
+                if isinstance(target, dict) and target.get("uri") == base + path and target.get("httpMethod") == "POST":
+                    item["state"] = {"ENABLED": "enabled", "PAUSED": "paused"}.get(job.get("state"))
+                    cron = job.get("schedule")
+                    if isinstance(cron, str) and len(cron) <= 100 and re.fullmatch(r"[0-9*/?, -]+", cron) and len(cron.split()) == 5:
+                        item["schedule"] = cron
+                    zone = job.get("timeZone")
+                    if isinstance(zone, str) and len(zone) <= 64 and re.fullmatch(r"[A-Za-z0-9_+/-]+", zone):
+                        try:
+                            ZoneInfo(zone)
+                            item["time_zone"] = zone
+                        except (ZoneInfoNotFoundError, ValueError):
+                            pass
+        result["schedulers"][label] = item
+    return result
+
 def _audit_message_terms(texts: list[str], *, available: bool) -> dict[str, bool | None]:
     if not available:
         return {term: None for term in _AUDIT_MESSAGE_TERMS}
@@ -455,6 +530,7 @@ def main() -> int:
     parser.add_argument("--window-end")
     parser.add_argument("--iam-policy")
     parser.add_argument("--scheduler-jobs")
+    parser.add_argument("--scheduler-region")
     parser.add_argument("--audit-entries")
     parser.add_argument("--audit-status", choices=("ok", "permission_denied", "unavailable"))
     parser.add_argument("--validate-window", nargs=2, metavar=("START", "END"))
@@ -494,6 +570,9 @@ def main() -> int:
         audit_entries=_read_json(args.audit_entries),
         audit_status=args.audit_status,
     )
+    summary["cache_metadata"] = cache_metadata_summary(
+        _read_json(args.service), _read_json(args.revisions), _read_json(args.scheduler_jobs),
+        args.expected_service, args.expected_project, args.scheduler_region or args.expected_region)
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
     return 0
 
