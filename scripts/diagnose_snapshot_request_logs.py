@@ -18,7 +18,7 @@ REASONS = frozenset({
     'account_identity_mismatch', 'account_list_empty', 'balances_unavailable',
     'positions_unavailable', 'readonly_client_unavailable', 'sync_unavailable',
     'sync_rejected', 'sync_ack_invalid', 'configuration_incomplete',
-    'account_facts_unavailable', 'runtime_target_mismatch',
+    'account_facts_unavailable', 'runtime_target_mismatch', 'unknown',
 })
 STAGES = frozenset({'cache', 'userinfo', 'account_list', 'account_read', 'unclassified'})
 STATUSES = frozenset({'OK', 'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED',
@@ -54,6 +54,13 @@ def _resource(row, kind, project, service, location):
 
 
 def _classification(row):
+    payload = row.get('jsonPayload')
+    if isinstance(payload, dict) and payload.get('message') == 'account_facts_sync failed':
+        reason, stage, status = payload.get('reason'), payload.get('stage'), payload.get('http_status')
+        if (isinstance(reason, str) and reason in REASONS and isinstance(stage, str) and stage in STAGES
+                and (status is None or _http(status) is not None)):
+            return (reason, stage, status)
+        return None
     msg = row.get('textPayload')
     if not isinstance(msg, str):
         return None
@@ -172,7 +179,7 @@ def run(project, service, region, run_region, start, end, *, read=_read_logs):
         return result
     candidate_filter = (f'{window} AND resource.type="cloud_run_revision" '
                         f'AND resource.labels.project_id="{project}" AND resource.labels.location="{run_region}" '
-                        f'AND resource.labels.service_name="{service}" AND textPayload:"account_facts_sync"')
+                        f'AND resource.labels.service_name="{service}" AND (textPayload:"account_facts_sync" OR jsonPayload.message="account_facts_sync failed")')
     candidate_status, candidates = read(candidate_filter, project)
     result.update(candidate_read_status=candidate_status, candidate_count=None,
                   candidate_relation='unknown', candidate_reason='unknown',
@@ -180,8 +187,10 @@ def run(project, service, region, run_region, start, end, *, read=_read_logs):
     if candidate_status != 'ok':
         return result
     candidates = [row for row in candidates if _resource(row, 'cloud_run_revision', project, service, run_region)
-                  and not row.get('httpRequest') and isinstance(row.get('textPayload'), str)
-                  and 'account_facts_sync' in row['textPayload']]
+                  and not row.get('httpRequest') and (
+                      (isinstance(row.get('textPayload'), str) and 'account_facts_sync' in row['textPayload'])
+                      or (isinstance(row.get('jsonPayload'), dict)
+                          and row['jsonPayload'].get('message') == 'account_facts_sync failed'))]
     result['candidate_count'] = len(candidates)
     if len(candidates) == 1:
         result['candidate_relation'] = 'same_service_and_window_only'
