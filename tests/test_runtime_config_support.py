@@ -328,9 +328,9 @@ def test_runtime_execution_window_rejects_invalid_generic_env(monkeypatch, raw_v
 def test_market_signal_handoff_index_infers_from_execution_report_bucket():
     assert (
         _default_market_signal_handoff_index_uri_from_report_bucket(
-            "gs://qsl-runtime-logs-shared/execution-reports"
+            "gs://synthetic-runtime-logs/execution-reports"
         )
-        == "gs://qsl-runtime-logs-shared/platform_handoffs/index.json"
+        == "gs://synthetic-runtime-logs/platform_handoffs/index.json"
     )
 
 
@@ -359,7 +359,7 @@ def test_market_signal_handoff_index_prefers_explicit_env(monkeypatch):
     )
     monkeypatch.setenv(
         "EXECUTION_REPORT_GCS_URI",
-        "gs://qsl-runtime-logs-shared/execution-reports",
+        "gs://synthetic-runtime-logs/execution-reports",
     )
 
     assert (
@@ -376,7 +376,7 @@ def test_load_platform_runtime_settings_for_ibit_smart_wires_market_signal_defau
     monkeypatch.setenv("DCA_MODE", "smart")
     monkeypatch.setenv(
         "EXECUTION_REPORT_GCS_URI",
-        "gs://qsl-runtime-logs-shared/execution-reports",
+        "gs://synthetic-runtime-logs/execution-reports",
     )
     monkeypatch.delenv("FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI", raising=False)
     monkeypatch.delenv("MARKET_SIGNAL_HANDOFF_INDEX_URI", raising=False)
@@ -391,7 +391,7 @@ def test_load_platform_runtime_settings_for_ibit_smart_wires_market_signal_defau
     assert settings.market_signal_fallback_mode == "last_valid"
     assert (
         settings.market_signal_handoff_index_uri
-        == "gs://qsl-runtime-logs-shared/platform_handoffs/index.json"
+        == "gs://synthetic-runtime-logs/platform_handoffs/index.json"
     )
 
 
