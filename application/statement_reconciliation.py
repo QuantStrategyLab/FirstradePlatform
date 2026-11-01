@@ -11,11 +11,13 @@ Two gap classes are modelled explicitly instead of being left "unexplained":
 * ``valuation_basis_difference`` - the balances endpoint and the positions
   endpoint value the same shares from different quote bases, so
   ``balance long_stock_value`` and ``positions market_value`` can differ by a
-  few cents without any cash or quantity discrepancy.
+  few cents without any cash or quantity discrepancy. The tolerance has an
+  absolute cap and the share counts are cross-checked when available.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
@@ -28,6 +30,11 @@ _MILLION = Decimal("1000000")
 
 VALUATION_TOLERANCE_FLOOR = Decimal("0.10")
 VALUATION_TOLERANCE_RATE = Decimal("0.001")
+# Absolute ceiling so 0.1% of a large account can never hide a real break.
+VALUATION_TOLERANCE_CAP = Decimal("25.00")
+
+_EXEC_TIME_RE = re.compile(r"EXEC TIME:\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
+_SETTLEMENT_RE = re.compile(r"S/D:\s*(\d{1,2}/\d{1,2}/\d{4})", re.IGNORECASE)
 
 
 def _to_decimal(value: object) -> Decimal:
@@ -54,6 +61,30 @@ def _trade_date(value: object) -> date:
         except ValueError:
             continue
     raise ValueError("trade_date_invalid")
+
+
+def _resolve_dates(csv_date: object, description: object) -> tuple[date, date | None]:
+    """Return ``(trade_date, settlement_date)`` for a history row.
+
+    In the Firstrade history CSV the ``Date`` column is the trade date: for the
+    2026-08-28 IBIT sell it is ``8/28/2026`` while the description carries
+    ``EXEC TIME: 2026-08-28 ...`` and ``S/D: 08/31/2026`` (T+1 settlement).
+    SEC Section 31 and FINRA TAF are charged on the trade date, so the
+    settlement date must never select a rate. The row fails closed when the
+    ``Date`` column disagrees with ``EXEC TIME`` or equals/precedes ``S/D``,
+    which would mean an export that carries settlement dates.
+    """
+
+    trade_date = _trade_date(csv_date)
+    text = str(description or "")
+    executed = _EXEC_TIME_RE.search(text)
+    if executed and _trade_date(executed.group(1)) != trade_date:
+        raise ValueError("date_column_not_trade_date")
+    settled = _SETTLEMENT_RE.search(text)
+    settlement_date = _trade_date(settled.group(1)) if settled else None
+    if settlement_date is not None and settlement_date <= trade_date:
+        raise ValueError("date_column_not_trade_date")
+    return trade_date, settlement_date
 
 
 def _row_value(row: Mapping[str, Any], *keys: str) -> Any:
@@ -103,8 +134,9 @@ def decompose_sell_fees(
 ) -> dict[str, Any]:
     """Explain the gap between ``quantity x price`` and the reported net proceeds.
 
-    ``row`` uses the Firstrade history CSV shape: Date, Transaction, Quantity,
-    Description, Symbol, Price, Amount (case-insensitive keys). Returns a plain
+    ``row`` uses the Firstrade history CSV shape: Date (the trade date, not the
+    settlement date), Transaction, Quantity, Description, Symbol, Price, Amount
+    (case-insensitive keys). Quantity and price must be positive. Returns a plain
     dict with fixed keys; ``status`` is one of ``explained``, ``unexplained``,
     ``not_applicable`` or ``unsupported``. The schedule is applied by trade
     date and fails closed (``unsupported``) when a rate is not defined.
@@ -119,10 +151,15 @@ def decompose_sell_fees(
     if not schedule.is_broker_assisted(description):
         return {**base, "reason": "not_broker_assisted_order"}
     try:
-        trade_date = _trade_date(_row_value(row, "date", "trade_date"))
+        trade_date, settlement_date = _resolve_dates(
+            _row_value(row, "date", "trade_date"), description)
         quantity = abs(_to_decimal(_row_value(row, "quantity")))
         price = _to_decimal(_row_value(row, "price"))
         reported_net = _to_decimal(_row_value(row, "amount", "net_amount"))
+        if quantity <= 0:
+            raise ValueError("quantity_not_positive")
+        if price <= 0:
+            raise ValueError("price_not_positive")
     except ValueError as exc:
         return {"status": "unsupported", "reason": str(exc)}
     gross = quantity * price
@@ -139,6 +176,7 @@ def decompose_sell_fees(
         "status": "explained" if explained else "unexplained",
         "reason": None if explained else "residual_exceeds_tolerance",
         "trade_date": trade_date.isoformat(),
+        "settlement_date": settlement_date.isoformat() if settlement_date else None,
         "gross_proceeds": _exact(gross),
         "gross_minus_reported_net": _exact(gross - reported_net),
         "broker_assisted_fee": _money(broker_fee),
@@ -152,41 +190,90 @@ def decompose_sell_fees(
     }
 
 
+def _quantity_map(raw: Mapping[str, object] | None) -> dict[str, Decimal] | None:
+    if raw is None:
+        return None
+    result: dict[str, Decimal] = {}
+    for symbol, quantity in raw.items():
+        key = str(symbol or "").strip().upper()
+        if not key or key in result:
+            raise ValueError("quantity_invalid")
+        value = _to_decimal(quantity)
+        if value <= 0:
+            raise ValueError("quantity_invalid")
+        result[key] = value
+    return result
+
+
 def valuation_basis_difference(
-    *, balance_long_stock_value: object, positions_market_values: Iterable[object]
+    *,
+    balance_long_stock_value: object,
+    positions_market_values: Iterable[object],
+    position_quantities: Mapping[str, object] | None = None,
+    expected_quantities: Mapping[str, object] | None = None,
+    tolerance_cap: Decimal = VALUATION_TOLERANCE_CAP,
 ) -> dict[str, str]:
     """Compare balances-endpoint stock value with the sum of positions market values.
 
-    A non-zero gap within ``max($0.10, 0.1% of market value)`` is reported as
-    ``valuation_basis_difference`` (two endpoints, two quote bases) and is not
-    an unexplained reconciliation break. A gap above the tolerance is
-    ``unexplained``. The gap is signed ``positions - balance``.
+    A non-zero gap within ``min(max($0.10, 0.1% of market value), cap)`` (cap
+    ``$25.00``) is reported as ``valuation_basis_difference`` (two endpoints,
+    two quote bases) and is not an unexplained reconciliation break. A gap
+    above the tolerance is ``unexplained``. The gap is signed
+    ``positions - balance``.
+
+    A price-basis gap is only credible when the share counts agree, so the
+    position quantities are cross-checked against ``expected_quantities`` (for
+    example the previous snapshot or the ledger) when both are supplied: any
+    difference makes the result ``unexplained`` (``quantity_mismatch``).
+    ``quantity_check`` is ``not_performed`` when either side is missing, so a
+    caller can see the quantities were not verified. An empty positions list
+    only matches a zero balance value.
     """
 
     try:
         balance_value = _to_decimal(balance_long_stock_value)
-        positions_value = sum((_to_decimal(v) for v in positions_market_values), Decimal(0))
+        values = [_to_decimal(v) for v in positions_market_values]
+        actual = _quantity_map(position_quantities)
+        expected = _quantity_map(expected_quantities)
     except ValueError:
         return {"status": "unavailable", "reason": "valuation_input_missing"}
+    if balance_value < 0 or any(v < 0 for v in values):
+        return {"status": "unavailable", "reason": "valuation_input_negative"}
+    positions_value = sum(values, Decimal(0))
     difference = positions_value - balance_value
     reference = max(abs(balance_value), abs(positions_value))
-    tolerance = max(VALUATION_TOLERANCE_FLOOR, reference * VALUATION_TOLERANCE_RATE)
-    if difference == 0:
+    tolerance = min(
+        max(VALUATION_TOLERANCE_FLOOR, reference * VALUATION_TOLERANCE_RATE), tolerance_cap)
+    quantity_check = "not_performed"
+    if actual is not None and expected is not None:
+        quantity_check = "matched" if actual == expected else "mismatch"
+    reason = None
+    if not values and balance_value != 0:
+        status, reason = "unexplained", "positions_empty_balance_nonzero"
+    elif quantity_check == "mismatch":
+        status, reason = "unexplained", "quantity_mismatch"
+    elif difference == 0:
         status = "match"
     elif abs(difference) <= tolerance:
         status = "valuation_basis_difference"
     else:
-        status = "unexplained"
-    return {
+        status, reason = "unexplained", "difference_exceeds_tolerance"
+    report = {
         "status": status,
         "balance_long_stock_value": _exact(balance_value),
         "positions_market_value": _exact(positions_value),
         "difference_positions_minus_balance": _exact(difference),
         "tolerance": _exact(tolerance),
+        "quantity_check": quantity_check,
     }
+    if reason:
+        report["reason"] = reason
+    return report
 
 
-def valuation_basis_report(observation: Mapping[str, Any]) -> dict[str, str]:
+def valuation_basis_report(
+    observation: Mapping[str, Any], *, expected_quantities: Mapping[str, object] | None = None
+) -> dict[str, str]:
     """Build the report from a ``collect_firstrade_account_facts`` observation."""
 
     balances = observation.get("balances")
@@ -195,8 +282,21 @@ def valuation_basis_report(observation: Mapping[str, Any]) -> dict[str, str]:
         return {"status": "unavailable", "reason": "observation_incomplete"}
     if balances.get("long_stock_value") is None:
         return {"status": "unavailable", "reason": "balance_long_stock_value_missing"}
-    values = [row.get("market_value") for row in positions if isinstance(row, Mapping)]
+    rows = [row for row in positions if isinstance(row, Mapping)]
+    values = [row.get("market_value") for row in rows]
     if any(v is None for v in values):
         return {"status": "unavailable", "reason": "position_market_value_missing"}
+    quantities: dict[str, object] | None = None
+    if expected_quantities is not None:
+        quantities = {}
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol or symbol in quantities or row.get("quantity") is None:
+                return {"status": "unavailable", "reason": "position_quantity_missing"}
+            quantities[symbol] = row["quantity"]
     return valuation_basis_difference(
-        balance_long_stock_value=balances["long_stock_value"], positions_market_values=values)
+        balance_long_stock_value=balances["long_stock_value"],
+        positions_market_values=values,
+        position_quantities=quantities,
+        expected_quantities=expected_quantities,
+    )
