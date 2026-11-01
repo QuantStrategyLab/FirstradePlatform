@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from firstrade.account import FTSession
-from firstrade.exceptions import LoginResponseError
+from firstrade.exceptions import AccountResponseError, LoginResponseError
 
 from application.firstrade_client import (
     FirstradeBrokerClient,
@@ -18,6 +18,105 @@ from application.firstrade_client import (
     FirstradeSafetyError,
 )
 from application.session_check_service import run_forced_session_renewal
+
+
+@pytest.mark.parametrize("failure_stage", ["login", "seed_verify", "code_verify", "account_read"])
+@pytest.mark.parametrize("error_kind", ["sdk", "unhandled"])
+def test_renewal_route_contains_exceptions_without_logging_secrets(
+    tmp_path, monkeypatch, caplog, capsys, failure_stage, error_kind,
+):
+    import main
+
+    # Exercise Flask's production error handling and the pinned SDK with synthetic data only.
+    private = ("synthetic-account-private", "246802", "A" * 32,
+               "synthetic-password-private", "synthetic-token-private", "synthetic-chain-private")
+    payload = " ".join(private[:-1])
+    stages = []
+    sessions = []
+    monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
+    monkeypatch.setitem(main.app.config, "TESTING", False)
+    monkeypatch.setitem(main.app.config, "PROPAGATE_EXCEPTIONS", False)
+    monkeypatch.setattr("pyotp.TOTP.now", lambda _self: private[1])
+    monkeypatch.setattr(
+        "requests.Session.request",
+        lambda *_a, **_kw: pytest.fail("Unexpected network request"),
+    )
+
+    def fail(error_type):
+        try:
+            raise ValueError(private[-1])
+        except ValueError as cause:
+            raise error_type(payload) from cause
+
+    class Session(FTSession):
+        def __init__(self, **kwargs):
+            assert kwargs["debug"] is False
+            super().__init__(**kwargs, save_session=False)
+            sessions.append(self)
+
+        def _load_cookies(self):
+            return ""
+
+        def _request(self, method, url, **kwargs):
+            if method == "get":
+                return SimpleNamespace()
+            stage = "login" if "password" in kwargs.get("data", {}) else failure_stage
+            stages.append(stage)
+            if stage == failure_stage:
+                if error_kind == "unhandled":
+                    fail(RuntimeError)
+                # Let the actual SDK raise LoginResponseError from the provider response.
+                return SimpleNamespace(status_code=200, json=lambda: {"error": payload})
+            body = {"error": "", "ftat": private[4], "sid": "synthetic-sid"}
+            if failure_stage in {"seed_verify", "code_verify"}:
+                body = {"error": "", "mfa": True, "t_token": private[4]}
+            return SimpleNamespace(status_code=200, json=lambda: body)
+
+    def account_data(_session):
+        stages.append("account_read")
+        assert failure_stage == "account_read"
+        fail(AccountResponseError if error_kind == "sdk" else RuntimeError)
+
+    credentials = FirstradeCredentials(
+        username="synthetic-user", password=private[3], cookie_dir=str(tmp_path),
+        mfa_secret=private[2] if failure_stage == "seed_verify" else "",
+        mfa_code=private[1] if failure_stage == "code_verify" else "",
+        reuse_session=True, persist_session_cache=True, debug=True,
+    )
+
+    def factory(credentials, **kwargs):
+        return FirstradeBrokerClient(
+            credentials, **kwargs, session_factory=Session, account_data_factory=account_data,
+        )
+
+    monkeypatch.setattr(main, "run_forced_session_renewal", lambda: run_forced_session_renewal(
+        credentials=credentials, client_factory=factory, env_reader=lambda *_a: None,
+    ))
+    caplog.set_level(logging.DEBUG)
+    try:
+        response = main.app.test_client().post("/session-renew")
+    finally:
+        for session in sessions:
+            session.session.close()
+
+    captured = capsys.readouterr()
+    for marker in private:
+        assert marker not in captured.out + captured.err + caplog.text + response.get_data(as_text=True)
+    assert response.status_code == 503
+    assert response.get_json() == {"ok": False, "error": "session_renew_failed"}
+    assert stages == (["login"] if failure_stage == "login" else ["login", failure_stage])
+    records = [record for record in caplog.records if record.name == main.app.logger.name]
+    assert [record.getMessage() for record in records] == ["session_renew failed reason=session_renew_failed"]
+    assert all(record.exc_info is None and record.exc_text is None and record.stack_info is None
+               for record in caplog.records)
+    event = json.loads(captured.out.strip())
+    assert event == {
+        "event": "firstrade_session_renew_auth",
+        "challenge_required": "unknown" if failure_stage == "login" else
+                              "no" if failure_stage == "account_read" else "yes",
+        "method": "seed-auto" if failure_stage == "seed_verify" else "none",
+        "outcome": "success" if failure_stage == "account_read" else "failed",
+    }
 
 
 @pytest.mark.parametrize(

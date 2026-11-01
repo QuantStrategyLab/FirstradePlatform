@@ -1172,8 +1172,9 @@ def session_renew():
     except FirstradeMfaRequired:
         app.logger.warning("session_renew mfa_required")
         return jsonify({"ok": False, "error": "mfa_required"}), 409
-    except FirstradePlatformError as exc:
-        app.logger.warning("session_renew failed exc_type=%s", type(exc).__name__)
+    except Exception:
+        # SDK/provider exceptions may contain credentials; never log their details or chain.
+        app.logger.warning("session_renew failed reason=session_renew_failed")
         return jsonify({"ok": False, "error": "session_renew_failed"}), 503
 
 
