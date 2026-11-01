@@ -21,8 +21,11 @@ from application.firstrade_client import (
     FirstradeSafetyError,
     is_live_trading_enabled,
     mask_account_id,
+    suppress_firstrade_http_debug,
 )
-from application.state_persistence import GcsStateStore, build_gcs_state_store_from_env
+from application.state_persistence import (
+    GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
+)
 from strategy_registry import (
     FIRSTRADE_PLATFORM,
     resolve_strategy_definition,
@@ -162,7 +165,7 @@ def _session_check_state_key(
     env: Callable[[str, str | None], str | None] = os.getenv,
 ) -> str:
     account_selector = str(env("FIRSTRADE_ACCOUNT", "") or "").strip()
-    account_key = _safe_key(mask_account_id(account_selector)) if account_selector else "auto"
+    account_key = _safe_key(legacy_account_state_id(account_selector)) if account_selector else "auto"
     return (
         f"session-checks/{account_key}/{_safe_key(strategy_profile)}/"
         f"{_safe_key(period)}/latest.json"
@@ -357,6 +360,45 @@ def persist_funds_snapshot(
     return True
 
 
+def archive_cached_account_facts(
+    observation: Mapping[str, Any],
+    *,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+) -> None:
+    """Archive a validated cached-only observation using its original time.
+
+    The endpoint validates identity and publishable facts before calling this.
+    Never issue another broker read or turn missing fields into zero values.
+    """
+    if not _flag("FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT", "false", env_reader):
+        return
+    store = build_gcs_state_store_from_env(env_reader)
+    if store is None:
+        raise ValueError("funds_archive_unavailable")
+    observed = datetime.fromisoformat(observation["observed_started_at"].replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        raise ValueError("funds_archive_unavailable")
+    observed = observed.astimezone(timezone.utc)
+    balances = observation["balances"]
+    snapshot = {
+        "as_of": observed.isoformat(),
+        "observed_finished_at": observation["observed_finished_at"],
+        "account": observation["broker_account_id"],
+        "session_reused": True,
+        "source": "cached_account_facts",
+        "balance_metrics": {
+            "total_equity": balances.get("provider_equity"),
+            "cash_balance": balances.get("cash_balance"),
+            "available_cash": balances.get("available_cash"),
+            "buying_power": balances.get("buying_power"),
+        },
+        "coverage": dict(observation.get("coverage") or {}),
+    }
+    if observation.get("positions_status") == "available":
+        snapshot["positions"] = observation["positions"]
+    persist_funds_snapshot(store=store, snapshot=snapshot, now=observed)
+
+
 def run_session_check(
     *,
     credentials: FirstradeCredentials | None = None,
@@ -473,27 +515,28 @@ def run_forced_session_renewal(
     A successful result requires the shared cache write to complete successfully.
     """
 
-    resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
-    if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
-        raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
-    client = client_factory(resolved_credentials, live_trading_enabled=False)
-    if getattr(client, "live_trading_enabled", False):
-        raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
-    client.connect(force_login=True, defer_cache_save=True)
-    account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
-    balances = client.get_balances(account)
-    client.save_verified_session_cache()
-    print(
-        "Firstrade forced session renewal "
-        f"session_reused={bool(getattr(client, 'session_reused', False))} "
-        f"account={mask_account_id(account)} balances_read={bool(balances)}",
-        flush=True,
-    )
-    return {
-        "ok": True,
-        "api_kind": "unofficial-reverse-engineered",
-        "session_renewed": True,
-        "session_reused": bool(getattr(client, "session_reused", False)),
-        "account": mask_account_id(account),
-        "balances_read": bool(balances),
-    }
+    with suppress_firstrade_http_debug():
+        resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
+        if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
+            raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
+        client = client_factory(resolved_credentials, live_trading_enabled=False)
+        if getattr(client, "live_trading_enabled", False):
+            raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
+        client.connect(force_login=True, defer_cache_save=True)
+        account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+        balances = client.get_balances(account)
+        client.save_verified_session_cache()
+        print(
+            "Firstrade forced session renewal "
+            f"session_reused={bool(getattr(client, 'session_reused', False))} "
+            f"account={mask_account_id(account)} balances_read={bool(balances)}",
+            flush=True,
+        )
+        return {
+            "ok": True,
+            "api_kind": "unofficial-reverse-engineered",
+            "session_renewed": True,
+            "session_reused": bool(getattr(client, "session_reused", False)),
+            "account": mask_account_id(account),
+            "balances_read": bool(balances),
+        }

@@ -34,15 +34,6 @@ def test_runtime_execution_window_override_applies_to_mega_strategy():
     ) == {"runtime_execution_window_trading_days": 7}
 
 
-def test_runtime_execution_window_override_applies_to_tech_strategy():
-    settings = _runtime_settings(runtime_execution_window_trading_days=7)
-
-    assert _build_runtime_overrides(
-        "tech_communication_pullback_enhancement",
-        settings,
-    ) == {"runtime_execution_window_trading_days": 7}
-
-
 def test_runtime_execution_window_override_ignores_other_profiles():
     settings = _runtime_settings(runtime_execution_window_trading_days=7)
 

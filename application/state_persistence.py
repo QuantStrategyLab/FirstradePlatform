@@ -12,6 +12,14 @@ class StatePersistenceError(RuntimeError):
     """Raised when the configured state store cannot read or write."""
 
 
+def legacy_account_state_id(account: str) -> str:
+    """Keep existing private state/claim locators stable; never use for display."""
+    value = str(account or "")
+    if len(value) <= 4:
+        return "*" * len(value)
+    return "*" * (len(value) - 4) + value[-4:]
+
+
 def _normalize_prefix(prefix: str | None) -> str:
     return str(prefix or "").strip("/")
 
@@ -51,15 +59,15 @@ class GcsStateStore:
             error_msg = str(exc)
             if "404" in error_msg or "NOT_FOUND" in error_msg.upper():
                 return None
-            raise StatePersistenceError(f"GCS read failed for {key}: {exc}") from exc
+            raise StatePersistenceError("GCS state read failed") from None
         if text is None:
             return None
         try:
             payload = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise StatePersistenceError(f"GCS payload for {key} is not valid JSON: {exc}") from exc
+            raise StatePersistenceError("GCS state payload is not valid JSON") from None
         if not isinstance(payload, dict):
-            raise StatePersistenceError(f"GCS payload for {key} is not a JSON object.")
+            raise StatePersistenceError("GCS state payload is not a JSON object.")
         return payload
 
     def write_json(self, key: str, payload: dict[str, Any]) -> bool:
@@ -68,7 +76,7 @@ class GcsStateStore:
         try:
             _object_store().write_text(uri, data)
         except Exception as exc:
-            raise StatePersistenceError(f"GCS write failed for {key}: {exc}") from exc
+            raise StatePersistenceError("GCS state write failed") from None
         return True
 
     def create_json(self, key: str, payload: dict[str, Any]) -> bool:
@@ -77,7 +85,7 @@ class GcsStateStore:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         bucket_name, separator, object_name = uri[5:].partition("/")
         if not separator or not bucket_name or not object_name:
-            raise StatePersistenceError(f"Invalid GCS state URI for {key}")
+            raise StatePersistenceError("Invalid GCS state URI")
         try:
             from google.api_core.exceptions import Conflict, PreconditionFailed
             from google.cloud import storage
@@ -97,7 +105,7 @@ class GcsStateStore:
         except (Conflict, PreconditionFailed):
             return False
         except Exception as exc:
-            raise StatePersistenceError(f"GCS atomic create failed for {key}: {exc}") from exc
+            raise StatePersistenceError("GCS state atomic create failed") from None
 
 
 def build_gcs_state_store_from_env(

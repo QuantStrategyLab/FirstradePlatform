@@ -7,7 +7,10 @@ platform boundary explicit and defaults every order path to preview mode.
 from __future__ import annotations
 
 import json
+import http.client
+import logging
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
@@ -15,11 +18,34 @@ from math import isfinite
 from pathlib import Path
 import re
 from time import time
+from threading import RLock
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from application.account_payload_utils import flatten_values, float_or_none
 from application.state_persistence import GcsStateStore
+
+_HTTP_DEBUG_LOCK = RLock()
+
+
+@contextmanager
+def suppress_firstrade_http_debug():
+    """Quiet inherited SDK debug state for the entire renewal, then restore it."""
+    with _HTTP_DEBUG_LOCK:
+        debuglevel = http.client.HTTPConnection.debuglevel
+        loggers = [logging.getLogger(name) for name in (
+            "", "requests.packages.urllib3", "urllib3", "urllib3.connectionpool",
+        )]
+        levels = [logger.level for logger in loggers]
+        http.client.HTTPConnection.debuglevel = 0
+        for logger in loggers:
+            logger.setLevel(logging.WARNING)
+        try:
+            yield
+        finally:
+            http.client.HTTPConnection.debuglevel = debuglevel
+            for logger, level in zip(loggers, levels):
+                logger.setLevel(level)
 
 
 class FirstradePlatformError(RuntimeError):
@@ -144,10 +170,11 @@ def is_live_trading_enabled(env: Callable[[str, str | None], str | None] = os.ge
 
 
 def mask_account_id(account_id: str) -> str:
+    """Expose at most two trailing characters; fully mask shorter identifiers."""
     value = str(account_id or "")
-    if len(value) <= 4:
+    if len(value) <= 2:
         return "*" * len(value)
-    return f"{'*' * max(0, len(value) - 4)}{value[-4:]}"
+    return f"{'*' * (len(value) - 2)}{value[-2:]}"
 
 def normalize_account_number(value: object) -> str | None:
     """Coerce Firstrade account identifiers to comparable non-empty strings."""
@@ -294,7 +321,7 @@ class FirstradeBrokerClient:
 
         cookie_dir = Path(self.credentials.cookie_dir)
         cookie_dir.mkdir(parents=True, exist_ok=True)
-        session = self._build_session(session_factory, cookie_dir)
+        session = self._build_session(session_factory, cookie_dir, debug=False if force_login else self.credentials.debug)
         if not force_login and self.credentials.reuse_session and self._try_cached_session(
             session,
             account_data_factory=account_data_factory,
@@ -302,19 +329,69 @@ class FirstradeBrokerClient:
         ):
             return self
 
-        needs_mfa_code = bool(session.login())
-        if needs_mfa_code:
-            if not self.credentials.mfa_code:
-                raise FirstradeMfaRequired(
-                    "Firstrade requested MFA. Set FIRSTRADE_MFA_CODE and retry this one validation run."
-                )
-            session.login_two(self.credentials.mfa_code)
+        if force_login:
+            self._login_for_renewal(session)
+        else:
+            self._login(session)
         self.session = session
         self.account_data = account_data_factory(session)
         self.session_reused = False
         if not defer_cache_save:
             self._save_session_cache(cookie_dir)
         return self
+
+    def _login(self, session: Any, diagnostic: dict[str, str] | None = None) -> None:
+        needs_mfa_code = bool(session.login())
+        if diagnostic is not None:
+            if needs_mfa_code:
+                diagnostic["challenge_required"] = "yes"
+            elif diagnostic["challenge_required"] == "unknown":
+                diagnostic["challenge_required"] = "no"
+        if needs_mfa_code:
+            if not self.credentials.mfa_code:
+                raise FirstradeMfaRequired(
+                    "Firstrade requested MFA. Set FIRSTRADE_MFA_CODE and retry this one validation run."
+                )
+            session.login_two(self.credentials.mfa_code)
+
+    def _login_for_renewal(self, session: Any) -> None:
+        # The pinned SDK handles seed MFA inside login() and replaces login_json.
+        # Observe the actual handlers; configured credentials alone prove no branch.
+        diagnostic = {
+            "event": "firstrade_session_renew_auth",
+            "challenge_required": "unknown",
+            "method": "none",
+            "outcome": "failed",
+        }
+        originals = {}
+        for name, field, value in (
+            ("_handle_mfa", "challenge_required", "yes"),
+            ("_handle_secret_mfa", "method", "seed-auto"),
+        ):
+            handler = getattr(session, name, None)
+            if callable(handler):
+                originals[name] = handler
+
+                def observed(*args, _handler=handler, _field=field, _value=value, **kwargs):
+                    diagnostic[_field] = _value
+                    return _handler(*args, **kwargs)
+
+                setattr(session, name, observed)
+        with suppress_firstrade_http_debug():
+            try:
+                self._login(session, diagnostic)
+                diagnostic["outcome"] = "success"
+            except FirstradeMfaRequired:
+                diagnostic["outcome"] = "mfa_required"
+                raise
+            finally:
+                for name, handler in originals.items():
+                    setattr(session, name, handler)
+                # Only fixed categories: never serialize SDK state, credentials or errors.
+                try:
+                    print(json.dumps(diagnostic, sort_keys=True), flush=True)
+                except OSError:
+                    pass
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
         """Reuse cached authentication for account reads; never log in or change the cache."""
@@ -434,17 +511,22 @@ class FirstradeBrokerClient:
         if session is not None:
             session.session.close()
 
-    def _build_session(self, session_factory: Callable[..., Any], cookie_dir: Path) -> Any:
-        return session_factory(
-            username=self.credentials.username,
-            password=self.credentials.password,
-            pin=self.credentials.pin,
-            email=self.credentials.email,
-            phone=self.credentials.phone,
-            mfa_secret=self.credentials.mfa_secret,
-            profile_path=str(cookie_dir),
-            debug=self.credentials.debug,
-        )
+    def _build_session(
+        self, session_factory: Callable[..., Any], cookie_dir: Path, *, debug: bool | None = None,
+    ) -> Any:
+        # SDK construction with debug=True mutates process-wide logging state.
+        # Serialize that mutation with renewal's temporary suppression scope.
+        with _HTTP_DEBUG_LOCK:
+            return session_factory(
+                username=self.credentials.username,
+                password=self.credentials.password,
+                pin=self.credentials.pin,
+                email=self.credentials.email,
+                phone=self.credentials.phone,
+                mfa_secret=self.credentials.mfa_secret,
+                profile_path=str(cookie_dir),
+                debug=self.credentials.debug if debug is None else debug,
+            )
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
         return cookie_dir / f"ft_session_{self._session_cache_identity()}.json"

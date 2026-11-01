@@ -4,6 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_NO_CACHE=1 \
+    UV_PYTHON_INSTALL_DIR=/opt/python \
     PATH="/app/.venv/bin:${PATH}" \
     PORT=8080
 
@@ -24,4 +25,6 @@ RUN python -m pip install --upgrade pip uv \
 
 USER appuser
 
-CMD ["gunicorn", "--bind", ":8080", "main:app"]
+RUN /app/.venv/bin/python -m scripts.publish_digest_before_read --help
+
+CMD ["/app/.venv/bin/python", "-m", "gunicorn", "--bind", ":8080", "main:app"]

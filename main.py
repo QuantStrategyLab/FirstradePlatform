@@ -66,7 +66,9 @@ from application.broker_reconciliation import (
     validate_reconciliation_candidate,
     validate_reconciliation_preconditions,
 )
-from application.session_check_service import run_forced_session_renewal, run_session_check
+from application.session_check_service import (
+    archive_cached_account_facts, run_forced_session_renewal, run_session_check,
+)
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
     append_runtime_report_error,
@@ -124,7 +126,7 @@ _ACCOUNT_FACTS_LOG_REASONS = frozenset({
     "account_identity_mismatch", "account_list_empty", "balances_unavailable",
     "positions_unavailable", "readonly_client_unavailable", "sync_unavailable",
     "sync_rejected", "sync_ack_invalid", "configuration_incomplete",
-    "account_facts_unavailable", "runtime_target_mismatch",
+    "account_facts_unavailable", "runtime_target_mismatch", "funds_archive_unavailable",
 })
 _ACCOUNT_FACTS_LOG_STAGES = frozenset({"cache", "userinfo", "account_list", "account_read", "unclassified"})
 
@@ -1136,6 +1138,12 @@ def account_facts_sync():
                 pass
 
     try:
+        archive_cached_account_facts(observation)
+    except Exception:
+        _log_account_facts_failure("funds_archive_unavailable")
+        return jsonify({"ok": False, "error": "funds_archive_unavailable"}), 503
+
+    try:
         publish_firstrade_account_snapshot(payload, config)
     except AccountFactsPublishError as exc:
         _log_account_facts_failure(exc.reason_code)
@@ -1164,8 +1172,9 @@ def session_renew():
     except FirstradeMfaRequired:
         app.logger.warning("session_renew mfa_required")
         return jsonify({"ok": False, "error": "mfa_required"}), 409
-    except FirstradePlatformError as exc:
-        app.logger.warning("session_renew failed exc_type=%s", type(exc).__name__)
+    except Exception:
+        # SDK/provider exceptions may contain credentials; never log their details or chain.
+        app.logger.warning("session_renew failed reason=session_renew_failed")
         return jsonify({"ok": False, "error": "session_renew_failed"}), 503
 
 

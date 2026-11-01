@@ -29,6 +29,15 @@ from notifications.telegram import (  # noqa: E402
 
 _MAX_PREVIEW_MESSAGES = 6
 _PREVIEW_STRATEGY_PROFILE = "tqqq_growth_income"
+
+
+def _require_supported_preview_profile(profile: str) -> str:
+    """Fail when the preview profile is not enabled here, so the sample cannot go stale."""
+    from strategy_registry import SUPPORTED_STRATEGY_PROFILES
+
+    if profile not in SUPPORTED_STRATEGY_PROFILES:
+        raise RuntimeError(f"preview strategy profile {profile!r} is not enabled on Firstrade")
+    return profile
 _PREVIEW_EXTRA_LINES = (
     "🧪 【PREVIEW】PAPER notification preview",
     "synthetic / 合成样例 · 不会下单 · No order will be placed",
@@ -109,6 +118,7 @@ def _base_result(*, dry_run_only: bool, strategy_display_name: str) -> dict[str,
 def build_preview_messages(*, locale: str | None = None) -> list[str]:
     """Build at most six synthetic compact PAPER preview messages."""
 
+    _require_supported_preview_profile(_PREVIEW_STRATEGY_PROFILE)
     resolved_locale = _resolve_locale(locale)
     translator = build_translator(resolved_locale)
     strategy_name = build_strategy_display_name(resolved_locale, translator)(

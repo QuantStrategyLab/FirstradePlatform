@@ -260,6 +260,21 @@ def collect_firstrade_account_facts(
             raise AccountFactsUnavailable("balances_ambiguous")
         if cash_balance is None:
             cash_balance = result_cash
+    # Balance-endpoint value of long stock. It is priced on a different quote
+    # basis than the positions endpoint, so keep it as a distinct fact instead
+    # of folding it into provider_equity (see statement_reconciliation).
+    # Conflicting top-level and ``result`` values only flag this auxiliary fact
+    # as ambiguous (value withheld); it must not discard the rest of the
+    # collection, so cash/equity/positions stay available.
+    long_stock_value = _exact_balance_value(balances, ("long_stock_value",))
+    long_stock_value_ambiguous = False
+    if isinstance(provider_result, Mapping):
+        result_long = _exact_balance_value(provider_result, ("long_stock_value",))
+        if long_stock_value is not None and result_long is not None and long_stock_value != result_long:
+            long_stock_value = None
+            long_stock_value_ambiguous = True
+        elif long_stock_value is None:
+            long_stock_value = result_long
     available_cash = _exact_balance_value(balances, ("available_cash",))
     buying_power = _exact_balance_value(balances, ("buying_power",))
     balance_currency = _currency_code(balances)
@@ -274,6 +289,7 @@ def collect_firstrade_account_facts(
         "balances": {
             "provider_equity": provider_equity,
             "cash_balance": cash_balance,
+            "long_stock_value": long_stock_value,
             "available_cash": available_cash,
             "buying_power": buying_power,
             "currency": balance_currency,
@@ -287,6 +303,8 @@ def collect_firstrade_account_facts(
             "positions_missing_identity_fields": missing_identity if include_positions else None,
             "provider_equity_available": provider_equity is not None,
             "cash_balance_available": cash_balance is not None,
+            "long_stock_value_available": long_stock_value is not None,
+            "long_stock_value_ambiguous": long_stock_value_ambiguous,
             "available_cash_available": available_cash is not None,
             "buying_power_available": buying_power is not None,
             "balance_currency_available": balance_currency is not None,

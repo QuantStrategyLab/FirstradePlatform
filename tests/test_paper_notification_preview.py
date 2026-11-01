@@ -4,6 +4,8 @@ import ast
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -77,6 +79,19 @@ def test_build_preview_messages_covers_required_categories_with_safe_markers():
             "secret-token",
         ):
             assert forbidden not in message
+
+
+def test_preview_profile_is_enabled_on_firstrade():
+    from strategy_registry import SUPPORTED_STRATEGY_PROFILES
+
+    assert preview._PREVIEW_STRATEGY_PROFILE in SUPPORTED_STRATEGY_PROFILES
+
+
+def test_preview_rejects_a_profile_that_is_not_enabled(monkeypatch):
+    monkeypatch.setattr(preview, "_PREVIEW_STRATEGY_PROFILE", "retired_profile")
+
+    with pytest.raises(RuntimeError, match="not enabled on Firstrade"):
+        preview.build_preview_messages(locale="en")
 
 
 def test_send_preview_calls_sender_once_per_message_without_broker_imports(monkeypatch):
