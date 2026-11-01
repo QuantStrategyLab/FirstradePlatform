@@ -7,7 +7,10 @@ platform boundary explicit and defaults every order path to preview mode.
 from __future__ import annotations
 
 import json
+import http.client
+import logging
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
@@ -15,11 +18,34 @@ from math import isfinite
 from pathlib import Path
 import re
 from time import time
+from threading import RLock
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from application.account_payload_utils import flatten_values, float_or_none
 from application.state_persistence import GcsStateStore
+
+_HTTP_DEBUG_LOCK = RLock()
+
+
+@contextmanager
+def suppress_firstrade_http_debug():
+    """Quiet inherited SDK debug state for the entire renewal, then restore it."""
+    with _HTTP_DEBUG_LOCK:
+        debuglevel = http.client.HTTPConnection.debuglevel
+        loggers = [logging.getLogger(name) for name in (
+            "", "requests.packages.urllib3", "urllib3", "urllib3.connectionpool",
+        )]
+        levels = [logger.level for logger in loggers]
+        http.client.HTTPConnection.debuglevel = 0
+        for logger in loggers:
+            logger.setLevel(logging.WARNING)
+        try:
+            yield
+        finally:
+            http.client.HTTPConnection.debuglevel = debuglevel
+            for logger, level in zip(loggers, levels):
+                logger.setLevel(level)
 
 
 class FirstradePlatformError(RuntimeError):
@@ -351,20 +377,21 @@ class FirstradeBrokerClient:
                     return _handler(*args, **kwargs)
 
                 setattr(session, name, observed)
-        try:
-            self._login(session, diagnostic)
-            diagnostic["outcome"] = "success"
-        except FirstradeMfaRequired:
-            diagnostic["outcome"] = "mfa_required"
-            raise
-        finally:
-            for name, handler in originals.items():
-                setattr(session, name, handler)
-            # Only fixed categories: never serialize SDK state, credentials or errors.
+        with suppress_firstrade_http_debug():
             try:
-                print(json.dumps(diagnostic, sort_keys=True), flush=True)
-            except OSError:
-                pass
+                self._login(session, diagnostic)
+                diagnostic["outcome"] = "success"
+            except FirstradeMfaRequired:
+                diagnostic["outcome"] = "mfa_required"
+                raise
+            finally:
+                for name, handler in originals.items():
+                    setattr(session, name, handler)
+                # Only fixed categories: never serialize SDK state, credentials or errors.
+                try:
+                    print(json.dumps(diagnostic, sort_keys=True), flush=True)
+                except OSError:
+                    pass
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
         """Reuse cached authentication for account reads; never log in or change the cache."""
@@ -487,16 +514,19 @@ class FirstradeBrokerClient:
     def _build_session(
         self, session_factory: Callable[..., Any], cookie_dir: Path, *, debug: bool | None = None,
     ) -> Any:
-        return session_factory(
-            username=self.credentials.username,
-            password=self.credentials.password,
-            pin=self.credentials.pin,
-            email=self.credentials.email,
-            phone=self.credentials.phone,
-            mfa_secret=self.credentials.mfa_secret,
-            profile_path=str(cookie_dir),
-            debug=self.credentials.debug if debug is None else debug,
-        )
+        # SDK construction with debug=True mutates process-wide logging state.
+        # Serialize that mutation with renewal's temporary suppression scope.
+        with _HTTP_DEBUG_LOCK:
+            return session_factory(
+                username=self.credentials.username,
+                password=self.credentials.password,
+                pin=self.credentials.pin,
+                email=self.credentials.email,
+                phone=self.credentials.phone,
+                mfa_secret=self.credentials.mfa_secret,
+                profile_path=str(cookie_dir),
+                debug=self.credentials.debug if debug is None else debug,
+            )
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
         return cookie_dir / f"ft_session_{self._session_cache_identity()}.json"

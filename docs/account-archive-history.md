@@ -38,6 +38,10 @@ not imply successful account validation or cache persistence. The event contains
 only those fixed categories: no codes, seeds, tokens, account identifiers or
 provider errors. SDK HTTP debug output is disabled for forced renewal even when
 `FIRSTRADE_DEBUG=true`; ordinary connections retain their existing behaviour.
+The renewal also temporarily quiets HTTP and urllib3 debug state inherited from
+an earlier debug session, through account reads and cache persistence. It restores
+that state on success or failure and serializes SDK construction with the scope
+so another platform connection cannot re-enable SDK debug during renewal.
 
 ## Serving cache metadata
 

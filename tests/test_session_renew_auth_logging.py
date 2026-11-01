@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import http.client
+import logging
 import sys
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -195,3 +198,105 @@ def test_log_io_failure_preserves_authentication_result(tmp_path, monkeypatch, f
                 client.connect(force_login=True, defer_cache_save=True)
             if outcome == "failed":
                 assert caught.value is original_error
+
+
+@pytest.mark.parametrize("failure", [None, "auth", "balance", "cache"])
+def test_renewal_quiets_inherited_sdk_debug_through_cache_and_restores_state(
+    tmp_path, monkeypatch, capsys, caplog, failure,
+):
+    wire_payload = b"synthetic-private-password 246802 12345678 synthetic-private-token"
+    original_debuglevel = http.client.HTTPConnection.debuglevel
+    loggers = [logging.getLogger(name) for name in (
+        "", "requests.packages.urllib3", "urllib3", "urllib3.connectionpool",
+    )]
+    original_levels = [logger.level for logger in loggers]
+    sdk_logger = logging.getLogger("requests.packages.urllib3")
+    original_propagate = sdk_logger.propagate
+    renewing = False
+    stages = []
+
+    def wire(stage):
+        stages.append(stage)
+        connection = http.client.HTTPConnection("example.invalid")
+        connection.sock = SimpleNamespace(sendall=lambda _data: None)
+        connection.send(wire_payload)
+        logging.getLogger("urllib3.connectionpool").debug(wire_payload.decode())
+
+    class Session(FTSession):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs, save_session=False)
+
+        def _load_cookies(self):
+            return "synthetic-ftat"
+
+        def _request(self, method, url, **kwargs):
+            wire("login")
+            if renewing and failure == "auth":
+                raise RuntimeError("synthetic auth failure")
+            return SimpleNamespace(status_code=200, json=lambda: {
+                "error": "", "ftat": "synthetic-ftat", "sid": "synthetic-sid",
+            })
+
+    class Data:
+        account_numbers = ["12345678"]
+
+        def __init__(self, _session):
+            wire("account")
+
+        def get_account_balances(self, _account):
+            wire("balance")
+            if failure == "balance":
+                raise RuntimeError("synthetic balance failure")
+            return {"cash": 1}
+
+    class Store:
+        def write_json(self, *_args):
+            wire("cache")
+            if failure == "cache":
+                raise RuntimeError("synthetic cache failure")
+            return True
+
+    def factory(credentials, **kwargs):
+        return FirstradeBrokerClient(
+            credentials, **kwargs, session_factory=Session, account_data_factory=Data,
+            session_cache_store=Store(),
+        )
+
+    monkeypatch.setattr("requests.Session.request", lambda *_a, **_kw: pytest.fail("Unexpected network request"))
+    credentials = FirstradeCredentials(
+        username="u", password="p", cookie_dir=str(tmp_path), debug=True,
+    )
+    try:
+        # Reproduce the pinned SDK's process-wide debug mutation via an ordinary login.
+        ordinary = factory(credentials).connect()
+        assert wire_payload.decode() in capsys.readouterr().out
+        ordinary.session.session.close()
+        caplog.clear()
+        assert http.client.HTTPConnection.debuglevel == 1
+        inherited_levels = [logger.level for logger in loggers]
+        renewing = True
+        stages.clear()
+
+        def renew():
+            return run_forced_session_renewal(
+                credentials=replace(credentials, reuse_session=True, persist_session_cache=True),
+                client_factory=factory, env_reader=lambda *_a: None,
+            )
+
+        if failure:
+            with pytest.raises(FirstradeSafetyError if failure == "cache" else RuntimeError):
+                renew()
+        else:
+            assert renew()["session_renewed"] is True
+        captured = capsys.readouterr()
+        assert "synthetic-private" not in captured.out + captured.err + caplog.text
+        assert "246802" not in captured.out + captured.err + caplog.text
+        assert "5678" not in captured.out + captured.err + caplog.text
+        assert http.client.HTTPConnection.debuglevel == 1
+        assert [logger.level for logger in loggers] == inherited_levels
+        assert stages[-1] == {None: "cache", "auth": "login", "balance": "balance", "cache": "cache"}[failure]
+    finally:
+        http.client.HTTPConnection.debuglevel = original_debuglevel
+        for logger, level in zip(loggers, original_levels):
+            logger.setLevel(level)
+        sdk_logger.propagate = original_propagate

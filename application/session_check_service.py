@@ -21,6 +21,7 @@ from application.firstrade_client import (
     FirstradeSafetyError,
     is_live_trading_enabled,
     mask_account_id,
+    suppress_firstrade_http_debug,
 )
 from application.state_persistence import (
     GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
@@ -514,27 +515,28 @@ def run_forced_session_renewal(
     A successful result requires the shared cache write to complete successfully.
     """
 
-    resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
-    if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
-        raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
-    client = client_factory(resolved_credentials, live_trading_enabled=False)
-    if getattr(client, "live_trading_enabled", False):
-        raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
-    client.connect(force_login=True, defer_cache_save=True)
-    account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
-    balances = client.get_balances(account)
-    client.save_verified_session_cache()
-    print(
-        "Firstrade forced session renewal "
-        f"session_reused={bool(getattr(client, 'session_reused', False))} "
-        f"account={mask_account_id(account)} balances_read={bool(balances)}",
-        flush=True,
-    )
-    return {
-        "ok": True,
-        "api_kind": "unofficial-reverse-engineered",
-        "session_renewed": True,
-        "session_reused": bool(getattr(client, "session_reused", False)),
-        "account": mask_account_id(account),
-        "balances_read": bool(balances),
-    }
+    with suppress_firstrade_http_debug():
+        resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
+        if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
+            raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
+        client = client_factory(resolved_credentials, live_trading_enabled=False)
+        if getattr(client, "live_trading_enabled", False):
+            raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
+        client.connect(force_login=True, defer_cache_save=True)
+        account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+        balances = client.get_balances(account)
+        client.save_verified_session_cache()
+        print(
+            "Firstrade forced session renewal "
+            f"session_reused={bool(getattr(client, 'session_reused', False))} "
+            f"account={mask_account_id(account)} balances_read={bool(balances)}",
+            flush=True,
+        )
+        return {
+            "ok": True,
+            "api_kind": "unofficial-reverse-engineered",
+            "session_renewed": True,
+            "session_reused": bool(getattr(client, "session_reused", False)),
+            "account": mask_account_id(account),
+            "balances_read": bool(balances),
+        }
