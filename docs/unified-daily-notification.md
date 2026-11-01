@@ -128,3 +128,12 @@ Candidate persistence failures expose only a fixed `candidate_read` or
 resource paths and credential context stay out of command output. A permission
 category identifies the failing storage operation; it does not establish that
 an alerting Secret Manager denial caused the storage failure.
+
+Account identifiers displayed in logs, notification results and account-selection
+errors retain at most two trailing characters. Identifiers of two characters or
+fewer are fully masked. Runtime failure alerts omit the exception detail.
+
+Private state object and submission-claim locators retain their existing identity
+format so a display change cannot bypass an existing duplicate-submission lock
+or session-maintenance marker. New state payload account fields use the two-character
+mask. State-store errors omit object locators and provider exception details.

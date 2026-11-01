@@ -56,7 +56,7 @@ def _factory(created):
     return make
 
 
-def test_forced_renewal_logs_in_once_read_only():
+def test_forced_renewal_logs_in_once_read_only(capsys):
     created = []
     result = run_forced_session_renewal(
         credentials=_credentials(), client_factory=_factory(created), env_reader=lambda *_: None,
@@ -68,7 +68,12 @@ def test_forced_renewal_logs_in_once_read_only():
     assert client.calls[0] == ("connect", (True, True))
     assert [call[0] for call in client.calls] == ["connect", "select_account", "get_balances", "save_verified_session_cache"]
     assert {name for name, _ in client.calls} <= READ_METHODS
-    assert "12345979" not in str(result)
+    assert result["account"] == "******79"
+    log = capsys.readouterr().out
+    assert "account=******79" in log
+    for value in ("12345979", "5979"):
+        assert value not in str(result)
+        assert value not in log
 
 
 def test_forced_renewal_never_touches_monthly_marker(monkeypatch):
