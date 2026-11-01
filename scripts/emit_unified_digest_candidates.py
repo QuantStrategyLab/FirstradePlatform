@@ -25,8 +25,11 @@ def main():
         _check_binding_modes(os.environ)
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0
-    except Exception:
-        print(json.dumps({"status": "candidate_projection_failed", "uploaded": False}))
+    except Exception as error:
+        from notifications.unified import CandidateStorageError
+        diagnostic = ({"stage": error.stage, "error_category": error.category}
+                      if isinstance(error, CandidateStorageError) else {})
+        print(json.dumps({"status": "candidate_projection_failed", "uploaded": False, **diagnostic}))
         from notifications.unified import alert_text, coverage_locale
         from scripts.execution_report_heartbeat import _send_telegram
         marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
