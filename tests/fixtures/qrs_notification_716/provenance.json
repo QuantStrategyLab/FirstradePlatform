@@ -33,6 +33,11 @@
       "source_sha256": "20e26298cf48c77431257a4d73d2c9ef5ce0eda2a88323a23852d0119bdacf8f",
       "vendored_sha256": "9483eaa55ee5afb66ea373a2a98df4b61a1295e95342c1e7b4f9c73faf272a16"
     },
+    "display_names.json": {
+      "source_path": "python/scripts/display_names.json",
+      "source_sha256": "b453f762fff0186342c4eb2b60e95a24cce56bf988d6cfaeea47afe8b8077b54",
+      "vendored_sha256": "b453f762fff0186342c4eb2b60e95a24cce56bf988d6cfaeea47afe8b8077b54"
+    },
     "notification_mode.py": {
       "source_path": "python/scripts/notification_mode.py",
       "source_sha256": "4f3a77af9b677095589c69f976ea0ecf633322b2b41c8eb18457afdaec87d2df",
