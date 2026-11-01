@@ -68,11 +68,23 @@ failure is an error, never a pass.
   titled "Firstrade fee schedule check needs attention". Rates are never edited
   automatically; update the segments in a normal pull request.
 
-The workflow uses `GITHUB_TOKEN` only. Pull requests it opens do not start CI, so
-close and reopen the pull request to run the checks before merging. If the
-repository setting that lets Actions create pull requests is off, the job leaves
-the branch on the remote and the issue carries a compare link instead. Set the
-repository variable `FEE_CHECK_CONTACT` to a monitored address: sec.gov rejects
+The `bump` job pushes its branch and opens the pull request with a short-lived
+installation token of the GitHub App `qsl-qpk-pin-sync` (ID 5004823), so CI starts on the
+pull request like on any other. The App is already installed on this repository with
+`contents: write` and `pull-requests: write`. The token is created with
+`actions/create-github-app-token`, scoped to this repository only, and limited to
+`contents: write` and `pull-requests: write`. The repository setting that lets Actions
+create pull requests stays off. The setup is repository level:
+
+- the repository variable `FIRSTRADE_PR_APP_ID` (the App ID);
+- the repository secret `FIRSTRADE_PR_APP_PRIVATE_KEY` (the App private key).
+
+Without the variable or secret, or when the token cannot be created, the job falls back to
+`GITHUB_TOKEN`: it leaves the branch on the remote and the issue carries a compare link
+instead; a pull request opened by hand from it needs CI to be run by closing and
+reopening it.
+
+Set the repository variable `FEE_CHECK_CONTACT` to a monitored address: sec.gov rejects
 clients that do not identify themselves. The script is tied to the current page
 layouts and to the filings named in `REVIEWED_FINRA_FILINGS`; when a layout
 changes the check fails loudly and the parser needs an update.
