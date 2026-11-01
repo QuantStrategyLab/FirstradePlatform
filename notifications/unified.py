@@ -26,6 +26,20 @@ TARGET_KEYS = ("platform_id", "strategy_profile", "service_name", "account_scope
                "account_selector", "deployment_selector", "dry_run_only")
 
 
+class CandidateStorageError(RuntimeError):
+    """Fixed diagnostics only; never include a storage exception's message."""
+
+    def __init__(self, stage, error):
+        from google.api_core.exceptions import Forbidden, Unauthorized, PreconditionFailed
+        self.stage = stage
+        self.category = ("permission_denied" if isinstance(error, (Forbidden, Unauthorized)) else
+                         "generation_conflict" if isinstance(error, PreconditionFailed) else
+                         "timeout_unknown" if isinstance(error, TimeoutError) else
+                         "serialization_invalid" if isinstance(error, (TypeError, ValueError)) else
+                         "storage_unknown")
+        super().__init__("candidate_persistence_failed")
+
+
 def enabled(env=None):
     return unified_notification_enabled(os.environ if env is None else env, FLAG)
 
@@ -191,7 +205,10 @@ def _aggregate(rows):
 
 def _merge(store, uri, rows, events, *, idle=None, archive=False):
     for _ in range(8):
-        version, previous = store.read(uri)
+        try:
+            version, previous = store.read(uri)
+        except Exception as error:
+            raise CandidateStorageError("candidate_read", error) from error
         # Read the former local ledger once for migration; new payloads store
         # all merge history in their per-run rows, as required by QRS.
         sources = dict((previous or {}).get("notification_source_runs") or {})
@@ -244,7 +261,11 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                      "notification_events": by_run[run_id]} for run_id in sorted(sources)]
         payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected",
             runs=run_rows if sources else [idle] if idle else [])
-        if store.compare_and_set(uri, version, payload):
+        try:
+            written = store.compare_and_set(uri, version, payload)
+        except Exception as error:
+            raise CandidateStorageError("candidate_write", error) from error
+        if written:
             return True
     raise RuntimeError("candidate_concurrent_update")
 
