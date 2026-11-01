@@ -128,6 +128,12 @@ cache read does not prove that Firstrade still accepts the session: an upstream
 endpoint returns the sanitized `readonly_client_unavailable` response and logs
 the fixed diagnostic, without retrying or starting a login.
 
+For a missing/expired cache or an upstream 401, the same log also carries
+`recovery_action=manual_session_renewal_required`. Storage read failures,
+upstream 403 and upstream 5xx do not imply that renewing authentication will fix
+the failure. The HTTP status and response body remain unchanged, and the
+account-facts route never calls `/session-renew` itself.
+
 `Inspect cached account history schema` reads one first page for the current
 serving runtime's exact account and at most 31 closed UTC dates within the past
 year. It uses the same configured deployment identity, the existing username

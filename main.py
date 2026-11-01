@@ -137,6 +137,10 @@ def _log_account_facts_failure(reason: object, stage: object = "unclassified", h
     status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
     entry = {"severity": "WARNING", "message": "account_facts_sync failed",
              "reason": reason, "stage": stage, "http_status": status}
+    if (reason in {"cache_missing", "cache_stale", "cache_missing_or_stale"}
+            or (reason == "read_http_error" and status == 401
+                and stage in {"userinfo", "account_list", "account_read"})):
+        entry["recovery_action"] = "manual_session_renewal_required"
     project = get_project_id()
     header = request.headers.get("X-Cloud-Trace-Context", "")
     trace = re.fullmatch(r"([0-9a-fA-F]{32})(?:/[0-9]+)?(?:;o=[01])?", header)
