@@ -47,7 +47,11 @@ No scheduled collector is installed.
 The complete frozen request is uploaded before POST. A bot intent comment stores
 its SHA-256, stable idempotency key and artifact locator before network submission.
 An existing intent, a lost POST response or any ambiguous outcome leads only to
-lookup with the original request hash. A lookup miss remains unknown. Do not
+lookup with the original request hash. Preparation first finds the existing intent
+for the same review kind and target SHA, then reads the original task to restore
+its frozen request and key. Changed CI records or model settings cannot authorize
+a new POST. An unavailable lookup, mismatched request or changed binding stops
+recovery; it never creates a replacement intent. A lookup miss remains unknown. Do not
 delete the comment, change the key, change the request, or dispatch again as a
 way to recover an unknown task. Use the collector with the original locator
 comment ID; it supports lookup even when the POST returned no task ID.

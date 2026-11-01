@@ -73,16 +73,16 @@ test('failed upstream gate can select one PR; wrong workflows and ambiguous asso
   run.event='schedule';assert.equal(await r.select(github,context),null);
 });
 
-for (const kind of ['premerge','posthoc']) test(kind + ': offline submit/collect keeps one task and never grants approval', async () => {
+for (const kind of ['premerge','posthoc']) for (const uncertain of [false,true]) test(kind + (uncertain ? ' uncertain' : '') + ': offline submit/collect keeps one task and never grants approval', async () => {
   const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
   const cwd=process.cwd(), directory=fs.mkdtempSync(path.join(os.tmpdir(),'dot-review-test-'));
   const env={...process.env}, originalFetch=global.fetch;
-  const comments=[], calls=[], outputs={};let task=null, posts=0;
+  const comments=[], calls=[], outputs={};let task=null, posts=0, firstFrozen;
   const content='synthetic source\n', sourceSHA='d'.repeat(40);
   const pr={number:7,changed_files:1,commits:1,title:'Synthetic change',body:'Synthetic body',
     state:'open',draft:false,head:{sha},base:{sha:base,ref:'main',repo:{id:12}}};
   const methods={files:()=>[file],reviews:()=>[],reviewComments:()=>[],comments:()=>comments,commits:()=>[{}]};
-  const github={rest:{checks:{listForRef:()=>[]},repos:{listCommitStatusesForRef:()=>[],get:async()=>({data:{id:12,full_name:'example/repo',default_branch:'main'}}),
+  const github={rest:{checks:{listForRef:()=>[{id:context.runId,head_sha:sha,name:'test',status:'completed',conclusion:'success'}]},repos:{listCommitStatusesForRef:()=>[{id:context.runId,context:'test',state:'success'}],get:async()=>({data:{id:12,full_name:'example/repo',default_branch:'main'}}),
     getBranch:async()=>({data:{commit:{sha:base}}}),
     getCommit:async()=>({data:{sha,parents:[{sha:base}],files:[file]},headers:{}})},pulls:{get:async()=>({data:pr}),
     listFiles:methods.files,listReviews:methods.reviews,listReviewComments:methods.reviewComments,listCommits:methods.commits},
@@ -109,14 +109,42 @@ for (const kind of ['premerge','posthoc']) test(kind + ': offline submit/collect
       calls.push([options.method,url]);
       if(options.method==='POST') {posts++;const request=JSON.parse(options.body);
         task={id:'synthetic-task',owner:'example/repo',provider:'dot',revision:1,status:'running',request,output:null,artifacts:[]};
+        if (uncertain) throw Error('lost POST response');
         return Response.json(task,{status:202});}
-      if(url.endsWith('/lookup')) return Response.json({id:task.id});
+      if(url.endsWith('/lookup')) {
+        assert.equal(options.headers['Idempotency-Key'],firstFrozen.key);
+        assert.equal(options.headers['X-Request-SHA256'],firstFrozen.request_sha256);
+        if (uncertain && context.runId <= 2) throw Error('lookup unavailable');
+        return Response.json({id:task.id});
+      }
       return Response.json(task);
     };
     await r.prepare({github,context,core});assert.equal(outputs.prepared,'true');
+    firstFrozen=JSON.parse(fs.readFileSync('dot-review/frozen.json'));
+    if (uncertain) await assert.rejects(r.submit({github,context,core}));
+    else await r.submit({github,context,core});
+    assert.equal(posts,1);assert.equal(comments.length,1);
+    const recoveryStart=calls.length;
+    // A new workflow run has neither the previous runner's files nor stable CI IDs.
+    fs.rmSync('dot-review',{recursive:true});context.runId=2;
+    if (uncertain) {
+      await assert.rejects(async()=>{await r.prepare({github,context,core});await r.submit({github,context,core});});
+      assert.equal(posts,1);assert.equal(comments.length,1);
+    }
+    context.runId=3;process.env.DOT_REVIEW_MODEL='changed-model';
+    await r.prepare({github,context,core});
+    const recovered=JSON.parse(fs.readFileSync('dot-review/frozen.json'));
+    assert.deepEqual(recovered.request,firstFrozen.request);
+    assert.equal(recovered.key,firstFrozen.key);
+    assert.equal(recovered.request_sha256,firstFrozen.request_sha256);
     await r.submit({github,context,core});assert.equal(posts,1);assert.equal(comments.length,1);
-    context.runId=2;
-    await r.prepare({github,context,core});await r.submit({github,context,core});assert.equal(posts,1);
+    assert.ok(calls.slice(recoveryStart).every(([method])=>method==='GET'));
+    // The lookup response must not substitute a different request.
+    const originalRequest=task.request;
+    task.request={...originalRequest,model:'mismatched-request'};
+    await assert.rejects(r.prepare({github,context,core}),/intent_conflict/);
+    assert.equal(posts,1);assert.equal(comments.length,1);
+    task.request=originalRequest;
     task={...task,status:'completed',attempt:'attempt-one',worker:'worker-one',output:{binding:task.request.materials[0].binding,
       ai_review:{provider:'dot',model:'fixture-model',run_ref:'https://example.test/actual/1',mode:'independent'},
       execution_status:'completed',verdict:'pass',coverage:{complete:true,reviewed_files:1},blocking_findings:[],dispositions:[],limitations:[]}};
@@ -131,6 +159,9 @@ for (const kind of ['premerge','posthoc']) test(kind + ': offline submit/collect
     comments.push({id:3,body:'A new unresolved concern',user:{id:99,type:'User',login:'reviewer'}});
     await r.collect({github,context,core});
     assert.equal(JSON.parse(fs.readFileSync('dot-review/result.json')).stale,true);
+    context.payload.inputs={pr_number:'7',review_kind:kind,target_sha:sha,expected_base_sha:base};
+    await assert.rejects(r.prepare({github,context,core}),/intent_conflict/);
+    assert.equal(posts,1);
   } finally {
     global.fetch=originalFetch;process.chdir(cwd);
     for(const key of Object.keys(process.env)) if(!(key in env)) delete process.env[key];

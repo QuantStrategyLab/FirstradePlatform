@@ -238,6 +238,16 @@ function save(name, value) {
   fs.writeFileSync(`dot-review/${name}.json`,canonical(value)+'\n',{mode:0o600});
 }
 
+function targetIntent(comments, kind, target) {
+  const matches = comments.filter(c => bot(c) && c.body?.startsWith(marker)).filter(c => {
+    const old = parseComment(c);
+    return old.binding?.review_kind === kind
+      && (old.binding.target_sha || old.binding.head_sha) === target;
+  });
+  assert(matches.length <= 1, 'duplicate_intent_records');
+  return matches[0];
+}
+
 async function prepare({github,context,core}) {
   assert(process.env.DOT_REVIEW_READY === 'true', 'admission_and_subscription_not_verified');
   const trust = await trusted(github,context);
@@ -251,6 +261,26 @@ async function prepare({github,context,core}) {
   const target = auto ? pr.head.sha : input(context,'target_sha');
   const snap = await snapshot(github,context,number,kind,target,input(context,'expected_base_sha'),trust);
   if (auto && snap.risk.tier !== 'R2') {core.setOutput('prepared','false');return;}
+  // Find the durable target intent before CI or configuration can produce a new key.
+  const previous = targetIntent(snap.issueComments,kind,target);
+  if (previous) {
+    const old = parseComment(previous);
+    assert(old.repository === trust.repo.full_name && old.repository_id === trust.repo.id
+      && old.pr_number === number && digest(old.binding) === digest(snap.binding), 'intent_conflict');
+    const api = await service(core);
+    const found = await api('GET','/v1/tasks/lookup',undefined,old.key,old.request_sha256);
+    assert(typeof found.id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(found.id)
+      && (!old.task_id || old.task_id === found.id), 'task_id_mismatch');
+    const task = await api('GET',`/v1/tasks/${encodeURIComponent(found.id)}`);
+    const frozen = intent(trust.repo.full_name,trust.repo.id,number,task.request);
+    assert(task.id === found.id && frozen.key === old.key && frozen.request_sha256 === old.request_sha256
+      && digest(task.request.materials?.[0]?.binding) === digest(old.binding), 'intent_conflict');
+    validateResult(task,frozen);
+    frozen.policy_commit = trust.commit;
+    save('frozen',frozen);
+    core.setOutput('prepared','true');
+    return;
+  }
   assert(process.env.DOT_REVIEW_MODEL && process.env.DOT_REVIEW_PROFILE, 'missing_admitted_model_or_profile');
   const checks = await github.paginate(github.rest.checks.listForRef,{...context.repo,ref:target,per_page:100});
   const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef,{...context.repo,ref:target,per_page:100});
@@ -267,11 +297,6 @@ async function prepare({github,context,core}) {
   assert(Buffer.byteLength(canonical(request)) <= policy.max_request_bytes, 'request_too_large_no_truncation');
   const frozen = intent(trust.repo.full_name,trust.repo.id,number,request);
   frozen.policy_commit = trust.commit;
-  // The first batch permits one posthoc task per target, even if later material changes.
-  if (kind === 'posthoc') for (const c of snap.issueComments.filter(c => bot(c) && c.body?.startsWith(marker))) {
-    const old = parseComment(c);
-    assert(old.binding?.target_sha !== target || old.key === frozen.key, 'posthoc_target_already_has_an_intent');
-  }
   save('frozen',frozen);
   core.setOutput('prepared','true');
 }
@@ -283,25 +308,25 @@ async function submit({github,context,core}) {
   const snap = await snapshot(github,context,frozen.pr_number,binding.review_kind,
     binding.target_sha || binding.head_sha,binding.parent_sha || binding.base_sha,trust,false);
   assert(digest(snap.binding) === digest(binding), 'snapshot_changed_before_submission');
-  const matches = snap.issueComments.filter(c => bot(c) && c.body?.startsWith(marker)).filter(c => {
-    try { return parseComment(c).key === frozen.key; } catch { throw new Error('malformed_intent_record'); }
-  });
-  assert(matches.length <= 1, 'duplicate_intent_records');
-  let locator = matches[0];
+  let locator = targetIntent(snap.issueComments,binding.review_kind,binding.target_sha || binding.head_sha);
+  const existing = Boolean(locator);
   const record = {schema_version:frozen.schema_version,repository:frozen.repository,repository_id:frozen.repository_id,
     pr_number:frozen.pr_number,key:frozen.key,request_sha256:frozen.request_sha256,binding,
     artifact_run:`${context.serverUrl}/${frozen.repository}/actions/runs/${context.runId}`,
     status:'unknown',task_id:null};
   if (locator) {
     const old = parseComment(locator);
-    assert(old.request_sha256 === frozen.request_sha256 && digest(old.binding) === digest(binding), 'intent_conflict');
+    assert(old.repository === frozen.repository && old.repository_id === frozen.repository_id
+      && old.pr_number === frozen.pr_number && old.key === frozen.key
+      && old.request_sha256 === frozen.request_sha256 && digest(old.binding) === digest(binding), 'intent_conflict');
+    record.artifact_run = old.artifact_run;
   } else {
     // Persist uncertainty BEFORE POST; a crash or missing response can only lead to lookup.
     ({data:locator} = await github.rest.issues.createComment({...context.repo,issue_number:frozen.pr_number,
       body:marker+'\n'+canonical(record)}));
   }
   const api = await service(core);
-  const found = await submitOnce(api,frozen,matches.length === 1);
+  const found = await submitOnce(api,frozen,existing);
   assert(typeof found.id === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(found.id), 'invalid_task_id');
   const task = await api('GET',`/v1/tasks/${encodeURIComponent(found.id)}`);
   validateResult(task,frozen);
