@@ -1,5 +1,20 @@
 # Saved account history
 
+## Runtime daily projection diagnostics
+
+`scripts.publish_runtime_daily` sends no request when it has no attributable
+runs. Its status distinguishes archive listing failure (`source_list_failed`),
+report read failure (`source_read_error`) and the bounded read limit
+(`source_read_truncated`) from a readable source with no matching runs
+(`no_attributable_runs`). Unrecognized source errors become
+`source_read_unavailable`; provider messages and private source locations are
+never included. All these outcomes retain a failing exit status.
+
+These statuses occur before a persistence request. They do not establish a
+receiver or storage write failure. A partial read with attributable runs retains
+the existing incomplete projection and its read errors; acknowledgement matching
+and the single-request policy are unchanged.
+
 ## Daily cached snapshot archive
 
 When `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, `/account-facts-sync` writes

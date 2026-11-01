@@ -112,7 +112,7 @@ def test_no_attributable_runs_or_wrong_origin_never_posts(monkeypatch):
             self.calls += 1
             raise AssertionError("must not send")
     opener = Opener()
-    for reports, error in (([], None), ([], "list_failed"), ([{"platform": PLATFORM}], None)):
+    for reports, error in (([], None), ([{"platform": PLATFORM}], None)):
         monkeypatch.setattr(publisher, "_read_reports", lambda *_args: (reports, error))
         assert publisher.publish_once(env, now=now, opener=opener) == "no_attributable_runs"
     assert opener.calls == 0
@@ -120,6 +120,44 @@ def test_no_attributable_runs_or_wrong_origin_never_posts(monkeypatch):
     with pytest.raises(ValueError, match="daily_origin_invalid"):
         publisher.publish_once(env, now=now, opener=opener)
     assert opener.calls == 0
+
+
+def test_unreadable_empty_source_keeps_safe_failure_category(monkeypatch, capsys):
+    from scripts import publish_runtime_daily as publisher
+
+    env = {"RUNTIME_TARGET_JSON": json.dumps({"service_name": "synthetic-service",
+           "strategy_profile": "synthetic-profile", "account_scope": "live"}),
+           "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-key",
+           "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
+           "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE": "live",
+           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token",
+           "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
+    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
+    monkeypatch.setattr(publisher.os, "environ", env)
+    monkeypatch.setattr(publisher.sys, "argv", ["publish_runtime_daily"])
+    monkeypatch.setattr(publisher, "build_opener", lambda *_: (_ for _ in ()).throw(
+        AssertionError("unreadable empty source must not POST")))
+    for error, expected in (
+        ("list_failed", "source_list_failed"),
+        ("report_read_error", "source_read_error"),
+        ("read_truncated", "source_read_truncated"),
+        ("synthetic-private-provider-body", "source_read_unavailable"),
+    ):
+        monkeypatch.setattr(publisher, "_read_reports", lambda *_: ([], error))
+        assert publisher.main() == 1
+        assert json.loads(capsys.readouterr().out) == {"status": expected}
+
+
+def test_archive_listing_exception_is_redacted_and_preserved(monkeypatch, capsys):
+    from scripts import publish_runtime_daily as publisher
+
+    monkeypatch.setattr(publisher.heartbeat, "_report_globs", lambda *_: ["gs://synthetic/archive/*"])
+    monkeypatch.setattr(publisher.heartbeat, "_list_gcs_objects", lambda *_, **__: (_ for _ in ()).throw(
+        RuntimeError("synthetic-private-provider-body")))
+    now = datetime(2026, 10, 29, 20, tzinfo=timezone.utc)
+    assert publisher._read_reports(now.date(), now, "synthetic-project") == ([], "list_failed")
+    assert capsys.readouterr() == ("", "")
 
 
 def test_redirect_is_not_followed_and_unknown_is_not_retried(monkeypatch):
