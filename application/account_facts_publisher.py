@@ -191,8 +191,18 @@ def build_firstrade_account_snapshot(
     config: AccountFactsPublishConfig,
     *,
     account_scope: str,
+    include_valuation_basis: bool = False,
 ) -> dict[str, Any]:
-    """Build native facts; optional positions require an explicit currency setting."""
+    """Build native facts; optional positions require an explicit currency setting.
+
+    ``include_valuation_basis`` additionally persists the balance-API
+    ``long_stock_value`` next to ``net_assets`` so the balance-vs-positions
+    valuation basis difference can be reconciled from stored history. It is
+    off by default: the QRS/console Firstrade schema currently accepts exactly
+    ``currency`` and ``net_assets`` per balance row
+    (QuantRuntimeSettings ``IBKR_BALANCE_FIELDS``) and rejects extra keys, so
+    enable it only after that schema is extended.
+    """
     if (
         observation.get("status") != "available"
         or observation.get("platform") != "firstrade"
@@ -255,6 +265,11 @@ def build_firstrade_account_snapshot(
         }],
         "cash": cash,
     }
+    if include_valuation_basis:
+        long_stock_value = balances.get("long_stock_value")
+        if long_stock_value is None:
+            raise AccountFactsPublishError("long_stock_value_unavailable")
+        payload["broker_reported_balances"][0]["long_stock_value"] = _amount(long_stock_value)
     if config.position_currency is not None:
         rows = observation.get("positions")
         if observation.get("positions_status") != "available" or not isinstance(rows, list) or len(rows) > 64:

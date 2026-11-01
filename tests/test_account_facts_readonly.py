@@ -80,6 +80,7 @@ def test_collects_full_account_facts_with_distinct_balance_semantics_and_times()
         "balances": {
             "provider_equity": "1234.5",
             "cash_balance": "200.25",
+            "long_stock_value": None,
             "available_cash": None,
             "buying_power": "150",
             "currency": "USD",
@@ -96,6 +97,7 @@ def test_collects_full_account_facts_with_distinct_balance_semantics_and_times()
             "positions_missing_identity_fields": 0,
             "provider_equity_available": True,
             "cash_balance_available": True,
+            "long_stock_value_available": False,
             "available_cash_available": False,
             "buying_power_available": True,
             "balance_currency_available": True,
@@ -194,6 +196,7 @@ def test_keeps_provider_cash_and_buying_power_fields_distinct():
     assert result["balances"] == {
         "provider_equity": None,
         "cash_balance": None,
+        "long_stock_value": None,
         "available_cash": "75",
         "buying_power": "90",
         "currency": "USD",
@@ -258,6 +261,7 @@ def test_does_not_mix_margin_cash_with_cash_or_buying_power():
     assert result["balances"] == {
         "provider_equity": None,
         "cash_balance": "100",
+        "long_stock_value": None,
         "available_cash": "90",
         "buying_power": "80",
         "currency": "USD",
@@ -455,3 +459,33 @@ def test_accepts_firstrade_total_value_as_provider_equity(field):
     )
 
     assert result["balances"]["provider_equity"] == "1234.5"
+
+
+def test_collects_long_stock_value_from_provider_result_envelope():
+    client = CachedReadOnlyClient()
+    client.balances = {
+        "account_list_total_value": "132.83",
+        "result": {"cash_balance": "2.27", "long_stock_value": "130.56"},
+    }
+    client.positions = {"items": [{"symbol": "IBIT", "quantity": "2.98909", "market_value": "130.6232"}]}
+
+    result = collect_firstrade_account_facts(
+        client,
+        expected_account="synthetic-account-a",
+        clock=lambda: datetime(2026, 10, 31, 21, tzinfo=timezone.utc),
+    )
+
+    assert result["balances"]["long_stock_value"] == "130.56"
+    assert result["coverage"]["long_stock_value_available"] is True
+
+
+def test_conflicting_long_stock_value_is_ambiguous():
+    client = CachedReadOnlyClient()
+    client.balances = {"long_stock_value": "1.00", "result": {"long_stock_value": "2.00"}}
+
+    with pytest.raises(AccountFactsUnavailable, match="balances_ambiguous"):
+        collect_firstrade_account_facts(
+            client,
+            expected_account="synthetic-account-a",
+            clock=lambda: datetime(2026, 10, 31, 21, tzinfo=timezone.utc),
+        )

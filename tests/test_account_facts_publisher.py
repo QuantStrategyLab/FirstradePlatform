@@ -341,3 +341,34 @@ def test_empty_position_page_does_not_claim_complete_inventory():
     cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="USD"))
     payload = build_firstrade_account_snapshot(data, cfg, account_scope="us")
     assert "broker_reported_positions" not in payload
+
+
+def test_default_snapshot_never_carries_long_stock_value():
+    cfg = load_account_facts_publish_config(config())
+    data = observation()
+    data["balances"]["long_stock_value"] = "130.56"
+
+    payload = build_firstrade_account_snapshot(data, cfg, account_scope="us")
+
+    assert payload["broker_reported_balances"] == [{"currency": "USD", "net_assets": "1234.50"}]
+    assert "long_stock_value" not in repr(payload)
+
+
+def test_opt_in_persists_balance_long_stock_value_next_to_net_assets():
+    cfg = load_account_facts_publish_config(config())
+    data = observation()
+    data["balances"]["long_stock_value"] = "130.56"
+
+    payload = build_firstrade_account_snapshot(
+        data, cfg, account_scope="us", include_valuation_basis=True)
+
+    assert payload["broker_reported_balances"] == [
+        {"currency": "USD", "net_assets": "1234.50", "long_stock_value": "130.56"}]
+
+
+def test_opt_in_fails_closed_without_long_stock_value():
+    cfg = load_account_facts_publish_config(config())
+
+    with pytest.raises(AccountFactsPublishError, match="long_stock_value_unavailable"):
+        build_firstrade_account_snapshot(
+            observation(), cfg, account_scope="us", include_valuation_basis=True)
