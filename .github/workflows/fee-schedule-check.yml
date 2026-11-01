@@ -10,14 +10,14 @@ name: Fee schedule check
 #         issue. Rates are never edited automatically.
 #
 # The bump job pushes its branch and opens the PR with a short-lived installation token of the
-# GitHub App qsl-cross-repo-automation (secrets QSL_GITHUB_APP_ID and QSL_GITHUB_APP_PRIVATE_KEY),
+# GitHub App qsl-qpk-pin-sync (variable FIRSTRADE_PR_APP_ID, secret FIRSTRADE_PR_APP_PRIVATE_KEY),
 # so CI starts on the PR like on any other. The token is scoped to this repository with only
 # contents and pull-requests write. The repository setting that lets Actions create pull requests
 # stays off.
-# Fallback: when the App secrets are missing, or the token cannot be created, the job keeps using
-# GITHUB_TOKEN. It pushes the branch, cannot open the PR, and the notify job opens or updates an
-# issue with a compare link. A PR opened with GITHUB_TOKEN would not start other workflows anyway,
-# so the bump job runs the relevant tests itself.
+# Fallback: when the App variable or secret is missing, or the token cannot be created, the job
+# keeps using GITHUB_TOKEN. It pushes the branch, cannot open the PR, and the notify job opens or
+# updates an issue with a compare link. A PR opened with GITHUB_TOKEN would not start other
+# workflows anyway, so the bump job runs the relevant tests itself.
 # Optional repository variable FEE_CHECK_CONTACT: a monitored address that is sent to sec.gov in
 # the User-Agent (SEC fair-access policy).
 
@@ -112,7 +112,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       REPORT: ${{ needs.check.outputs.report }}
       # Non-secret flag: secrets cannot be tested directly in `if:`.
-      APP_CONFIGURED: ${{ secrets.QSL_GITHUB_APP_ID != '' && secrets.QSL_GITHUB_APP_PRIVATE_KEY != '' }}
+      APP_CONFIGURED: ${{ vars.FIRSTRADE_PR_APP_ID != '' && secrets.FIRSTRADE_PR_APP_PRIVATE_KEY != '' }}
       # The bump rewrites a module that it imported; a stale .pyc would hide the change from pytest.
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
@@ -126,8 +126,8 @@ jobs:
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.QSL_GITHUB_APP_ID }}
-          private-key: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.FIRSTRADE_PR_APP_ID }}
+          private-key: ${{ secrets.FIRSTRADE_PR_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: FirstradePlatform
           permission-contents: write
@@ -136,7 +136,7 @@ jobs:
       - name: Note the fallback to GITHUB_TOKEN
         if: steps.app_token.outputs.token == ''
         run: |
-          echo "::warning::No GitHub App token (secrets missing or token creation failed). Falling back to GITHUB_TOKEN: the branch is pushed and the issue carries a compare link."
+          echo "::warning::No GitHub App token (variable or secret missing, or token creation failed). Falling back to GITHUB_TOKEN: the branch is pushed and the issue carries a compare link."
 
       - name: Bump verified_through and open a pull request
         id: bump

@@ -69,18 +69,17 @@ failure is an error, never a pass.
   automatically; update the segments in a normal pull request.
 
 The `bump` job pushes its branch and opens the pull request with a short-lived
-installation token of the GitHub App `qsl-cross-repo-automation`, so CI starts on the
-pull request like on any other. The token is created with
+installation token of the GitHub App `qsl-qpk-pin-sync` (ID 5004823), so CI starts on the
+pull request like on any other. The App is already installed on this repository with
+`contents: write` and `pull-requests: write`. The token is created with
 `actions/create-github-app-token`, scoped to this repository only, and limited to
 `contents: write` and `pull-requests: write`. The repository setting that lets Actions
-create pull requests stays off. To enable it:
+create pull requests stays off. The setup is repository level:
 
-- install `qsl-cross-repo-automation` on this repository (an organization admin does
-  this in the App's installation settings);
-- make the organization secrets `QSL_GITHUB_APP_ID` and `QSL_GITHUB_APP_PRIVATE_KEY`
-  visible to this repository.
+- the repository variable `FIRSTRADE_PR_APP_ID` (the App ID);
+- the repository secret `FIRSTRADE_PR_APP_PRIVATE_KEY` (the App private key).
 
-Without the App, or when the token cannot be created, the job falls back to
+Without the variable or secret, or when the token cannot be created, the job falls back to
 `GITHUB_TOKEN`: it leaves the branch on the remote and the issue carries a compare link
 instead; a pull request opened by hand from it needs CI to be run by closing and
 reopening it.
