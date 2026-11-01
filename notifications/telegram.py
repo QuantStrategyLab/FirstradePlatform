@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from application.firstrade_client import mask_account_id
 from quant_platform_kit.common.display_names import display_name
 
 from quant_platform_kit.common.operational_notification_localization import resolve_operational_notification_locale
@@ -1033,7 +1034,7 @@ def render_cycle_summary(result: Mapping[str, Any], *, lang: str = "en") -> str:
     if strategy_name:
         lines.append(translator("strategy_label", name=strategy_name))
     if account:
-        lines.append(translator("account_label", account=account))
+        lines.append(translator("account_label", account=mask_account_id(account)))
     if not submitted:
         account_snapshot = result.get("heartbeat_account_snapshot")
         account_snapshot = account_snapshot if isinstance(account_snapshot, Mapping) else {}

@@ -28,7 +28,9 @@ from application.firstrade_client import (
 )
 from application.runtime_broker_adapters import build_runtime_broker_adapters
 from application.signal_snapshot import build_signal_snapshot
-from application.state_persistence import GcsStateStore, build_gcs_state_store_from_env
+from application.state_persistence import (
+    GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
+)
 from application.strategy_run_persistence import (
     build_strategy_run_state,
     claim_live_strategy_run,
@@ -628,17 +630,18 @@ def run_strategy_cycle(
         evaluation_metadata=getattr(evaluation, "metadata", None),
     )
     masked_account = mask_account_id(account)
+    state_account = legacy_account_state_id(account)
     existing_run = None
     if persist_strategy_runs and not settings.dry_run_only:
         existing_run = read_latest_strategy_run_state(
             store=store,
-            account=masked_account,
+            account=state_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
         )
         existing_submission_claim = read_live_strategy_run_claim(
             store=store,
-            account=masked_account,
+            account=state_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
         )
@@ -678,6 +681,7 @@ def run_strategy_cycle(
                     strategy_run_persisted = persist_strategy_run_state(
                         store=store,
                         state=duplicate_state,
+                        storage_account=state_account,
                         now=now,
                     )
                 except Exception as exc:
@@ -745,6 +749,7 @@ def run_strategy_cycle(
             strategy_run_persisted = persist_strategy_run_state(
                 store=store,
                 state=planned_state,
+                storage_account=state_account,
                 now=now,
             )
         except Exception as exc:
@@ -763,7 +768,7 @@ def run_strategy_cycle(
             return True
         submission_claim_acquired = claim_live_strategy_run(
             store=store,
-            account=masked_account,
+            account=state_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
             now=now,
@@ -792,7 +797,7 @@ def run_strategy_cycle(
     if execution_result.idempotency_blocked:
         existing_run = read_latest_strategy_run_state(
             store=store,
-            account=masked_account,
+            account=state_account,
             strategy_profile=strategy_runtime.profile,
             run_period=run_period,
         ) or {
@@ -965,6 +970,7 @@ def run_strategy_cycle(
             result["strategy_run_persisted"] = persist_strategy_run_state(
                 store=store,
                 state=completed_state,
+                storage_account=state_account,
                 now=now,
             )
         except Exception as exc:

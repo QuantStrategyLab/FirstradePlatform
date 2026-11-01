@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 
 from notifications.digest_snapshot import digest_archive
 from notifications.digest_snapshot.digest_candidates import project_reports
@@ -24,6 +25,20 @@ from notifications.digest_snapshot.unified_contract import (
 FLAG = "FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED"
 TARGET_KEYS = ("platform_id", "strategy_profile", "service_name", "account_scope",
                "account_selector", "deployment_selector", "dry_run_only")
+
+
+class CandidateStorageError(RuntimeError):
+    """Fixed diagnostics only; never include a storage exception's message."""
+
+    def __init__(self, stage, error):
+        from google.api_core.exceptions import Forbidden, Unauthorized, PreconditionFailed
+        self.stage = stage
+        self.category = ("permission_denied" if isinstance(error, (Forbidden, Unauthorized)) else
+                         "generation_conflict" if isinstance(error, PreconditionFailed) else
+                         "timeout_unknown" if isinstance(error, TimeoutError) else
+                         "serialization_invalid" if isinstance(error, (TypeError, ValueError)) else
+                         "storage_unknown")
+        super().__init__("candidate_persistence_failed")
 
 
 def enabled(env=None):
@@ -101,7 +116,22 @@ def _bindings(env):
     values = json.loads(raw) if raw else [{}]
     if not isinstance(values, list) or not values or not all(isinstance(v, dict) for v in values):
         raise ValueError("candidate_bindings_invalid")
-    return [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
+    bindings = [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
+    override = env.get("DIGEST_CANDIDATES_OVERRIDE_GCS_URI", "")
+    if override:
+        override = override.rstrip("/") if isinstance(override, str) else override
+        if (not isinstance(override, str)
+                or not re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]+/[^\s?#*]+", override)
+                or any(part in {"", ".", ".."} for part in override[5:].rstrip("/").split("/")[1:])):
+            raise ValueError("candidate_store_configuration_missing")
+        for binding in bindings:
+            marker = binding.get("QSL_NOTIFICATION_MARKER_GCS_URI") or binding.get("DIGEST_CANDIDATES_GCS_URI")
+            if not marker:
+                raise ValueError("candidate_store_configuration_missing")
+            binding["QSL_NOTIFICATION_MARKER_GCS_URI"] = marker
+            binding["DIGEST_CANDIDATES_GCS_URI"] = override
+            binding["DIGEST_CANDIDATES_OVERRIDE_GCS_URI"] = override
+    return bindings
 
 
 def _binding(env, report):
@@ -191,7 +221,10 @@ def _aggregate(rows):
 
 def _merge(store, uri, rows, events, *, idle=None, archive=False):
     for _ in range(8):
-        version, previous = store.read(uri)
+        try:
+            version, previous = store.read(uri)
+        except Exception as error:
+            raise CandidateStorageError("candidate_read", error) from error
         # Read the former local ledger once for migration; new payloads store
         # all merge history in their per-run rows, as required by QRS.
         sources = dict((previous or {}).get("notification_source_runs") or {})
@@ -244,7 +277,11 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                      "notification_events": by_run[run_id]} for run_id in sorted(sources)]
         payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected",
             runs=run_rows if sources else [idle] if idle else [])
-        if store.compare_and_set(uri, version, payload):
+        try:
+            written = store.compare_and_set(uri, version, payload)
+        except Exception as error:
+            raise CandidateStorageError("candidate_write", error) from error
+        if written:
             return True
     raise RuntimeError("candidate_concurrent_update")
 

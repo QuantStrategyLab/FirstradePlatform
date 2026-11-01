@@ -232,3 +232,16 @@ def test_session_check_policy_skip_does_not_require_credentials_or_client():
     assert result["session_check_skipped"] is True
     assert result["session_check_policy"] == "skip"
     assert result["session_check_policy_reason"] == "policy_skip"
+
+
+def test_preexisting_account_maintenance_marker_still_skips_after_display_redaction():
+    key = "session-checks/____5678/russell_top50_leader_rotation/2026_06/latest.json"
+    store = FakeStateStore({key: {"checked_at": "2026-06-01T01:02:03+00:00"}})
+    result = run_session_check(
+        client_factory=ExplodingClient, state_store=store,
+        env_reader=_env({"STRATEGY_PROFILE": "russell_top50_leader_rotation", "FIRSTRADE_ACCOUNT": "12345678"}),
+        now=datetime(2026, 6, 15, tzinfo=timezone.utc),
+    )
+    assert result["session_check_skipped"] is True
+    assert store.reads == [key]
+    assert store.writes == []

@@ -1,0 +1,8 @@
+{
+  "version": "dot-review-policy/v1",
+  "r0_paths": ["README.md", "docs/prose/"],
+  "r2_paths": ["application/", "entrypoints/", "main.py", "strategy/", "notifications/", "config/", "scripts/"],
+  "max_request_bytes": 500000,
+  "max_source_bytes": 200000,
+  "timeout_seconds": 1800
+}

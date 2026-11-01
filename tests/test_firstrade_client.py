@@ -91,8 +91,24 @@ def build_fake_client(live=False):
     ).connect()
 
 
-def test_mask_account_id_keeps_only_last_four_digits():
-    assert mask_account_id("12345678") == "****5678"
+@pytest.mark.parametrize("value, expected", [
+    (None, ""), ("", ""), ("7", "*"), ("78", "**"),
+    ("678", "*78"), ("5678", "**78"), ("12345678", "******78"),
+    ("synthetic-78", "**********78"), ("****5678", "******78"),
+])
+def test_mask_account_id_keeps_at_most_last_two_characters(value, expected):
+    assert mask_account_id(value) == expected
+    assert mask_account_id(expected) == expected
+
+
+def test_account_summaries_and_selection_errors_use_last_two_characters():
+    client = build_fake_client()
+    assert client.list_account_summaries()[0]["account"] == "******78"
+    with pytest.raises(FirstradePlatformError) as caught:
+        client.select_account("87654321")
+    assert "******21" in str(caught.value)
+    assert "4321" not in str(caught.value)
+    assert "87654321" not in str(caught.value)
 
 
 def test_notional_live_order_rejects_size_above_local_cap():

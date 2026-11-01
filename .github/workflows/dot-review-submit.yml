@@ -1,0 +1,90 @@
+name: Dot review submit
+
+on:
+  workflow_run:
+    workflows: [PR risk gate]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request in this repository
+        required: true
+        type: string
+      target_sha:
+        description: Full 40-character head or posthoc merge SHA (never execution ref)
+        required: true
+        type: string
+      review_kind:
+        description: Review contract
+        required: true
+        type: choice
+        options: [premerge, posthoc]
+      expected_base_sha:
+        description: Optional full expected base or merge parent SHA
+        type: string
+
+permissions: {}
+concurrency:
+  group: dot-review-submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    if: >-
+      github.ref == 'refs/heads/main' && vars.DOT_REVIEW_READY == 'true' &&
+      (github.event_name == 'workflow_dispatch' || vars.DOT_REVIEW_AUTO_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      actions: read
+      checks: read
+      statuses: read
+      id-token: write
+    env:
+      TRUSTED_SHA: ${{ github.workflow_sha }}
+      DOT_REVIEW_READY: ${{ vars.DOT_REVIEW_READY }}
+      DOT_REVIEW_PROFILE: ${{ vars.DOT_REVIEW_PROFILE }}
+      DOT_REVIEW_MODEL: ${{ vars.DOT_REVIEW_MODEL }}
+      AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+      AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
+    steps:
+      - name: Load only the immutable trusted workflow commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Freeze complete SHA-bound materials
+        id: prepare
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          retries: 0
+          script: |
+            try { await require('./.github/dot-review/review.cjs').prepare({github,context,core}); }
+            catch { core.setFailed('Review preparation failed closed; no task submitted.'); }
+      - name: Persist frozen intent before any task submission
+        if: steps.prepare.outputs.prepared == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dot-review-frozen-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dot-review/frozen.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: Submit once or recover the original task
+        if: steps.prepare.outputs.prepared == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          retries: 0
+          script: |
+            try { await require('./.github/dot-review/review.cjs').submit({github,context,core}); }
+            catch { core.setFailed('Submission unconfirmed or rejected. Preserve the intent; use lookup only.'); }
+      - name: Save task locator
+        if: always() && steps.prepare.outputs.prepared == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dot-review-locator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dot-review/locator.json
+          retention-days: 30
+          if-no-files-found: ignore

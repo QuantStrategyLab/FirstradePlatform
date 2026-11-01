@@ -15,6 +15,24 @@ receiver or storage write failure. A partial read with attributable runs retains
 the existing incomplete projection and its read errors; acknowledgement matching
 and the single-request policy are unchanged.
 
+## Daily cached snapshot archive
+
+When `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, `/account-facts-sync` writes
+its validated cached-only observation to the existing funds latest/history
+paths before publishing to the console. It uses the original UTC observation
+start time for both the snapshot and history path, preserving decimal text,
+null balances, requested position coverage and the observation finish time.
+No extra broker read, session renewal, order or notification is performed.
+
+A missing store or failed archive write returns HTTP 503 with the fixed
+`funds_archive_unavailable` reason and skips console publishing. A later console
+failure leaves the real archive available for inspection. The existing two-object
+write is not atomic; inspect partial or unknown write outcomes before retrying.
+Disabled archive configurations retain their existing console-only behavior.
+These new observations do not reconstruct missed historical days. Backfill needs
+actual saved broker observations with verified account identity and original
+timestamps; transaction history alone cannot establish past daily valuations.
+
 ## Manual session renewal
 
 Manual session renewal selects the configured account, or the sole returned
@@ -24,6 +42,21 @@ store to acknowledge the write. It does not prove a later snapshot succeeded;
 an empty balance response remains visible through `balances_read=false`.
 When a write fails or its outcome is unknown, inspect the existing state and
 request outcome before taking another action; do not blindly retry.
+
+Forced renewal emits one JSON `firstrade_session_renew_auth` event for each
+login attempt. `challenge_required` is `yes` when the SDK enters MFA, `no` when
+login succeeds without a challenge, and `unknown` when login fails before that
+decision. `method` is `seed-auto` only when the SDK actually attempts its seed
+handler; otherwise it is `none` (including PIN, OTP and supplied-code paths).
+`outcome` is `success`, `mfa_required` or `failed`. Authentication success does
+not imply successful account validation or cache persistence. The event contains
+only those fixed categories: no codes, seeds, tokens, account identifiers or
+provider errors. SDK HTTP debug output is disabled for forced renewal even when
+`FIRSTRADE_DEBUG=true`; ordinary connections retain their existing behaviour.
+The renewal also temporarily quiets HTTP and urllib3 debug state inherited from
+an earlier debug session, through account reads and cache persistence. It restores
+that state on success or failure and serializes SDK construction with the scope
+so another platform connection cannot re-enable SDK debug during renewal.
 
 ## Serving cache metadata
 
