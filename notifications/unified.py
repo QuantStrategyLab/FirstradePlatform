@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 
 from notifications.digest_snapshot import digest_archive
 from notifications.digest_snapshot.digest_candidates import project_reports
@@ -115,7 +116,20 @@ def _bindings(env):
     values = json.loads(raw) if raw else [{}]
     if not isinstance(values, list) or not values or not all(isinstance(v, dict) for v in values):
         raise ValueError("candidate_bindings_invalid")
-    return [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
+    bindings = [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
+    override = env.get("DIGEST_CANDIDATES_OVERRIDE_GCS_URI", "")
+    if override:
+        if (not isinstance(override, str)
+                or not re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]+/[^\s?#*]+", override)
+                or any(part in {"", ".", ".."} for part in override[5:].rstrip("/").split("/")[1:])):
+            raise ValueError("candidate_store_configuration_missing")
+        for binding in bindings:
+            marker = binding.get("QSL_NOTIFICATION_MARKER_GCS_URI") or binding.get("DIGEST_CANDIDATES_GCS_URI")
+            if not marker:
+                raise ValueError("candidate_store_configuration_missing")
+            binding["QSL_NOTIFICATION_MARKER_GCS_URI"] = marker
+            binding["DIGEST_CANDIDATES_GCS_URI"] = override.rstrip("/")
+    return bindings
 
 
 def _binding(env, report):
