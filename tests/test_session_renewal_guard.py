@@ -284,3 +284,14 @@ def test_generation_pinned_read_and_write(monkeypatch):
     assert store.write(value, generation) is None
     blob.missing = True
     assert store.read() == (None, 0)
+
+
+@pytest.mark.parametrize("prefix", [None, "", "synthetic-prefix"])
+def test_guard_uses_the_same_prefix_default_as_session_cache(monkeypatch, prefix):
+    monkeypatch.setenv("FIRSTRADE_GCS_STATE_BUCKET", "synthetic-bucket")
+    if prefix is None:
+        monkeypatch.delenv("FIRSTRADE_STATE_PREFIX", raising=False)
+    else:
+        monkeypatch.setenv("FIRSTRADE_STATE_PREFIX", prefix)
+    store = guard.RenewalStore.from_env()
+    assert store.state.prefix == (prefix or "firstrade-platform")

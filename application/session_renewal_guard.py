@@ -44,7 +44,7 @@ class RenewalStore:
         bucket = os.getenv("FIRSTRADE_GCS_STATE_BUCKET", "").strip()
         if not bucket:
             raise StatePersistenceError("Renewal state unavailable")
-        return cls(GcsStateStore(bucket, os.getenv("FIRSTRADE_STATE_PREFIX", "firstrade-platform")))
+        return cls(GcsStateStore(bucket, os.getenv("FIRSTRADE_STATE_PREFIX", "firstrade-platform") or "firstrade-platform"))
 
     def _blob(self):
         from google.cloud import storage
