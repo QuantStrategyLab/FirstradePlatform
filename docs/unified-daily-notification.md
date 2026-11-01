@@ -133,6 +133,21 @@ resource paths and credential context stay out of command output. A permission
 category identifies the failing storage operation; it does not establish that
 an alerting Secret Manager denial caused the storage failure.
 
+The scheduled `scripts.emit_unified_digest_candidates` command also emits a
+bounded `stage` and `error_code` for binding validation, archive reads, source
+selection, schedule evaluation, projection, candidate merge and output
+serialization failures. Only exact allowlisted local codes are exposed; an
+unclassified failure retains its enclosing stage with `unexpected_error`.
+Storage failures retain `error_category` for compatibility and repeat that
+category as `error_code`. `uploaded=false` is the existing failure flag, not
+proof that no write took effect: an uncertain write or an earlier target may
+have persisted. Inspect existing evidence before retrying.
+
+The coverage-alert fallback keeps its existing delivery attempt and same-run
+suppression. Its raw output is suppressed; failed or uncertain delivery emits
+only `coverage_alert` / `alert_delivery_unconfirmed` on stderr. This secondary
+diagnostic does not replace the original projection failure on stdout.
+
 Account identifiers displayed in logs, notification results and account-selection
 errors retain at most two trailing characters. Identifiers of two characters or
 fewer are fully masked. Runtime failure alerts omit the exception detail.
