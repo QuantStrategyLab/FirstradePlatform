@@ -95,6 +95,21 @@ cache read does not prove that Firstrade still accepts the session: an upstream
 endpoint returns the sanitized `readonly_client_unavailable` response and logs
 the fixed diagnostic, without retrying or starting a login.
 
+For a missing/expired cache or an upstream 401, the same log also carries
+`recovery_action=manual_session_renewal_required`. Storage read failures,
+upstream 403 and upstream 5xx do not imply that renewing authentication will fix
+the failure. The HTTP status and response body remain unchanged.
+
+Use the existing manual `/session-renew` flow only with explicit operational
+authorization, existing credentials and the configured non-trading client.
+Confirm its outcome before separately invoking the existing cached-only
+account-facts refresh. Stop on MFA, rejected authentication or an uncertain
+cache write; do not create credentials or automatically retry. The account-facts
+route never calls `/session-renew` itself. The generic Invoke Cloud Run workflow
+can create/update Scheduler bridges, so it is unsuitable for a no-configuration-
+change operation unless those effects have been excluded. Snapshot-only
+Execution Report Heartbeat uses the existing bridge without configuration writes.
+
 `Inspect cached account history schema` reads one first page for the current
 serving runtime's exact account and at most 31 closed UTC dates within the past
 year. It uses the same configured deployment identity, the existing username

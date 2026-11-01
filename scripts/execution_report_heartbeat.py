@@ -771,17 +771,19 @@ def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=N
 def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True,
                            now: dt.datetime | None = None, recovery_reports=(), affected_keys=None) -> int:
     from notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat
+    from notifications.candidate_diagnostics import failure_text
     if quiet_eligible or enabled():
         locale = coverage_locale() if quiet_eligible else _notification_locale()
         message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", locale)
-        def send_attention():
+        def send_attention(diagnostic=None):
             marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
             if quiet_eligible and marker:
                 try:
                     Path(marker).write_text("attempted\n")
                 except OSError:
                     pass
-            acknowledged = _send_telegram(message[:3900])
+            text = failure_text(diagnostic, locale) if diagnostic is not None else message
+            acknowledged = _send_telegram(text[:3900])
             if quiet_eligible and acknowledged is True and marker:
                 try:
                     Path(marker).write_text("acknowledged\n")
@@ -790,7 +792,8 @@ def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = Tru
             return acknowledged
         result = notify_heartbeat(kind="healthy_heartbeat" if quiet_eligible else "receipt_unacceptable",
             send=send_attention, now=now or dt.datetime.now(dt.timezone.utc),
-            recovery_reports=recovery_reports, affected_keys=affected_keys)
+            recovery_reports=recovery_reports, affected_keys=affected_keys,
+            send_candidate_failure=send_attention)
         return 1 if result.get("failed") or not result.get("candidate_persisted") else 0
     if quiet_eligible and not _env_bool("RUNTIME_HEARTBEAT_NOTIFY_ON_SUCCESS", False):
         return 0

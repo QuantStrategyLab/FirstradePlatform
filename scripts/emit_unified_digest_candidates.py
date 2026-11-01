@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import json
 import os
 from notifications.unified import emit_candidates  # noqa: E402
+from notifications.candidate_diagnostics import candidate_stage, classify, failure_text
 
 
 def _check_binding_modes(env):
@@ -22,12 +23,15 @@ def _check_binding_modes(env):
 
 def main():
     try:
-        _check_binding_modes(os.environ)
+        with candidate_stage("binding"):
+            _check_binding_modes(os.environ)
         print(json.dumps(emit_candidates(os.environ), sort_keys=True))
         return 0
-    except Exception:
-        print(json.dumps({"status": "candidate_projection_failed", "uploaded": False}))
-        from notifications.unified import alert_text, coverage_locale
+    except Exception as exc:
+        diagnostic = classify(exc, "projection")
+        print(json.dumps({"status": "candidate_projection_failed", "uploaded": False,
+                          "stage": diagnostic.stage, "reason": diagnostic.reason}))
+        from notifications.unified import coverage_locale
         from scripts.execution_report_heartbeat import _send_telegram
         marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
         try:
@@ -35,7 +39,7 @@ def main():
         except OSError:
             attempted = False
         if not attempted:
-            _send_telegram(alert_text("candidate_write_failure", coverage_locale()))
+            _send_telegram(failure_text(diagnostic, coverage_locale()))
         return 1
 
 if __name__ == "__main__":

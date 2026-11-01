@@ -6,6 +6,23 @@ Chinese or English language, in both
 notification modes. Actual unknown outcomes, failures, risk, persistence and
 authentication incidents retain immediate alerts. A candidate or archive write
 failure produces a separate localized coverage alert without a trade message.
+The archive publisher and healthy-heartbeat coverage alert report fixed stage
+and reason categories. Stages distinguish binding, storage initialization,
+archive listing/read, projection, candidate history read/merge, serialization
+and candidate write. Reasons distinguish authentication, permission denial,
+missing objects, timeout, transport, invalid data, concurrency and unknown
+failures. Exception messages, object paths, provider bodies and identities are
+never copied into these diagnostics. The existing alert acknowledgement marker
+still suppresses duplicate sends.
+
+A missing candidate on the initial metadata read is the normal create path;
+creation retains `if_generation_match=0`. Only explicit generation conflicts
+use the existing bounded merge attempts. An uncertain write is never retried,
+and `uploaded=false` after failure does not prove that storage was unchanged
+or that earlier targets in the same invocation were not published. Read back
+the affected object before any separately authorized retry. A stage/category
+alone does not justify changing IAM or replaying old candidate windows.
+
 An accepted order with complete matching evidence is not a confirmed fill;
 missing, contradictory or failed reconciliation evidence stays attention.
 

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 
+from notifications.candidate_diagnostics import CandidateOperationError, candidate_stage, classify
 from notifications.digest_snapshot import digest_archive
 from notifications.digest_snapshot.digest_candidates import project_reports
 from notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
@@ -71,8 +72,10 @@ class GcsJsonStore:
 
     def compare_and_set(self, uri, version, value):
         from google.api_core.exceptions import PreconditionFailed
+        with candidate_stage("storage_serialize"):
+            body = json.dumps(value, allow_nan=False)
         try:
-            self._blob(uri).upload_from_string(json.dumps(value, allow_nan=False),
+            self._blob(uri).upload_from_string(body,
                 content_type="application/json", if_generation_match=0 if version is None else version,
                 retry=None, timeout=30)
             return True
@@ -189,9 +192,11 @@ def _aggregate(rows):
     return result
 
 
+@candidate_stage("candidate_merge")
 def _merge(store, uri, rows, events, *, idle=None, archive=False):
     for _ in range(8):
-        version, previous = store.read(uri)
+        with candidate_stage("candidate_read"):
+            version, previous = store.read(uri)
         # Read the former local ledger once for migration; new payloads store
         # all merge history in their per-run rows, as required by QRS.
         sources = dict((previous or {}).get("notification_source_runs") or {})
@@ -244,9 +249,10 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                      "notification_events": by_run[run_id]} for run_id in sorted(sources)]
         payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected",
             runs=run_rows if sources else [idle] if idle else [])
-        if store.compare_and_set(uri, version, payload):
-            return True
-    raise RuntimeError("candidate_concurrent_update")
+        with candidate_stage("candidate_write"):
+            if store.compare_and_set(uri, version, payload):
+                return True
+    raise CandidateOperationError("candidate_merge", "conflict")
 
 
 def persist_report_candidate(report, fact, *, env, now, store):
@@ -261,14 +267,19 @@ def persist_report_candidate(report, fact, *, env, now, store):
     return _merge(store, uri, {report["run_id"]: row}, {fact["dedupe_key"]: fact})
 
 
+@candidate_stage("projection")
 def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
     current = now or datetime.now(timezone.utc)
-    store = store or GcsJsonStore()
+    with candidate_stage("storage_init"):
+        store = store or GcsJsonStore()
+    with candidate_stage("binding"):
+        bindings = _bindings(env)
     results = []
-    for binding in _bindings(env):
+    for binding in bindings:
         reports = []
         def capture(args):
-            value = read(args)
+            with candidate_stage("archive_list" if args[0] == "ls" else "archive_read"):
+                value = read(args)
             if args[0] == "cat":
                 reports.append(value)
             return value
@@ -488,21 +499,33 @@ def notify_cycle(report, result, *, settings, send, send_failure=None, env=None,
 
 
 def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=(), read=digest_archive._read,
-                     incident_reason="execution_receipt", affected_keys=None, service_name=None):
+                     incident_reason="execution_receipt", affected_keys=None, service_name=None,
+                     send_candidate_failure=None):
     env = os.environ if env is None else env
     was_healthy = kind == "healthy_heartbeat"
     attempted = False
+    diagnostic = None
+    original_send = send
+    def send():
+        if was_healthy and diagnostic is not None and send_candidate_failure is not None:
+            return send_candidate_failure(diagnostic)
+        return original_send()
     if not enabled(env) and kind != "healthy_heartbeat":
         return {"candidate_persisted": False, "fallback_acknowledged": send() is True}
     try:
-        store = store or GcsJsonStore()
+        with candidate_stage("storage_init"):
+            store = store or GcsJsonStore()
         persisted = False
         try:
             persisted = emit_candidates(env, now=now, read=read, store=store)["uploaded"] is True
-        except Exception:
+        except Exception as exc:
+            diagnostic = classify(exc, "projection")
+            print(json.dumps({"status": "candidate_projection_failed",
+                              "stage": diagnostic.stage, "reason": diagnostic.reason}), flush=True)
             if kind == "healthy_heartbeat":
                 kind, incident_reason = "real_error", "notification_candidate_write_failure"
         if kind == "healthy_heartbeat" and not persisted:
+            diagnostic = CandidateOperationError("projection", "unknown")
             kind, incident_reason = "real_error", "notification_candidate_write_failure"
         decisions = []
         for binding in _bindings(env):
@@ -559,7 +582,9 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
             for tracker, decision, event in claimed:
                 delivery.append(_record_ack(tracker, decision, outcome, event=event, related_ids=related_ids))
         return {"candidate_persisted": persisted, "deliveries": delivery}
-    except Exception:
+    except Exception as exc:
+        if diagnostic is None:
+            diagnostic = classify(exc, "unclassified")
         print("notification_consolidation_failed; coverage_unknown", flush=True)
         if was_healthy and not attempted:
             try:

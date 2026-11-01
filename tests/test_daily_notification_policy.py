@@ -344,7 +344,10 @@ def test_scheduled_exporter_failure_sends_only_localized_coverage(monkeypatch):
     sent = []
     monkeypatch.setattr(heartbeat, "_send_telegram", lambda text: sent.append(text) or True)
     assert emitter.main() == 1
-    assert sent == [unified.alert_text("candidate_write_failure", "en")]
+    assert sent == ["Notification candidate publication failed.\n"
+                    "Stage: candidate projection.\n"
+                    "Reason: invalid data or configuration.\n"
+                    "Review the current run record."]
     assert "private URI" not in sent[0]
 
 
