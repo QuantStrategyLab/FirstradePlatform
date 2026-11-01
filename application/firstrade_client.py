@@ -295,7 +295,7 @@ class FirstradeBrokerClient:
 
         cookie_dir = Path(self.credentials.cookie_dir)
         cookie_dir.mkdir(parents=True, exist_ok=True)
-        session = self._build_session(session_factory, cookie_dir)
+        session = self._build_session(session_factory, cookie_dir, debug=False if force_login else self.credentials.debug)
         if not force_login and self.credentials.reuse_session and self._try_cached_session(
             session,
             account_data_factory=account_data_factory,
@@ -303,19 +303,65 @@ class FirstradeBrokerClient:
         ):
             return self
 
-        needs_mfa_code = bool(session.login())
-        if needs_mfa_code:
-            if not self.credentials.mfa_code:
-                raise FirstradeMfaRequired(
-                    "Firstrade requested MFA. Set FIRSTRADE_MFA_CODE and retry this one validation run."
-                )
-            session.login_two(self.credentials.mfa_code)
+        if force_login:
+            self._login_for_renewal(session)
+        else:
+            self._login(session)
         self.session = session
         self.account_data = account_data_factory(session)
         self.session_reused = False
         if not defer_cache_save:
             self._save_session_cache(cookie_dir)
         return self
+
+    def _login(self, session: Any, diagnostic: dict[str, str] | None = None) -> None:
+        needs_mfa_code = bool(session.login())
+        if diagnostic is not None:
+            if needs_mfa_code:
+                diagnostic["challenge_required"] = "yes"
+            elif diagnostic["challenge_required"] == "unknown":
+                diagnostic["challenge_required"] = "no"
+        if needs_mfa_code:
+            if not self.credentials.mfa_code:
+                raise FirstradeMfaRequired(
+                    "Firstrade requested MFA. Set FIRSTRADE_MFA_CODE and retry this one validation run."
+                )
+            session.login_two(self.credentials.mfa_code)
+
+    def _login_for_renewal(self, session: Any) -> None:
+        # The pinned SDK handles seed MFA inside login() and replaces login_json.
+        # Observe the actual handlers; configured credentials alone prove no branch.
+        diagnostic = {
+            "event": "firstrade_session_renew_auth",
+            "challenge_required": "unknown",
+            "method": "none",
+            "outcome": "failed",
+        }
+        originals = {}
+        for name, field, value in (
+            ("_handle_mfa", "challenge_required", "yes"),
+            ("_handle_secret_mfa", "method", "seed-auto"),
+        ):
+            handler = getattr(session, name, None)
+            if callable(handler):
+                originals[name] = handler
+
+                def observed(*args, _handler=handler, _field=field, _value=value, **kwargs):
+                    diagnostic[_field] = _value
+                    return _handler(*args, **kwargs)
+
+                setattr(session, name, observed)
+        try:
+            self._login(session, diagnostic)
+            diagnostic["outcome"] = "success"
+        except FirstradeMfaRequired:
+            diagnostic["outcome"] = "mfa_required"
+            raise
+        finally:
+            for name, handler in originals.items():
+                setattr(session, name, handler)
+            # Only fixed categories: never serialize SDK state, credentials or errors.
+            print(json.dumps(diagnostic, sort_keys=True), flush=True)
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
         """Reuse cached authentication for account reads; never log in or change the cache."""
@@ -435,7 +481,9 @@ class FirstradeBrokerClient:
         if session is not None:
             session.session.close()
 
-    def _build_session(self, session_factory: Callable[..., Any], cookie_dir: Path) -> Any:
+    def _build_session(
+        self, session_factory: Callable[..., Any], cookie_dir: Path, *, debug: bool | None = None,
+    ) -> Any:
         return session_factory(
             username=self.credentials.username,
             password=self.credentials.password,
@@ -444,7 +492,7 @@ class FirstradeBrokerClient:
             phone=self.credentials.phone,
             mfa_secret=self.credentials.mfa_secret,
             profile_path=str(cookie_dir),
-            debug=self.credentials.debug,
+            debug=self.credentials.debug if debug is None else debug,
         )
 
     def _session_cache_path(self, cookie_dir: Path) -> Path:
