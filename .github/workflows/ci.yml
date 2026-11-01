@@ -16,6 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Test Dot review safety contracts offline
+        run: node --test .github/dot-review/test-*.cjs
+
       - name: Reject public runtime configuration bindings
         run: |
           set -euo pipefail
