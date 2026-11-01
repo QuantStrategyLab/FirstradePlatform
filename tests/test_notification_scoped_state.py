@@ -38,7 +38,7 @@ def test_candidate_override_preserves_existing_incident_deduplication():
     assert unified._state_prefix(binding) == STATE
 
 
-@pytest.mark.parametrize("uri", ["https://synthetic/path", "gs://synthetic", "gs://synthetic/a/../b",
+@pytest.mark.parametrize("uri", ["https://synthetic/path", "gs://synthetic", "gs://synthetic///", "gs://synthetic/a/../b",
                                  "gs://synthetic/a?private=value", "gs://synthetic/a/*"])
 def test_invalid_candidate_override_fails_before_storage(uri):
     with pytest.raises(ValueError, match="^candidate_store_configuration_missing$"):

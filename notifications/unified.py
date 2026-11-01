@@ -119,6 +119,7 @@ def _bindings(env):
     bindings = [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
     override = env.get("DIGEST_CANDIDATES_OVERRIDE_GCS_URI", "")
     if override:
+        override = override.rstrip("/") if isinstance(override, str) else override
         if (not isinstance(override, str)
                 or not re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]+/[^\s?#*]+", override)
                 or any(part in {"", ".", ".."} for part in override[5:].rstrip("/").split("/")[1:])):
@@ -128,7 +129,8 @@ def _bindings(env):
             if not marker:
                 raise ValueError("candidate_store_configuration_missing")
             binding["QSL_NOTIFICATION_MARKER_GCS_URI"] = marker
-            binding["DIGEST_CANDIDATES_GCS_URI"] = override.rstrip("/")
+            binding["DIGEST_CANDIDATES_GCS_URI"] = override
+            binding["DIGEST_CANDIDATES_OVERRIDE_GCS_URI"] = override
     return bindings
 
 
