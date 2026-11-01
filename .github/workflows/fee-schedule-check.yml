@@ -1,0 +1,242 @@
+name: Fee schedule check
+
+# Monthly review of the Firstrade fee schedule (tracking issue #497).
+#
+# check:  compares the SEC Section 31 rate and the FINRA TAF rates on the official sites with
+#         application/firstrade_fee_schedule.py. Any fetch/parse failure is an error, never a pass.
+# bump:   only when every value is unchanged. Pushes a branch that moves `verified_through` to the
+#         end of next month (plus the test pin and docs) and opens a PR. It never merges.
+# notify: when rates changed, the check failed, or the PR could not be opened. Opens or updates one
+#         issue. Rates are never edited automatically.
+#
+# Only GITHUB_TOKEN is used. Pull requests opened with it do not start other workflows, so the
+# bump job runs the relevant tests itself and a reviewer closes and reopens the PR to run CI.
+# Optional repository variable FEE_CHECK_CONTACT: a monitored address that is sent to sec.gov in
+# the User-Agent (SEC fair-access policy).
+
+on:
+  schedule:
+    - cron: '17 2 22 * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fee-schedule-check.yml'
+      - 'scripts/check_fee_schedule.py'
+
+permissions: {}
+
+concurrency:
+  group: fee-schedule-check-${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ISSUE_TITLE: 'Firstrade fee schedule check needs attention'
+
+jobs:
+  check:
+    name: Check official sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.run.outputs.status }}
+      report: ${{ steps.run.outputs.report }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Ensure pdftotext
+        run: |
+          set -euo pipefail
+          command -v pdftotext >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends poppler-utils
+          }
+
+      - name: Compare with sec.gov and finra.org
+        id: run
+        env:
+          FEE_CHECK_CONTACT: ${{ vars.FEE_CHECK_CONTACT }}
+        run: |
+          set -uo pipefail
+          rc=0
+          python3 -m scripts.check_fee_schedule check \
+            --report "$RUNNER_TEMP/report.md" --json "$RUNNER_TEMP/result.json" || rc=$?
+          status=error
+          case "$rc" in
+            0) status=unchanged ;;
+            2) status=changed ;;
+          esac
+          [ -s "$RUNNER_TEMP/report.md" ] || printf 'The check produced no report.\n' > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+          delimiter="EOF_$(openssl rand -hex 8)"
+          {
+            echo "status=$status"
+            echo "report<<$delimiter"
+            cat "$RUNNER_TEMP/report.md"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fail pull request runs unless the sources match
+        if: github.event_name == 'pull_request' && steps.run.outputs.status != 'unchanged'
+        run: |
+          echo "The check status is ${{ steps.run.outputs.status }}; see the job summary." >&2
+          exit 1
+
+  bump:
+    name: Open verified_through bump
+    needs: check
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && needs.check.outputs.status == 'unchanged'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      result: ${{ steps.bump.outputs.result }}
+      branch: ${{ steps.bump.outputs.branch }}
+      pr_url: ${{ steps.bump.outputs.pr_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REPORT: ${{ needs.check.outputs.report }}
+      # The bump rewrites a module that it imported; a stale .pyc would hide the change from pytest.
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Bump verified_through and open a pull request
+        id: bump
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+
+          python3 -m scripts.check_fee_schedule bump --output "$RUNNER_TEMP/new_date"
+          new_date="$(cat "$RUNNER_TEMP/new_date")"
+          if [ -z "$new_date" ]; then
+            echo "result=noop" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="chore/fee-schedule-verified-through-$new_date"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          # The bump rewrites only the date pins; run the tests that cover them.
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pytest==9.1.1
+          "$RUNNER_TEMP/venv/bin/python" -m pytest -q \
+            tests/test_statement_reconciliation.py tests/test_check_fee_schedule.py
+          git diff --stat
+
+          # Never overwrite an existing branch.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+              echo "result=exists" >> "$GITHUB_OUTPUT"
+            else
+              echo "result=branch-only" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          git switch -c "$branch"
+          git add -u
+          git commit -q -m "chore(fees): extend fee schedule verified_through to $new_date" \
+            -m "Scheduled fee-schedule-check found the SEC Section 31 and FINRA TAF rates unchanged." \
+            -m "No rate row was changed. Refs #497."
+          git push origin "$branch"
+
+          {
+            echo "## AI assistance"
+            echo
+            echo "None. Opened by the scheduled \`Fee schedule check\` workflow, which runs"
+            echo "\`scripts/check_fee_schedule.py\`. A human must review before merge."
+            echo
+            echo "## What changed"
+            echo
+            echo "Moves \`verified_through\` in \`application/firstrade_fee_schedule.py\` to \`$new_date\`"
+            echo "so sells dated up to then keep reconciling instead of returning \`unsupported\`. No"
+            echo "rate row was changed. The test review pin and the doc mentions move with it."
+            echo
+            echo "Refs #497 (recurring review; intentionally not closed)."
+            echo
+            echo "## How verified"
+            echo
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+            echo "\`pytest tests/test_statement_reconciliation.py tests/test_check_fee_schedule.py\`"
+            echo "passed in that run. CI did not start on this pull request because it was opened"
+            echo "with \`GITHUB_TOKEN\`: close and reopen it to run the full checks."
+            echo
+            printf '%s\n' "$REPORT" | tail -n +2 | sed 's/^## /### /'
+          } > "$RUNNER_TEMP/pr_body.md"
+
+          if pr_url="$(gh pr create --base main --head "$branch" \
+            --title "chore(fees): extend fee schedule verified_through to $new_date" \
+            --body-file "$RUNNER_TEMP/pr_body.md")"; then
+            echo "result=pr-opened" >> "$GITHUB_OUTPUT"
+            echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The branch was pushed but the pull request could not be created."
+            echo "result=branch-only" >> "$GITHUB_OUTPUT"
+          fi
+
+  notify:
+    name: Open or update the attention issue
+    needs: [check, bump]
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && (needs.check.result != 'success' || needs.check.outputs.status != 'unchanged'
+      || needs.bump.result == 'failure' || needs.bump.outputs.result == 'branch-only')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CHECK_RESULT: ${{ needs.check.result }}
+      CHECK_STATUS: ${{ needs.check.outputs.status }}
+      BUMP_RESULT: ${{ needs.bump.result }}
+      BUMP_OUTCOME: ${{ needs.bump.outputs.result }}
+      BUMP_BRANCH: ${{ needs.bump.outputs.branch }}
+      REPORT: ${{ needs.check.outputs.report }}
+    steps:
+      - name: Open or update the issue
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "Fee schedule check, workflow run: $run_url"
+            echo
+            if [ "$CHECK_RESULT" != "success" ]; then
+              echo "The check job did not finish (result: $CHECK_RESULT). Nothing was changed."
+            elif [ "$CHECK_STATUS" != "unchanged" ]; then
+              echo "Status: **$CHECK_STATUS**. Nothing was changed and no bump pull request was opened."
+            else
+              echo "The rates are unchanged, but the \`verified_through\` bump could not be completed"
+              echo "(bump job: $BUMP_RESULT, outcome: ${BUMP_OUTCOME:-none})."
+              if [ -n "$BUMP_BRANCH" ]; then
+                echo
+                echo "Branch \`$BUMP_BRANCH\` is on the remote. Open a pull request from it:"
+                echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$BUMP_BRANCH?expand=1"
+              fi
+            fi
+            echo
+            printf '%s\n' "$REPORT" | tail -n +2 | sed 's/^## /### /'
+            echo
+            echo "Tracking issue: #497. Rates are never changed automatically."
+          } > "$RUNNER_TEMP/issue_body.md"
+
+          number="$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg title "$ISSUE_TITLE" '[.[] | select(.title == $title)][0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$RUNNER_TEMP/issue_body.md"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/issue_body.md"
+          fi

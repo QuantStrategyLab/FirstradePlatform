@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -15,6 +15,11 @@ from application.statement_reconciliation import (
     valuation_basis_difference,
     valuation_basis_report,
 )
+
+# Review pin: the date the fee schedule is expected to be verified through. The monthly
+# fee-schedule check workflow moves this line together with ``verified_through``.
+VERIFIED_THROUGH = date(2026, 12, 1)
+DAY_AFTER_VERIFIED = VERIFIED_THROUGH + timedelta(days=1)
 
 # Shape of the Firstrade history CSV row for the 2026-08-28 margin sellout.
 # ``Date`` is the trade date (matches EXEC TIME); S/D is the T+1 settlement date.
@@ -112,16 +117,17 @@ def test_taf_increase_is_deferred_to_2029_by_sr_finra_2026_020():
 
 def test_dates_after_verified_through_are_unsupported():
     schedule = load_fee_schedule()
-    assert schedule.verified_through == date(2026, 12, 1)
-    assert schedule.sec_rate_on(date(2026, 12, 1)) == Decimal("20.60")
+    pin = VERIFIED_THROUGH.isoformat()
+    assert schedule.verified_through == VERIFIED_THROUGH
+    assert schedule.sec_rate_on(VERIFIED_THROUGH) == Decimal("20.60")
     for lookup in (schedule.sec_rate_on, schedule.taf_on, schedule.broker_assisted_fee_on):
-        with pytest.raises(FeeScheduleError, match="not_verified_after_2026-12-01"):
-            lookup(date(2026, 12, 2))
+        with pytest.raises(FeeScheduleError, match=f"not_verified_after_{pin}"):
+            lookup(DAY_AFTER_VERIFIED)
     # SEC FY2027 Section 31 rate is not published: a later sale must not borrow FY2026's.
-    late = decompose_sell_fees(sell_on("2026-12-02"))
+    late = decompose_sell_fees(sell_on(DAY_AFTER_VERIFIED.isoformat()))
     assert late["status"] == "unsupported"
-    assert "not_verified_after_2026-12-01" in late["reason"]
-    assert decompose_sell_fees(sell_on("2026-12-01"))["status"] != "unsupported"
+    assert f"not_verified_after_{pin}" in late["reason"]
+    assert decompose_sell_fees(sell_on(pin))["status"] != "unsupported"
 
 
 def test_verified_through_is_required_and_must_be_a_date():
