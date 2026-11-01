@@ -23,7 +23,7 @@
 
 `verified_through`（当前 `2026-12-01`）是费率最后一次对照公开来源核实的交易日。之后的交易日为 `unsupported`（`..._not_verified_after_<日期>`）：SEC 2027 财年 Section 31 费率尚未公布（FY2026 费率在 2027 财年拨款法案生效后 60 天内继续有效），上述 FINRA 备案虽即时生效但仍可能被 SEC 暂停。更新来源核实时需在同一变更中推进 `verified_through`。
 
-`Fee schedule check` 工作流（`.github/workflows/fee-schedule-check.yml`）每月 22 日 UTC 02:17 自动执行这项复核，也可手动触发（`workflow_dispatch`）：`scripts/check_fee_schedule.py check` 读取 SEC Section 31 公告和 FINRA 费率表、备案列表与备案 PDF，与费率表比对；抓取或解析失败一律视为错误，不会当作通过。全部一致时 `bump` 任务把 `verified_through` 推到下月末（并同步测试里的复核日期和文档），跑完测试后开 PR，不会自动合并。费率有变化、出现新的 FINRA 费用备案、SEC 页面提到暂停或检查失败时，`notify` 任务开或更新一个 issue，费率不会被自动修改。仅使用 `GITHUB_TOKEN`，它开的 PR 不会触发 CI，合并前请关闭再重新打开 PR 以运行检查。建议把仓库变量 `FEE_CHECK_CONTACT` 设为可联系的邮箱，sec.gov 会拒绝不表明身份的请求。
+`Fee schedule check` 工作流（`.github/workflows/fee-schedule-check.yml`）每月 22 日 UTC 02:17 自动执行这项复核，也可手动触发（`workflow_dispatch`）：`scripts/check_fee_schedule.py check` 读取 SEC Section 31 公告和 FINRA 费率表、备案列表与备案 PDF，与费率表比对；抓取或解析失败一律视为错误，不会当作通过。全部一致时 `bump` 任务把 `verified_through` 推到下月末（并同步测试里的复核日期和文档），跑完测试后开 PR，不会自动合并。费率有变化、出现新的 FINRA 费用备案、SEC 页面提到暂停或检查失败时，`notify` 任务开或更新一个 issue，费率不会被自动修改。`bump` 任务用 GitHub App `qsl-cross-repo-automation` 的短期安装令牌推送分支并开 PR（`actions/create-github-app-token`，仅限本仓库，只有 `contents: write` 和 `pull-requests: write`），所以 PR 会像其他 PR 一样触发 CI；仓库里“允许 Actions 创建 PR”的设置保持关闭。启用需要：在本仓库安装 `qsl-cross-repo-automation`（由组织管理员操作），并让组织 secret `QSL_GITHUB_APP_ID` 和 `QSL_GITHUB_APP_PRIVATE_KEY` 对本仓库可见。没有 App 或令牌创建失败时，退回使用 `GITHUB_TOKEN`：只推送分支，issue 里带比较链接，手动开出的 PR 需关闭再重新打开才会运行检查。建议把仓库变量 `FEE_CHECK_CONTACT` 设为可联系的邮箱，sec.gov 会拒绝不表明身份的请求。
 
 ## 估值口径差异
 

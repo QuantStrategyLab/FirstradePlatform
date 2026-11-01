@@ -9,8 +9,15 @@ name: Fee schedule check
 # notify: when rates changed, the check failed, or the PR could not be opened. Opens or updates one
 #         issue. Rates are never edited automatically.
 #
-# Only GITHUB_TOKEN is used. Pull requests opened with it do not start other workflows, so the
-# bump job runs the relevant tests itself and a reviewer closes and reopens the PR to run CI.
+# The bump job pushes its branch and opens the PR with a short-lived installation token of the
+# GitHub App qsl-cross-repo-automation (secrets QSL_GITHUB_APP_ID and QSL_GITHUB_APP_PRIVATE_KEY),
+# so CI starts on the PR like on any other. The token is scoped to this repository with only
+# contents and pull-requests write. The repository setting that lets Actions create pull requests
+# stays off.
+# Fallback: when the App secrets are missing, or the token cannot be created, the job keeps using
+# GITHUB_TOKEN. It pushes the branch, cannot open the PR, and the notify job opens or updates an
+# issue with a compare link. A PR opened with GITHUB_TOKEN would not start other workflows anyway,
+# so the bump job runs the relevant tests itself.
 # Optional repository variable FEE_CHECK_CONTACT: a monitored address that is sent to sec.gov in
 # the User-Agent (SEC fair-access policy).
 
@@ -104,6 +111,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       REPORT: ${{ needs.check.outputs.report }}
+      # Non-secret flag: secrets cannot be tested directly in `if:`.
+      APP_CONFIGURED: ${{ secrets.QSL_GITHUB_APP_ID != '' && secrets.QSL_GITHUB_APP_PRIVATE_KEY != '' }}
       # The bump rewrites a module that it imported; a stale .pyc would hide the change from pytest.
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
@@ -111,8 +120,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Create GitHub App installation token
+        id: app_token
+        if: env.APP_CONFIGURED == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.QSL_GITHUB_APP_ID }}
+          private-key: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: FirstradePlatform
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Note the fallback to GITHUB_TOKEN
+        if: steps.app_token.outputs.token == ''
+        run: |
+          echo "::warning::No GitHub App token (secrets missing or token creation failed). Falling back to GITHUB_TOKEN: the branch is pushed and the issue carries a compare link."
+
       - name: Bump verified_through and open a pull request
         id: bump
+        env:
+          # Empty when the fallback applies. Only the push and the PR creation use it.
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -150,7 +180,22 @@ jobs:
           git commit -q -m "chore(fees): extend fee schedule verified_through to $new_date" \
             -m "Scheduled fee-schedule-check found the SEC Section 31 and FINRA TAF rates unchanged." \
             -m "No rate row was changed. Refs #497."
-          git push origin "$branch"
+          # Prefer the App token so that CI starts on the PR; never print it.
+          if [ -n "$APP_TOKEN" ]; then
+            GH_TOKEN="$APP_TOKEN" git push origin "$branch" || {
+              echo "::warning::Push with the App token failed; retrying with GITHUB_TOKEN."
+              APP_TOKEN=""
+              git push origin "$branch"
+            }
+          else
+            git push origin "$branch"
+          fi
+
+          if [ -n "$APP_TOKEN" ]; then
+            ci_note="CI starts on this pull request normally because the GitHub App opened it."
+          else
+            ci_note="CI did not start on this pull request because it was opened with \`GITHUB_TOKEN\`: close and reopen it to run the full checks."
+          fi
 
           {
             echo "## AI assistance"
@@ -170,13 +215,12 @@ jobs:
             echo
             echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
             echo "\`pytest tests/test_statement_reconciliation.py tests/test_check_fee_schedule.py\`"
-            echo "passed in that run. CI did not start on this pull request because it was opened"
-            echo "with \`GITHUB_TOKEN\`: close and reopen it to run the full checks."
+            echo "passed in that run. $ci_note"
             echo
             printf '%s\n' "$REPORT" | tail -n +2 | sed 's/^## /### /'
           } > "$RUNNER_TEMP/pr_body.md"
 
-          if pr_url="$(gh pr create --base main --head "$branch" \
+          if pr_url="$(GH_TOKEN="${APP_TOKEN:-$GH_TOKEN}" gh pr create --base main --head "$branch" \
             --title "chore(fees): extend fee schedule verified_through to $new_date" \
             --body-file "$RUNNER_TEMP/pr_body.md")"; then
             echo "result=pr-opened" >> "$GITHUB_OUTPUT"
