@@ -28,57 +28,47 @@ _FORBIDDEN_IMPORT_ROOTS = (
     "runtime_execution_policy",
 )
 
-
-def _classify_preview_text(text: str) -> str | None:
-    lower = text.lower()
-    if "未知状态" in text or "unknown status" in lower:
-        return "unknown_status"
-    if "成交确认" in text or "preview filled" in lower:
-        return "filled"
-    if "订单待确认" in text or "pending confirmation" in lower or "尚未确认成交" in text or "fill not confirmed" in lower:
-        return "pending_confirmation"
-    if (
-        "拒单异常" in text
-        or "preview reject" in lower
-        or "券商拒绝" in text
-        or "broker rejected" in lower
-    ):
-        return "rejected_or_exception"
-    if "心跳检测" in text or "💓" in text:
-        return "heartbeat_no_rebalance"
-    if "模拟限价" in text or "dry-run" in lower or "🧪 dry-run" in lower or "🧪 模拟限价" in text:
-        return "rebalance_dry_run"
-    return None
+_FORBIDDEN_TEXT = (
+    "api.telegram.org",
+    "https://",
+    "Traceback",
+    "FIRSTRADE_",
+    "secret-token",
+)
 
 
-def test_build_preview_messages_covers_required_categories_with_safe_markers():
-    messages = preview.build_preview_messages(locale="zh")
-    assert 1 <= len(messages) <= 6
-    assert len(messages) == 6
+def test_build_preview_message_renders_single_unified_daily_digest():
+    message = preview.build_preview_message(locale="zh", business_day="2026-11-02")
 
-    categories = {_classify_preview_text(message) for message in messages}
-    assert categories == {
-        "heartbeat_no_rebalance",
-        "rebalance_dry_run",
-        "pending_confirmation",
-        "filled",
-        "rejected_or_exception",
-        "unknown_status",
-    }
+    assert isinstance(message, str)
+    assert message.count("[PAPER]") == 1
+    assert message.startswith("[PAPER]")
 
-    for message in messages:
-        assert message.startswith("[PAPER]")
-        assert "PREVIEW" in message
-        assert "synthetic" in message.lower() or "合成" in message
-        assert "不会下单" in message or "No order will be" in message
-        for forbidden in (
-            "api.telegram.org",
-            "https://",
-            "Traceback",
-            "FIRSTRADE_",
-            "secret-token",
-        ):
-            assert forbidden not in message
+    # Unified daily-digest fields (QuantSentinel daily digest contract, zh).
+    assert "📡 量化哨兵 · 心跳" in message
+    assert "业务日: 2026-11-02" in message
+    assert "今日有运行且已验证零成交。" in message
+    assert "【当日已运行】" in message
+    assert "· firstrade / 纳斯达克增长收益 · 周期 1 · 无交易 · 正常" in message
+
+    # Preview markers stay explicit and safe.
+    assert "PREVIEW" in message
+    assert "synthetic" in message.lower()
+    assert "不会下单" in message
+    for forbidden in _FORBIDDEN_TEXT:
+        assert forbidden not in message
+
+
+def test_build_preview_message_supports_english_locale():
+    message = preview.build_preview_message(locale="en", business_day="2026-11-02")
+
+    assert "📡 QuantSentinel · Heartbeat" in message
+    assert "Business day: 2026-11-02" in message
+    assert "Runs completed with verified zero fills today." in message
+    assert "[Ran today]" in message
+    assert "· firstrade / NASDAQ Growth Income · cycles 1 · No trades · ok" in message
+    assert "No order will be placed" in message
+    assert "今日有运行且已验证零成交。" not in message
 
 
 def test_preview_profile_is_enabled_on_firstrade():
@@ -91,10 +81,10 @@ def test_preview_rejects_a_profile_that_is_not_enabled(monkeypatch):
     monkeypatch.setattr(preview, "_PREVIEW_STRATEGY_PROFILE", "retired_profile")
 
     with pytest.raises(RuntimeError, match="not enabled on Firstrade"):
-        preview.build_preview_messages(locale="en")
+        preview.build_preview_message(locale="en")
 
 
-def test_send_preview_calls_sender_once_per_message_without_broker_imports(monkeypatch):
+def test_send_preview_calls_sender_exactly_once_without_broker_imports(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-preview")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-preview")
     monkeypatch.setenv("NOTIFY_LANG", "zh")
@@ -115,24 +105,11 @@ def test_send_preview_calls_sender_once_per_message_without_broker_imports(monke
     delivered = preview.send_preview(send_fn=fake_send)
 
     assert delivered is True
-    assert len(sent) == 6
-    assert len(sent) <= 6
-
-    for text in sent:
-        assert text.startswith("[PAPER]")
-        assert "PREVIEW" in text
-        assert "token-preview" not in text
-        assert "chat-preview" not in text
-
-    categories = {_classify_preview_text(text) for text in sent}
-    assert categories == {
-        "heartbeat_no_rebalance",
-        "rebalance_dry_run",
-        "pending_confirmation",
-        "filled",
-        "rejected_or_exception",
-        "unknown_status",
-    }
+    assert len(sent) == 1
+    assert sent[0].startswith("[PAPER]")
+    assert "PREVIEW" in sent[0]
+    assert "token-preview" not in sent[0]
+    assert "chat-preview" not in sent[0]
 
     after_modules = {
         name
@@ -174,6 +151,41 @@ def test_send_preview_fails_closed_without_telegram_target(monkeypatch):
     assert sent == []
 
 
+def test_main_renders_without_sending_by_default(monkeypatch, capsys):
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "false")
+    monkeypatch.setenv("NOTIFY_LANG", "zh")
+    monkeypatch.delenv("PREVIEW_SEND", raising=False)
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("GLOBAL_TELEGRAM_CHAT_ID", raising=False)
+
+    def explode_send(**_kwargs):
+        raise AssertionError("send_preview must not be called when send is false")
+
+    monkeypatch.setattr(preview, "send_preview", explode_send)
+
+    assert preview.main([]) == 0
+    out = capsys.readouterr().out
+    assert "[PAPER]" in out
+    assert "业务日" in out
+    assert "no Telegram delivery" in out
+
+
+def test_main_sends_single_message_when_requested(monkeypatch):
+    monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "false")
+    monkeypatch.setenv("TELEGRAM_TOKEN", "token-preview")
+    monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-preview")
+
+    calls = []
+
+    def fake_send_preview(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(preview, "send_preview", fake_send_preview)
+    assert preview.main(["--send"]) == 0
+    assert len(calls) == 1
+
+
 def test_main_refuses_enabled_runtime_target(monkeypatch):
     monkeypatch.setenv("RUNTIME_TARGET_ENABLED", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-preview")
@@ -186,14 +198,21 @@ def test_main_returns_nonzero_when_delivery_fails(monkeypatch):
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-preview")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-preview")
     monkeypatch.setattr(preview, "send_preview", lambda **_kwargs: False)
-    assert preview.main([]) == 1
+    assert preview.main(["--send"]) == 1
 
 
 def test_workflow_static_safety_constraints():
     assert "name: PAPER Notification Preview" in WORKFLOW
     assert "workflow_dispatch:" in WORKFLOW
+    # Dispatch-only trigger with a send switch that defaults to print-only.
+    assert "push:" not in WORKFLOW
+    assert "pull_request:" not in WORKFLOW
     assert "schedule:" not in WORKFLOW
     assert "workflow_run:" not in WORKFLOW
+    assert "type: boolean" in WORKFLOW
+    assert "default: false" in WORKFLOW
+    assert "PREVIEW_SEND: ${{ inputs.send }}" in WORKFLOW
+    assert "if: ${{ inputs.send == true" in WORKFLOW
     assert "scripts/send_paper_notification_preview.py" in WORKFLOW
     assert 'RUNTIME_TARGET_ENABLED: "false"' in WORKFLOW
     assert "secrets.TELEGRAM_TOKEN" in WORKFLOW
