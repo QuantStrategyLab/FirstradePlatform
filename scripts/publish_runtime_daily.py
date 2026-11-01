@@ -118,6 +118,12 @@ def publish_once(env, *, now=None, opener=None):
     if error:
         projection["read_errors"].append(error)
     if not projection["records"][0]["runs"]:
+        if error:
+            return {
+                "list_failed": "source_list_failed",
+                "report_read_error": "source_read_error",
+                "read_truncated": "source_read_truncated",
+            }.get(error, "source_read_unavailable")
         return "no_attributable_runs"
     request = Request(origin + "/api/runtime-daily/sync", method="POST",
         data=json.dumps(projection, separators=(",", ":")).encode(), headers={
