@@ -44,7 +44,7 @@ by two years: `0.000232` / `$11.61` from 2029-01-01, `0.000240` / `$12.05` from
 SEC or FINRA publish a new rate; `load_fee_schedule()` validates ordering and
 values.
 
-`verified_through` (currently `2026-11-01`) is the last trade date the rates
+`verified_through` (currently `2026-12-01`) is the last trade date the rates
 were checked against the published sources. Trade dates after it are
 `unsupported` (`..._not_verified_after_<date>`), because the SEC fiscal year
 2027 Section 31 rate has not been published (the FY2026 rate stays in effect
