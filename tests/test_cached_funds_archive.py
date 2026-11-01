@@ -17,7 +17,7 @@ def archive_route(monkeypatch):
         "account_selector_status": "matched", "broker_account_id": "synthetic-native-id",
         "observed_started_at": "2026-10-08T23:59:59+00:00",
         "observed_finished_at": "2026-10-09T00:00:03+00:00",
-        "balances": {"currency": "USD", "provider_equity": "100.123456789",
+        "balances": {"currency": "USD", "provider_equity": "100.123456",
                      "cash_balance": None, "available_cash": "25.01"},
         "positions_status": "available", "positions": [],
         "coverage": {"positions_requested": True, "positions_count": 0},
@@ -51,7 +51,7 @@ def test_cached_sync_archives_original_observation_before_publish(archive_route)
     key, saved = writes[1]
     assert key.endswith("/funds/history/2026/10/08/20261008T235959Z.json")
     assert saved["as_of"] == observation["observed_started_at"]
-    assert saved["balance_metrics"]["total_equity"] == "100.123456789"
+    assert saved["balance_metrics"]["total_equity"] == "100.123456"
     assert saved["balance_metrics"]["cash_balance"] is None
     assert saved["positions"] == []
     assert saved["coverage"] == observation["coverage"]
