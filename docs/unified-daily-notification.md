@@ -38,6 +38,24 @@ and receipts have been migrated; changing the prefix alone would discard the
 history used to prevent duplicate alerts. Per-target bindings may set the
 variable independently.
 
+For a candidate-only bucket migration in the heartbeat workflow, set the
+protected repository variable `DIGEST_CANDIDATES_OVERRIDE_GCS_URI`. It overrides
+the candidate root after each private target binding is resolved, so an older
+`DIGEST_TARGET_BINDINGS_JSON` cannot silently select the previous bucket. The
+existing explicit marker URI is preserved; when absent, the binding's original
+candidate root remains its marker root. Target identity, archive source and
+enablement are unchanged. Missing or invalid candidate access never falls back
+to the previous bucket. An unset override preserves existing behavior.
+
+The standalone single-target publisher and runtime can instead update their
+explicit `DIGEST_CANDIDATES_GCS_URI` after freezing the existing marker location
+in `QSL_NOTIFICATION_MARKER_GCS_URI`. Pause all candidate writers outside the
+publication window, copy and verify the selected candidate objects, switch the
+writers, and then validate the central source through its no-send preview.
+Keep the selected new root during application rollback and retain every marker
+and central delivery reservation. Remove superseded permissions only after at
+least two successful natural digest windows.
+
 No deployment, variable application, IAM, secret or live message is authorized
 by this PR. Source adoption and delivery require separate approved release work.
 
