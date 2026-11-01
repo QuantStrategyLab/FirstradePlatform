@@ -268,7 +268,9 @@ def build_firstrade_account_snapshot(
     if include_valuation_basis:
         long_stock_value = balances.get("long_stock_value")
         if long_stock_value is None:
-            raise AccountFactsPublishError("long_stock_value_unavailable")
+            ambiguous = (observation.get("coverage") or {}).get("long_stock_value_ambiguous")
+            raise AccountFactsPublishError(
+                "long_stock_value_ambiguous" if ambiguous is True else "long_stock_value_unavailable")
         payload["broker_reported_balances"][0]["long_stock_value"] = _amount(long_stock_value)
     if config.position_currency is not None:
         rows = observation.get("positions")

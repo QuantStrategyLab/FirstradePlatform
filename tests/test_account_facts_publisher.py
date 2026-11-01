@@ -372,3 +372,14 @@ def test_opt_in_fails_closed_without_long_stock_value():
     with pytest.raises(AccountFactsPublishError, match="long_stock_value_unavailable"):
         build_firstrade_account_snapshot(
             observation(), cfg, account_scope="us", include_valuation_basis=True)
+
+
+def test_opt_in_reports_ambiguous_long_stock_value_distinctly():
+    cfg = load_account_facts_publish_config(config())
+    data = observation()
+    data["balances"]["long_stock_value"] = None
+    data["coverage"] = {"long_stock_value_ambiguous": True}
+
+    with pytest.raises(AccountFactsPublishError, match="long_stock_value_ambiguous"):
+        build_firstrade_account_snapshot(
+            data, cfg, account_scope="us", include_valuation_basis=True)

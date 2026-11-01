@@ -98,6 +98,7 @@ def test_collects_full_account_facts_with_distinct_balance_semantics_and_times()
             "provider_equity_available": True,
             "cash_balance_available": True,
             "long_stock_value_available": False,
+            "long_stock_value_ambiguous": False,
             "available_cash_available": False,
             "buying_power_available": True,
             "balance_currency_available": True,
@@ -479,9 +480,33 @@ def test_collects_long_stock_value_from_provider_result_envelope():
     assert result["coverage"]["long_stock_value_available"] is True
 
 
-def test_conflicting_long_stock_value_is_ambiguous():
+def test_conflicting_long_stock_value_is_flagged_without_failing_collection():
     client = CachedReadOnlyClient()
-    client.balances = {"long_stock_value": "1.00", "result": {"long_stock_value": "2.00"}}
+    client.balances = {
+        "account_list_total_value": "132.83",
+        "long_stock_value": "1.00",
+        "result": {"cash_balance": "2.27", "long_stock_value": "2.00"},
+    }
+    client.positions = {"items": [{"symbol": "IBIT", "quantity": "2.98909", "market_value": "130.6232"}]}
+
+    result = collect_firstrade_account_facts(
+        client,
+        expected_account="synthetic-account-a",
+        clock=lambda: datetime(2026, 10, 31, 21, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "available"
+    assert result["balances"]["long_stock_value"] is None
+    assert result["balances"]["cash_balance"] == "2.27"
+    assert result["balances"]["provider_equity"] == "132.83"
+    assert result["coverage"]["long_stock_value_available"] is False
+    assert result["coverage"]["long_stock_value_ambiguous"] is True
+    assert len(result["positions"]) == 1
+
+
+def test_conflicting_cash_balance_still_fails_closed():
+    client = CachedReadOnlyClient()
+    client.balances = {"cash_balance": "1.00", "result": {"cash_balance": "2.00"}}
 
     with pytest.raises(AccountFactsUnavailable, match="balances_ambiguous"):
         collect_firstrade_account_facts(
