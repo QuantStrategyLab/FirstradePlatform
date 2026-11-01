@@ -144,10 +144,11 @@ def is_live_trading_enabled(env: Callable[[str, str | None], str | None] = os.ge
 
 
 def mask_account_id(account_id: str) -> str:
+    """Expose at most two trailing characters; fully mask shorter identifiers."""
     value = str(account_id or "")
-    if len(value) <= 4:
+    if len(value) <= 2:
         return "*" * len(value)
-    return f"{'*' * max(0, len(value) - 4)}{value[-4:]}"
+    return f"{'*' * (len(value) - 2)}{value[-2:]}"
 
 def normalize_account_number(value: object) -> str | None:
     """Coerce Firstrade account identifiers to comparable non-empty strings."""

@@ -56,3 +56,12 @@ provider audit entries remain in their original restricted logs and are not
 passed as Telegram technical details, including when the deployed formatter is
 pinned to an older shared package. Guard detection, deduplication and failure
 exit codes are unchanged.
+
+Account identifiers displayed in logs, notification results and account-selection
+errors retain at most two trailing characters. Identifiers of two characters or
+fewer are fully masked. Runtime failure alerts omit the exception detail.
+
+Private state object and submission-claim locators retain their existing identity
+format so a display change cannot bypass an existing duplicate-submission lock
+or session-maintenance marker. New state payload account fields use the two-character
+mask. State-store errors omit object locators and provider exception details.

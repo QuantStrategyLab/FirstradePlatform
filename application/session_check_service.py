@@ -22,7 +22,9 @@ from application.firstrade_client import (
     is_live_trading_enabled,
     mask_account_id,
 )
-from application.state_persistence import GcsStateStore, build_gcs_state_store_from_env
+from application.state_persistence import (
+    GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
+)
 from strategy_registry import (
     FIRSTRADE_PLATFORM,
     resolve_strategy_definition,
@@ -162,7 +164,7 @@ def _session_check_state_key(
     env: Callable[[str, str | None], str | None] = os.getenv,
 ) -> str:
     account_selector = str(env("FIRSTRADE_ACCOUNT", "") or "").strip()
-    account_key = _safe_key(mask_account_id(account_selector)) if account_selector else "auto"
+    account_key = _safe_key(legacy_account_state_id(account_selector)) if account_selector else "auto"
     return (
         f"session-checks/{account_key}/{_safe_key(strategy_profile)}/"
         f"{_safe_key(period)}/latest.json"

@@ -1421,7 +1421,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_chinese_template
     )
 
     assert "🔔 【调仓指令】" in message
-    assert "🆔 账户: ****1234" in message
+    assert "🆔 账户: ******34" in message
     assert "📌 策略账户概览" in message
     assert "⏱ 执行时点:" not in message
     assert "🎯 信号:" not in message
@@ -1595,7 +1595,7 @@ def test_render_cycle_summary_formats_skipped_orders_in_unified_english_template
     )
 
     assert "🔔 【Rebalance Instruction】" in message
-    assert "🆔 Account: ****1234" in message
+    assert "🆔 Account: ******34" in message
     assert "📌 Strategy Account" in message
     assert "⏱ Timing:" not in message
     assert "🎯 Signal:" not in message
@@ -1789,10 +1789,10 @@ def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, m
             action_done=False,
         ),
     )
-    def fail_final_funding_persistence(*, store, state, now):
+    def fail_final_funding_persistence(*, store, state, storage_account, now):
         if state["stage"] == "FUNDING_BLOCKED":
             raise RuntimeError("synthetic_final_persistence_failure")
-        return persist_strategy_run_state(store=store, state=state, now=now)
+        return persist_strategy_run_state(store=store, state=state, storage_account=storage_account, now=now)
     monkeypatch.setattr("application.rebalance_service.persist_strategy_run_state", fail_final_funding_persistence)
 
     result = run(store=store)
@@ -1801,3 +1801,18 @@ def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, m
     assert result["strategy_run_persisted"] is False
     assert "synthetic_final_persistence_failure" in result["strategy_run_persistence_error"]
     assert _should_publish_cycle_notification(result)
+
+
+def test_preexisting_submission_claim_still_blocks_after_display_redaction(live_cycle):
+    from application.strategy_run_persistence import LIVE_SUBMISSION_CLAIM_BOUNDARY
+
+    run, client = live_cycle
+    key = "strategy-runs/claims/____5678/tqqq_growth_income/2026_09.json"
+    claim = {"stage": "PENDING_SUBMISSION", "submission_claim_boundary": LIVE_SUBMISSION_CLAIM_BOUNDARY}
+    store = FakeStateStore()
+    store.payloads[key] = dict(claim)
+    result = run(store=store)
+    assert result["submission_claim_blocks_repeat"] is True
+    assert client.orders == []
+    assert store.payloads[key] == claim
+    assert not store.writes
