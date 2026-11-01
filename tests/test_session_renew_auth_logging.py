@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -156,3 +157,41 @@ def test_ordinary_connect_keeps_debug_setting_and_emits_no_renewal_event(tmp_pat
         session_factory=Session, account_data_factory=lambda _session: object(),
     ).connect()
     assert "firstrade_session_renew_auth" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("fail_at", ["write", "flush"])
+@pytest.mark.parametrize("outcome", ["success", "failed", "mfa_required"])
+def test_log_io_failure_preserves_authentication_result(tmp_path, monkeypatch, fail_at, outcome):
+    original_error = RuntimeError("synthetic auth failure")
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+
+        def login(self):
+            if outcome == "failed":
+                raise original_error
+            return outcome == "mfa_required"
+
+    class BrokenOutput:
+        def write(self, _value):
+            if fail_at == "write":
+                raise OSError("synthetic log failure")
+
+        def flush(self):
+            if fail_at == "flush":
+                raise OSError("synthetic log failure")
+
+    client = FirstradeBrokerClient(
+        FirstradeCredentials(username="u", password="p", cookie_dir=str(tmp_path)),
+        session_factory=Session, account_data_factory=lambda _session: object(),
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "stdout", BrokenOutput())
+        if outcome == "success":
+            assert client.connect(force_login=True, defer_cache_save=True) is client
+        else:
+            with pytest.raises(RuntimeError if outcome == "failed" else FirstradeMfaRequired) as caught:
+                client.connect(force_login=True, defer_cache_save=True)
+            if outcome == "failed":
+                assert caught.value is original_error

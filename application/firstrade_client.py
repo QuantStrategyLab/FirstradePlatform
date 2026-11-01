@@ -361,7 +361,10 @@ class FirstradeBrokerClient:
             for name, handler in originals.items():
                 setattr(session, name, handler)
             # Only fixed categories: never serialize SDK state, credentials or errors.
-            print(json.dumps(diagnostic, sort_keys=True), flush=True)
+            try:
+                print(json.dumps(diagnostic, sort_keys=True), flush=True)
+            except OSError:
+                pass
 
     def connect_read_only(self) -> "FirstradeBrokerClient":
         """Reuse cached authentication for account reads; never log in or change the cache."""
