@@ -52,6 +52,31 @@ until 60 days after the FY2027 appropriation is enacted) and the FINRA filings
 above are immediately effective but still open to SEC suspension. Re-verify the
 sources and move `verified_through` forward in the same change.
 
+The `Fee schedule check` workflow (`.github/workflows/fee-schedule-check.yml`) does
+this review every month, on the 22nd at 02:17 UTC, and on demand through
+`workflow_dispatch`. `scripts/check_fee_schedule.py check` reads the SEC Section 31
+advisories and SEC filing pages, and the FINRA fee adjustment schedule, rule filing
+listing and filing PDFs, then compares them with the schedule. A fetch or parse
+failure is an error, never a pass.
+
+- Everything matches: the `bump` job moves `verified_through` to the end of the next
+  month (plus the "checked" date in the module docstring, the test review pin
+  `VERIFIED_THROUGH` and the two doc mentions), runs the tests and opens a pull
+  request. It never merges.
+- A rate changed, a new FINRA fee filing appeared, an SEC page mentions a
+  suspension, or the check failed: the `notify` job opens or updates one issue
+  titled "Firstrade fee schedule check needs attention". Rates are never edited
+  automatically; update the segments in a normal pull request.
+
+The workflow uses `GITHUB_TOKEN` only. Pull requests it opens do not start CI, so
+close and reopen the pull request to run the checks before merging. If the
+repository setting that lets Actions create pull requests is off, the job leaves
+the branch on the remote and the issue carries a compare link instead. Set the
+repository variable `FEE_CHECK_CONTACT` to a monitored address: sec.gov rejects
+clients that do not identify themselves. The script is tied to the current page
+layouts and to the filings named in `REVIEWED_FINRA_FILINGS`; when a layout
+changes the check fails loudly and the parser needs an update.
+
 ## Valuation basis difference
 
 The balances endpoint and the positions endpoint price the same shares from
