@@ -18,6 +18,7 @@ from application.account_payload_utils import (
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeCredentialsError,
     FirstradeSafetyError,
     FirstradeMfaRequired,
     is_live_trading_enabled,
@@ -527,6 +528,10 @@ def run_forced_session_renewal(
     resolved_credentials = credentials or FirstradeCredentials.from_env(
         env_reader, include_mfa_credentials=False,
     )
+    try:
+        resolved_credentials.require_login_fields()
+    except FirstradeCredentialsError:
+        raise SessionRenewalFailure("credentials_unavailable", "credentials") from None
     # Never consume a seed, code, PIN or OTP destination in unattended renewal.
     resolved_credentials = replace(
         resolved_credentials, pin="", email="", phone="", mfa_secret="", mfa_code="", debug=False,

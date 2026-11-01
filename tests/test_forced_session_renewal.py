@@ -342,3 +342,27 @@ def test_real_sdk_challenge_boundary_never_submits_second_factor(tmp_path, chall
             mfa_secret="synthetic", mfa_code="synthetic", phone="synthetic", pin="synthetic"),
             client_factory=client)
     assert calls == ["get", "post"]
+
+
+@pytest.mark.parametrize("missing_field", ["username", "password"])
+def test_missing_credentials_alert_without_constructing_broker(missing_field):
+    from unittest.mock import Mock
+    from application.session_renewal_guard import run_guarded_renewal
+    store, sender = Mock(), Mock(return_value=True)
+    store.read.return_value = (None, 0)
+    store.write.return_value = 1
+    store.claim_alert.return_value = True
+    credentials = _credentials(**{missing_field: ""})
+    def factory(*args, **kwargs):
+        pytest.fail("broker constructed without credentials")
+    result, status = run_guarded_renewal(
+        lambda: run_forced_session_renewal(credentials=credentials, client_factory=factory),
+        store=store, sender=sender,
+    )
+    assert status == 503
+    assert result["error"] == "credentials_unavailable"
+    assert result["stage"] == "credentials"
+    assert result["manual_recovery_required"] is True
+    failed = store.write.call_args_list[-1].args[0]
+    assert failed["status"] == "manual_required"
+    assert sender.call_args.args[2:] == ("credentials_unavailable", "credentials")
