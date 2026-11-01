@@ -359,6 +359,45 @@ def persist_funds_snapshot(
     return True
 
 
+def archive_cached_account_facts(
+    observation: Mapping[str, Any],
+    *,
+    env_reader: Callable[[str, str | None], str | None] = os.getenv,
+) -> None:
+    """Archive a validated cached-only observation using its original time.
+
+    The endpoint validates identity and publishable facts before calling this.
+    Never issue another broker read or turn missing fields into zero values.
+    """
+    if not _flag("FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT", "false", env_reader):
+        return
+    store = build_gcs_state_store_from_env(env_reader)
+    if store is None:
+        raise ValueError("funds_archive_unavailable")
+    observed = datetime.fromisoformat(observation["observed_started_at"].replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        raise ValueError("funds_archive_unavailable")
+    observed = observed.astimezone(timezone.utc)
+    balances = observation["balances"]
+    snapshot = {
+        "as_of": observed.isoformat(),
+        "observed_finished_at": observation["observed_finished_at"],
+        "account": observation["broker_account_id"],
+        "session_reused": True,
+        "source": "cached_account_facts",
+        "balance_metrics": {
+            "total_equity": balances.get("provider_equity"),
+            "cash_balance": balances.get("cash_balance"),
+            "available_cash": balances.get("available_cash"),
+            "buying_power": balances.get("buying_power"),
+        },
+        "coverage": dict(observation.get("coverage") or {}),
+    }
+    if observation.get("positions_status") == "available":
+        snapshot["positions"] = observation["positions"]
+    persist_funds_snapshot(store=store, snapshot=snapshot, now=observed)
+
+
 def run_session_check(
     *,
     credentials: FirstradeCredentials | None = None,

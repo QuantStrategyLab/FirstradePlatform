@@ -1,5 +1,23 @@
 # Saved account history
 
+## Daily cached snapshot archive
+
+When `FIRSTRADE_PERSIST_ACCOUNT_SNAPSHOT=true`, `/account-facts-sync` writes
+its validated cached-only observation to the existing funds latest/history
+paths before publishing to the console. It uses the original UTC observation
+start time for both the snapshot and history path, preserving decimal text,
+null balances, requested position coverage and the observation finish time.
+No extra broker read, session renewal, order or notification is performed.
+
+A missing store or failed archive write returns HTTP 503 with the fixed
+`funds_archive_unavailable` reason and skips console publishing. A later console
+failure leaves the real archive available for inspection. The existing two-object
+write is not atomic; inspect partial or unknown write outcomes before retrying.
+Disabled archive configurations retain their existing console-only behavior.
+These new observations do not reconstruct missed historical days. Backfill needs
+actual saved broker observations with verified account identity and original
+timestamps; transaction history alone cannot establish past daily valuations.
+
 ## Manual session renewal
 
 Manual session renewal selects the configured account, or the sole returned
