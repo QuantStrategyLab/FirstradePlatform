@@ -31,6 +31,7 @@ def test_cached_failure_logs_correlate_without_changing_response(monkeypatch, ca
     assert response.json == {"ok": False, "error": "readonly_client_unavailable"}
     line = capsys.readouterr().out.strip()
     payload = json.loads(line)
+    assert payload["recovery_action"] == "manual_session_renewal_required"
     trace = payload.pop("logging.googleapis.com/trace")
     entry = {"resource": {"type": "cloud_run_revision", "labels": {
         "project_id": PROJECT, "location": "us-central1", "service_name": SERVICE}},
@@ -41,6 +42,36 @@ def test_cached_failure_logs_correlate_without_changing_response(monkeypatch, ca
     assert result["app_http_status"] == 401
     assert "synthetic-facts-token" not in line
     assert "synthetic-native-id" not in line
+
+
+@pytest.mark.parametrize("reason,stage,status,renewal", [
+    ("cache_stale", "cache", None, True),
+    ("cache_missing", "cache", None, True),
+    ("read_http_error", "userinfo", 401, True),
+    ("read_http_error", "userinfo", 403, False),
+    ("read_http_error", "userinfo", 503, False),
+    ("cache_read_failed", "cache", None, False),
+])
+def test_cached_failure_requires_separate_manual_auth_flow(
+    monkeypatch, capsys, reason, stage, status, renewal,
+):
+    _configure(monkeypatch)
+    calls = []
+    def fail_client():
+        calls.append("cached_read")
+        raise FirstradeCachedSessionError(reason, stage=stage, http_status=status)
+    def forbidden(*args, **kwargs):
+        pytest.fail("failed cached read must not renew or publish")
+    monkeypatch.setattr(main, "READ_ONLY_ACCOUNT_FACTS_CLIENT_BUILDER", fail_client)
+    monkeypatch.setattr(main, "run_forced_session_renewal", forbidden)
+    monkeypatch.setattr(main, "publish_firstrade_account_snapshot", forbidden)
+    response = main.app.test_client().post("/account-facts-sync", headers={
+        "Authorization": "Bearer synthetic-facts-token"})
+    assert response.status_code == 503
+    assert response.json == {"ok": False, "error": "readonly_client_unavailable"}
+    assert calls == ["cached_read"]
+    record = json.loads(capsys.readouterr().out)
+    assert (record.get("recovery_action") == "manual_session_renewal_required") is renewal
 
 
 @pytest.mark.parametrize("header,project", [(None, "example-project"), ("bad", "example-project"),
