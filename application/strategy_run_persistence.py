@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from application.state_persistence import GcsStateStore
+from application.firstrade_client import mask_account_id
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_TERMINAL_STRATEGY_RUN_STAGES,
     STAGE_NO_ACTION,
@@ -135,7 +136,7 @@ def claim_live_strategy_run(
     payload = {
         "stage": "PENDING_SUBMISSION",
         "submission_claim_boundary": LIVE_SUBMISSION_CLAIM_BOUNDARY,
-        "account": account,
+        "account": mask_account_id(account),
         "strategy_profile": strategy_profile,
         "run_period": run_period,
         "as_of": (now or utcnow()).isoformat(),
@@ -233,7 +234,7 @@ def build_strategy_run_state(
     payload = {
         "stage": stage,
         "as_of": as_of.isoformat(),
-        "account": account,
+        "account": mask_account_id(account),
         "strategy_profile": strategy_profile,
         "strategy_display_name": strategy_display_name,
         "run_period": run_period,
@@ -260,10 +261,11 @@ def persist_strategy_run_state(
     *,
     store: GcsStateStore,
     state: Mapping[str, Any],
+    storage_account: str | None = None,
     now: datetime | None = None,
 ) -> bool:
     as_of = now or utcnow()
-    account = str(state.get("account") or "unknown")
+    account = storage_account if storage_account is not None else str(state.get("account") or "unknown")
     strategy_profile = str(state.get("strategy_profile") or "unknown")
     run_period = str(state.get("run_period") or f"{as_of.year:04d}-{as_of.month:02d}")
     stage = str(state.get("stage") or "UNKNOWN")

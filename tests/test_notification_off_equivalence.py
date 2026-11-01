@@ -175,6 +175,14 @@ def test_flags_off_entrypoints_renderers_match_main_golden(monkeypatch, flag, mo
                 assert actual[key] == expected[key]
     actual_broker = actual["broker_cycle"]
     expected_broker = expected["broker_cycle"]
+    # The historical golden retains the old display mask. Only persisted account
+    # payloads change; storage locators and every broker call must stay exact.
+    for call in expected_broker["calls"]:
+        if call[0] == "state" and call[1] in {"write_json", "create_json"}:
+            payload = call[2][0][1]
+            if "account" in payload:
+                assert payload["account"] == "**************ctor"
+                payload["account"] = "****************or"
     assert [call for call in actual_broker["calls"] if call[0] in {"broker", "state"}] == [
         call for call in expected_broker["calls"] if call[0] in {"broker", "state"}]
     for key in ("ok", "execution_status", "orders_pending_count", "submitted_orders"):
