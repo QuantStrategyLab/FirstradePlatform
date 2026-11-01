@@ -206,6 +206,15 @@ def http_client(monkeypatch):
     monkeypatch.setattr(main, "run_strategy_cycle", no_orders)
     monkeypatch.setattr(main, "run_session_check", no_orders)
     monkeypatch.setattr(main, "_run_strategy_cycle_with_report", no_orders)
+    from unittest.mock import Mock
+    from application.session_renewal_guard import run_guarded_renewal
+    store = Mock()
+    store.read.return_value = (None, 0)
+    store.write.return_value = 1
+    store.claim_alert.return_value = True
+    monkeypatch.setattr(main, "run_guarded_renewal", lambda renew, **kwargs: run_guarded_renewal(
+        renew, store=store, sender=lambda *_: True, **kwargs,
+    ))
     return main
 
 
@@ -218,7 +227,7 @@ def test_route_disabled_without_http_flag(http_client, monkeypatch):
 def test_route_runs_forced_renewal_only(http_client, monkeypatch):
     monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
     calls = []
-    monkeypatch.setattr(http_client, "run_forced_session_renewal", lambda: calls.append(1) or {"ok": True})
+    monkeypatch.setattr(http_client, "run_forced_session_renewal", lambda: calls.append(1) or {"ok": True, "session_renewed": True})
     response = http_client.app.test_client().post("/session-renew")
     assert response.status_code == 200 and calls == [1]
 
@@ -232,9 +241,128 @@ def test_route_reports_mfa_required(http_client, monkeypatch):
     monkeypatch.setattr(http_client, "run_forced_session_renewal", mfa)
     response = http_client.app.test_client().post("/session-renew")
     assert response.status_code == 409
-    assert response.get_json()["error"] == "mfa_required"
+    assert response.get_json()["error"] == "mfa_or_device_verification_required"
 
 
 def test_route_is_post_only(http_client):
     response = http_client.app.test_client().get("/session-renew")
     assert response.status_code == 405
+
+
+def test_renewal_does_not_read_mfa_secret_or_configuration(monkeypatch):
+    from quant_platform_kit import cloud
+    requested = []
+
+    class SecretStore:
+        def get_secret(self, name, **kwargs):
+            assert name in {"firstrade-username", "firstrade-password"}
+            requested.append(name)
+            return "synthetic"
+
+    def env(name, default=None):
+        assert not any(part in name for part in ("MFA", "PIN"))
+        return {"FIRSTRADE_REUSE_SESSION": "true", "FIRSTRADE_PERSIST_SESSION_CACHE": "true"}.get(name, default)
+
+    monkeypatch.setattr(cloud, "get_secret_store", lambda: SecretStore())
+    created = []
+    run_forced_session_renewal(client_factory=_factory(created), env_reader=env)
+    assert requested == ["firstrade-username", "firstrade-password"]
+    assert not created[0].credentials.mfa_secret
+
+
+def test_renewal_strips_injected_mfa_material_and_debug():
+    created = []
+    run_forced_session_renewal(credentials=_credentials(pin="synthetic", email="x@example.invalid",
+        phone="synthetic", mfa_secret="synthetic", mfa_code="synthetic", debug=True),
+        client_factory=_factory(created), env_reader=lambda *_: None)
+    creds = created[0].credentials
+    assert not any((creds.pin, creds.email, creds.phone, creds.mfa_secret, creds.mfa_code, creds.debug))
+
+
+@pytest.mark.parametrize("sdk_error,reason", [
+    ("LoginError", "mfa"), ("LoginResponseError", "auth_rejected"),
+    ("LoginRequestError", "auth_rejected"),
+])
+def test_sdk_challenges_never_retry_or_read_accounts(sdk_error, reason):
+    from firstrade import exceptions
+    from application.session_check_service import SessionRenewalFailure
+    calls = []
+    class Client(_RecordingClient):
+        def connect(self, **kwargs):
+            calls.append("login")
+            error = getattr(exceptions, sdk_error)
+            raise error(403 if sdk_error == "LoginRequestError" else "private-synthetic")
+        def select_account(self, requested=None):
+            pytest.fail("account read after auth challenge")
+    with pytest.raises(FirstradeMfaRequired if reason == "mfa" else SessionRenewalFailure) as caught:
+        run_forced_session_renewal(credentials=_credentials(), client_factory=Client)
+    assert calls == ["login"] and "private-synthetic" not in str(caught.value)
+
+
+def test_deadline_http_route_never_reaches_broker(http_client, monkeypatch):
+    from application import session_renewal_guard as guard
+    from datetime import datetime, timezone
+    from unittest.mock import Mock
+    def no_broker(*args, **kwargs):
+        pytest.fail("broker or credentials reached")
+    monkeypatch.setattr(http_client, "run_forced_session_renewal", no_broker)
+    monkeypatch.setattr(FirstradeCredentials, "from_env", no_broker)
+    store = Mock()
+    store.read.return_value = (None, 0)
+    store.claim_alert.return_value = True
+    monkeypatch.setattr(http_client, "check_renewal_deadline", lambda **kwargs: guard.check_renewal_deadline(
+        store=store, sender=lambda *_: True, now=datetime(2026, 1, 2, 21, 15, tzinfo=timezone.utc), **kwargs))
+    response = http_client.app.test_client().post("/session-renew-deadline")
+    assert response.status_code == 200
+    assert response.get_json()["error"] == "not_completed_by_2115_utc"
+
+
+@pytest.mark.parametrize("challenge", ["mfa", "new_device"])
+def test_real_sdk_challenge_boundary_never_submits_second_factor(tmp_path, challenge):
+    from firstrade.account import FTSession
+    from application.firstrade_client import FirstradeBrokerClient
+    from types import SimpleNamespace
+    calls = []
+    class Session(FTSession):
+        def _load_cookies(self):
+            return ""
+        def _request(self, method, url, **kwargs):
+            calls.append(method)
+            assert len(calls) <= 2, "SDK attempted MFA, OTP or login retry"
+            payload = {"error": "", "mfa": challenge == "mfa", "t_token": "synthetic",
+                       "otp": [{"channel": "sms", "recipientMask": "synthetic"}]}
+            return SimpleNamespace(status_code=200, json=lambda: payload)
+    def no_accounts(_):
+        pytest.fail("account data reached after challenge")
+    def client(credentials, *, live_trading_enabled):
+        return FirstradeBrokerClient(credentials, live_trading_enabled=False,
+            session_factory=Session, account_data_factory=no_accounts)
+    with pytest.raises(FirstradeMfaRequired):
+        run_forced_session_renewal(credentials=_credentials(cookie_dir=str(tmp_path),
+            mfa_secret="synthetic", mfa_code="synthetic", phone="synthetic", pin="synthetic"),
+            client_factory=client)
+    assert calls == ["get", "post"]
+
+
+@pytest.mark.parametrize("missing_field", ["username", "password"])
+def test_missing_credentials_alert_without_constructing_broker(missing_field):
+    from unittest.mock import Mock
+    from application.session_renewal_guard import run_guarded_renewal
+    store, sender = Mock(), Mock(return_value=True)
+    store.read.return_value = (None, 0)
+    store.write.return_value = 1
+    store.claim_alert.return_value = True
+    credentials = _credentials(**{missing_field: ""})
+    def factory(*args, **kwargs):
+        pytest.fail("broker constructed without credentials")
+    result, status = run_guarded_renewal(
+        lambda: run_forced_session_renewal(credentials=credentials, client_factory=factory),
+        store=store, sender=sender,
+    )
+    assert status == 503
+    assert result["error"] == "credentials_unavailable"
+    assert result["stage"] == "credentials"
+    assert result["manual_recovery_required"] is True
+    failed = store.write.call_args_list[-1].args[0]
+    assert failed["status"] == "manual_required"
+    assert sender.call_args.args[2:] == ("credentials_unavailable", "credentials")

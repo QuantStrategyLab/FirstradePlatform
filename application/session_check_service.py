@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,7 +18,9 @@ from application.account_payload_utils import (
 from application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
+    FirstradeCredentialsError,
     FirstradeSafetyError,
+    FirstradeMfaRequired,
     is_live_trading_enabled,
     mask_account_id,
 )
@@ -501,29 +503,69 @@ def run_session_check(
     return result
 
 
+class SessionRenewalFailure(FirstradeSafetyError):
+    """Fixed, non-sensitive failure classification for unattended renewal."""
+
+    def __init__(self, reason: str, stage: str):
+        super().__init__(reason)
+        self.reason = reason
+        self.stage = stage
+
+
 def run_forced_session_renewal(
     *,
     credentials: FirstradeCredentials | None = None,
     client_factory: Callable[..., FirstradeBrokerClient] = FirstradeBrokerClient,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ) -> dict[str, Any]:
-    """Manual session renewal: fresh login, select account, read balances, then persist cache.
+    """One renewal attempt: fresh login, validate account, then persist shared cache.
 
     Bypasses (never reads, writes, or deletes) the monthly session-check marker. The client is
     always built with live trading disabled and only account-read methods are called.
     A successful result requires the shared cache write to complete successfully.
     """
 
-    resolved_credentials = credentials or FirstradeCredentials.from_env(env_reader)
+    resolved_credentials = credentials or FirstradeCredentials.from_env(
+        env_reader, include_mfa_credentials=False,
+    )
+    try:
+        resolved_credentials.require_login_fields()
+    except FirstradeCredentialsError:
+        raise SessionRenewalFailure("credentials_unavailable", "credentials") from None
+    # Never consume a seed, code, PIN or OTP destination in unattended renewal.
+    resolved_credentials = replace(
+        resolved_credentials, pin="", email="", phone="", mfa_secret="", mfa_code="", debug=False,
+    )
     if not resolved_credentials.reuse_session or not resolved_credentials.persist_session_cache:
         raise FirstradeSafetyError("Forced session renewal requires session reuse and cache persistence.")
     client = client_factory(resolved_credentials, live_trading_enabled=False)
     if getattr(client, "live_trading_enabled", False):
         raise FirstradeSafetyError("Forced session renewal requires a non-trading client.")
-    client.connect(force_login=True, defer_cache_save=True)
-    account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
-    balances = client.get_balances(account)
-    client.save_verified_session_cache()
+    from firstrade.exceptions import LoginError, LoginRequestError, LoginResponseError
+
+    try:
+        client.connect(force_login=True, defer_cache_save=True)
+    except FirstradeMfaRequired:
+        raise
+    except LoginRequestError as exc:
+        reason = "auth_rejected" if exc.status_code in {401, 403} else "auth_outcome_unknown"
+        raise SessionRenewalFailure(reason, "auth") from None
+    except LoginResponseError:
+        raise SessionRenewalFailure("auth_rejected", "auth") from None
+    except LoginError:
+        # SDK 0.0.39 raises LoginError for device/OTP challenges without a method.
+        raise FirstradeMfaRequired("Manual authentication required.") from None
+    except Exception:
+        raise SessionRenewalFailure("auth_outcome_unknown", "auth") from None
+    try:
+        account = client.select_account(env_reader("FIRSTRADE_ACCOUNT", "") or None)
+        balances = client.get_balances(account)
+    except Exception:
+        raise SessionRenewalFailure("account_read_failed", "account_read") from None
+    try:
+        client.save_verified_session_cache()
+    except Exception:
+        raise SessionRenewalFailure("cache_write_outcome_unknown", "cache_write") from None
     print(
         "Firstrade forced session renewal "
         f"session_reused={bool(getattr(client, 'session_reused', False))} "
