@@ -74,11 +74,12 @@ ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"
 
 [tool.coverage.run]
 branch = true
-source = ["src"]
-omit = ["tests/*", "*/external/*"]
+source = ["."]
+omit = ["tests/*", "*/external/*", ".venv/*", "build/*", "dist/*"]
 
 [tool.coverage.report]
 show_missing = true
+include_namespace_packages = true
 
 [tool.uv]
 override-dependencies = [
