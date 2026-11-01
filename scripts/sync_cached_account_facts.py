@@ -15,8 +15,11 @@ class SnapshotSyncError(RuntimeError):
 
 
 def cloud(*args):
+    account = os.environ.get("GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT")
+    if not account:
+        raise SnapshotSyncError("snapshot_reader_account_missing")
     result = subprocess.run(
-        ["gcloud", *args, "--project", os.environ["GCP_PROJECT_ID"], "--format=json", "--quiet"],
+        ["gcloud", *args, "--account=" + account, "--project", os.environ["GCP_PROJECT_ID"], "--format=json", "--quiet"],
         capture_output=True, text=True, timeout=60, check=False,
     )
     if result.returncode:
@@ -46,6 +49,7 @@ def completed_snapshot(rows, job_name, service_url):
     """Require both Scheduler completion and the exact application HTTP 200."""
     finished = []
     app_completed = False
+    failures = set()
     for row in rows:
         payload = row.get("jsonPayload") or {}
         if (
@@ -58,9 +62,18 @@ def completed_snapshot(rows, job_name, service_url):
         if (
             row.get("resource", {}).get("type") == "cloud_run_revision"
             and http.get("requestUrl") == service_url + "/account-facts-sync"
-            and http.get("status") == 200
         ):
-            app_completed = True
+            status = http.get("status")
+            if status == 200:
+                app_completed = True
+            elif type(status) is int and status in {401, 403, 429, 500, 502, 503, 504}:
+                failures.add(status)
+    if failures:
+        # Preserve the observed HTTP class without exposing provider bodies or
+        # guessing that an unavailable service is an expired broker session.
+        if len(failures) == 1:
+            raise SnapshotSyncError("snapshot_request_http_" + str(next(iter(failures))))
+        raise SnapshotSyncError("snapshot_request_multiple_http_failures")
     if any(
         event.get("status") not in (None, "OK")
         or "response code number = 200" not in event.get("debugInfo", "")

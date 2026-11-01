@@ -20,7 +20,7 @@ def test_execution_report_heartbeat_has_market_neutral_daily_schedule() -> None:
 def test_qpk_dependent_heartbeats_use_one_locked_uv_runtime_per_job() -> None:
     setup_uv = "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9"
     qpk_scripts = {
-        "execution-report-heartbeat.yml": ("scripts/execution_report_heartbeat.py",),
+        "execution-report-heartbeat.yml": ("scripts/with_heartbeat_digest_binding.py heartbeat",),
         "runtime-target-lifecycle.yml": (
             "scripts/cloud_run_runtime_guard.py",
             "scripts/execution_report_heartbeat.py",
@@ -196,7 +196,7 @@ def test_manual_quiet_control_preserves_existing_alert_and_report_steps() -> Non
     alert_block = _manual_input_block(workflow, "fail_workflow_on_alert")
     assert 'default: "true"' in alert_block
     assert "RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT: ${{ inputs.fail_workflow_on_alert || vars.RUNTIME_HEARTBEAT_FAIL_WORKFLOW_ON_ALERT || 'true' }}" in workflow
-    assert "uv run --no-sync python scripts/execution_report_heartbeat.py" in workflow
+    assert "uv run --no-sync python scripts/with_heartbeat_digest_binding.py heartbeat" in workflow
     assert "Publish read-only runtime execution evidence" in workflow
     assert 'cron: "20 22 * * *"' in workflow
 
@@ -209,7 +209,7 @@ def test_scheduled_firstrade_candidate_projection_and_quiet_heartbeat_are_paired
                           "(steps.gcp_auth_primary.outcome == 'success' || steps.gcp_auth_retry.outcome == 'success')")
     assert "id: gcp_auth_retry" in workflow
     assert "          QSL_ROUTINE_NOTIFICATION_MODE: daily_digest\n" in candidate_step
-    assert "uv run --no-sync python scripts/emit_unified_digest_candidates.py" in candidate_step
+    assert "uv run --no-sync python scripts/with_heartbeat_digest_binding.py candidates" in candidate_step
     assert "RUNTIME_TARGET_ENABLED: ${{ vars.RUNTIME_TARGET_ENABLED }}" in candidate_step
     assert "DIGEST_TARGET_BINDINGS_JSON: ${{ secrets.DIGEST_TARGET_BINDINGS_JSON }}" in candidate_step
     assert _evaluate_success_notify_expression(workflow, "schedule", None, "true") == "false"

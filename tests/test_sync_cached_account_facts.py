@@ -100,3 +100,29 @@ def test_unknown_dispatch_outcome_never_retries(monkeypatch, capsys):
     assert sync.main() == 1
     assert run.call_count == 3
     assert json.loads(capsys.readouterr().out)["retry"] is False
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 502, 503, 504])
+def test_exact_application_failure_is_not_collapsed_into_auth_or_provider(status):
+    row = {"resource": {"type": "cloud_run_revision"},
+           "httpRequest": {"requestUrl": URL + "/account-facts-sync", "status": status},
+           "textPayload": "private-provider-body"}
+    with pytest.raises(sync.SnapshotSyncError, match="^snapshot_request_http_" + str(status) + "$"):
+        sync.completed_snapshot([completion(), row], JOB, URL)
+
+
+def test_failed_snapshot_is_not_erased_by_a_separate_success():
+    rows = [{"resource": {"type": "cloud_run_revision"},
+             "httpRequest": {"requestUrl": URL + "/account-facts-sync", "status": status}}
+            for status in [200, 503]]
+    with pytest.raises(sync.SnapshotSyncError, match="snapshot_request_http_503"):
+        sync.completed_snapshot([completion(), *rows], JOB, URL)
+
+
+def test_cloud_commands_use_the_explicit_workflow_account(monkeypatch):
+    monkeypatch.setenv("GCP_PROJECT_ID", "synthetic")
+    monkeypatch.setenv("GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT", "synthetic@example.invalid")
+    run = Mock(return_value=Mock(returncode=0, stdout="{}"))
+    monkeypatch.setattr(sync.subprocess, "run", run)
+    sync.cloud("logging", "read", "synthetic-filter")
+    assert "--account=synthetic@example.invalid" in run.call_args.args[0]
