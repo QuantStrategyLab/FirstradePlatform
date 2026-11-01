@@ -112,16 +112,16 @@ def test_taf_increase_is_deferred_to_2029_by_sr_finra_2026_020():
 
 def test_dates_after_verified_through_are_unsupported():
     schedule = load_fee_schedule()
-    assert schedule.verified_through == date(2026, 11, 1)
-    assert schedule.sec_rate_on(date(2026, 11, 1)) == Decimal("20.60")
+    assert schedule.verified_through == date(2026, 12, 1)
+    assert schedule.sec_rate_on(date(2026, 12, 1)) == Decimal("20.60")
     for lookup in (schedule.sec_rate_on, schedule.taf_on, schedule.broker_assisted_fee_on):
-        with pytest.raises(FeeScheduleError, match="not_verified_after_2026-11-01"):
-            lookup(date(2026, 11, 2))
+        with pytest.raises(FeeScheduleError, match="not_verified_after_2026-12-01"):
+            lookup(date(2026, 12, 2))
     # SEC FY2027 Section 31 rate is not published: a later sale must not borrow FY2026's.
-    late = decompose_sell_fees(sell_on("2026-11-02"))
+    late = decompose_sell_fees(sell_on("2026-12-02"))
     assert late["status"] == "unsupported"
-    assert "not_verified_after_2026-11-01" in late["reason"]
-    assert decompose_sell_fees(sell_on("2026-11-01"))["status"] != "unsupported"
+    assert "not_verified_after_2026-12-01" in late["reason"]
+    assert decompose_sell_fees(sell_on("2026-12-01"))["status"] != "unsupported"
 
 
 def test_verified_through_is_required_and_must_be_a_date():

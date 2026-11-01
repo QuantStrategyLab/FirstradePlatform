@@ -43,7 +43,7 @@ DEFAULT_FEE_SCHEDULE_CONFIG: dict[str, Any] = {
     "schema_version": "firstrade_fee_schedule.v1",
     # Last trade date for which every rate below was verified against the
     # published sources. Later trade dates are unsupported (fail closed).
-    "verified_through": "2026-11-01",
+    "verified_through": "2026-12-01",
     # Matched case-insensitively against the transaction description.
     "broker_assisted_markers": ["BROKER/DEALER ORDER"],
     "broker_assisted_fee": [
