@@ -38,6 +38,22 @@ def test_candidate_override_preserves_existing_incident_deduplication():
     assert unified._state_prefix(binding) == STATE
 
 
+def test_candidate_override_creates_and_updates_only_the_selected_root():
+    store, sent = Store(), []
+    env = {**ENV, "DIGEST_CANDIDATES_OVERRIDE_GCS_URI": ISOLATED}
+    for run_id in ("first-run", "second-run"):
+        report, result = source(run_id)
+        assert notify(store, report, result, sent, env=env)["route"] == "digest_candidate"
+    candidates = [(key, value) for key, value in store.data.items()
+                  if value[1].get("schema_version") == "qsl.digest_candidates.v1"]
+    assert len(candidates) == 1
+    key, (generation, body) = candidates[0]
+    assert key.startswith(ISOLATED + "/firstrade/")
+    assert generation == 2
+    assert {row["source_run_id"] for row in body["runs"]} == {"first-run", "second-run"}
+    assert not sent
+
+
 @pytest.mark.parametrize("uri", ["https://synthetic/path", "gs://synthetic", "gs://synthetic///", "gs://synthetic/a/../b",
                                  "gs://synthetic/a?private=value", "gs://synthetic/a/*"])
 def test_invalid_candidate_override_fails_before_storage(uri):
