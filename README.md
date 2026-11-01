@@ -61,6 +61,14 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 4. Confirm rollback steps and artifact versions.
 5. Enable scheduled or live execution only after the above checks are clear.
 
+## Daily session renewal
+
+The existing Scheduler-backed renewal endpoint now claims a dedicated GCS cycle
+before login and blocks replay after failures or unknown outcomes. MFA and device
+verification stop for owner recovery. A broker-free deadline endpoint checks
+completion by 21:15 UTC. See [renewal and alert setup](docs/session-renewal.md) for
+notification delivery semantics and the separately approved watchdog rollout.
+
 ## Read-only account facts
 
 The existing **Diagnose cached-balance stage failure** manual workflow can inspect saved
@@ -81,7 +89,7 @@ The existing Runtime Target Lifecycle manual entry with `metadata_only=true` ins
 
 `POST /account-facts-sync` is a cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; it does not read positions, so a positions read failure or incomplete positions cannot block the balance snapshot. Buying power and positions are not used to calculate assets or cash.
 
-The existing daily Execution Report Heartbeat also invokes this snapshot path once through the already-configured Scheduler bridge. Its independent snapshot job checks the exact service URL, POST route and OIDC audience, never creates or updates the bridge, and requires a new successful Scheduler completion plus the matching Cloud Run request HTTP 200. The endpoint returns 200 only after the publisher accepts its acknowledgement; its INFO log may be suppressed and is not required. Dispatch acceptance alone is not success, and independent website latest/identity/history readback remains a separate acceptance check. The existing daily schedule is unchanged; report and notification jobs remain independent. A manual `snapshot_only=true` run checks this path without reports or notifications. Expired/missing cached authentication fails the snapshot job; `/session-renew` remains manual and is never invoked automatically. No Cloud Run image update is needed for this workflow-only integration.
+The existing daily Execution Report Heartbeat also invokes this snapshot path once through the already-configured Scheduler bridge. Its independent snapshot job checks the exact service URL, POST route and OIDC audience, never creates or updates the bridge, and requires a new successful Scheduler completion plus the matching Cloud Run request HTTP 200. The endpoint returns 200 only after the publisher accepts its acknowledgement; its INFO log may be suppressed and is not required. Dispatch acceptance alone is not success, and independent website latest/identity/history readback remains a separate acceptance check. The existing daily schedule is unchanged; report and notification jobs remain independent. A manual `snapshot_only=true` run checks this path without reports or notifications. Expired/missing cached authentication fails the snapshot job; `/session-renew` is never invoked by this snapshot workflow. No Cloud Run image update is needed for this workflow-only integration.
 
 The Cloud Run service must remain IAM-protected. The caller needs `roles/run.invoker` and must send its Google-signed ID token in `X-Serverless-Authorization`; the separate application token goes in `Authorization: Bearer …`. See [Cloud Run service-to-service authentication](https://cloud.google.com/run/docs/authenticating/service-to-service). Neither token is a Firstrade credential.
 

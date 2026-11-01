@@ -67,6 +67,7 @@ from application.broker_reconciliation import (
     validate_reconciliation_preconditions,
 )
 from application.session_check_service import run_forced_session_renewal, run_session_check
+from application.session_renewal_guard import run_guarded_renewal, check_renewal_deadline
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
     append_runtime_report_error,
@@ -1152,21 +1153,23 @@ def probe():
 
 @app.post("/session-renew")
 def session_renew():
-    """Manual-only read-only session renewal (Cloud Run IAM / internal ingress like /probe).
-
-    Logs in once, persists the session cache, reads balances. Never runs strategy or orders,
-    and never reads or changes the monthly session-check marker.
-    """
+    """IAM-protected, duplicate-safe daily renewal. Never runs strategy or orders."""
     if not _flag("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP"):
         return jsonify({"ok": False, "error": "session_check_on_http_disabled"}), 403
-    try:
-        return jsonify(run_forced_session_renewal())
-    except FirstradeMfaRequired:
-        app.logger.warning("session_renew mfa_required")
-        return jsonify({"ok": False, "error": "mfa_required"}), 409
-    except FirstradePlatformError as exc:
-        app.logger.warning("session_renew failed exc_type=%s", type(exc).__name__)
-        return jsonify({"ok": False, "error": "session_renew_failed"}), 503
+    result, status = run_guarded_renewal(
+        run_forced_session_renewal,
+        schedule_time=request.headers.get("X-CloudScheduler-ScheduleTime"),
+    )
+    return jsonify(result), status
+
+
+@app.post("/session-renew-deadline")
+def session_renew_deadline():
+    """IAM-protected watchdog; reads maintenance state and alerts, never logs in."""
+    result, status = check_renewal_deadline(
+        schedule_time=request.headers.get("X-CloudScheduler-ScheduleTime"),
+    )
+    return jsonify(result), status
 
 
 @app.post("/monitor-dispatch")

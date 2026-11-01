@@ -75,7 +75,7 @@ class FirstradeCredentials:
     @classmethod
     def from_env(
         cls, env: Callable[[str, str | None], str | None] = os.getenv,
-        *, include_login_credentials: bool = True,
+        *, include_login_credentials: bool = True, include_mfa_credentials: bool = True,
     ) -> "FirstradeCredentials":
         def _get_credential(secret_name: str, env_var: str) -> str:
             try:
@@ -90,11 +90,11 @@ class FirstradeCredentials:
         return cls(
             username=username.strip(),
             password=password,
-            pin=(env("FIRSTRADE_PIN", "") or "") if include_login_credentials else "",
-            email=(env("FIRSTRADE_MFA_EMAIL", "") or "") if include_login_credentials else "",
-            phone=(env("FIRSTRADE_MFA_PHONE", "") or "") if include_login_credentials else "",
-            mfa_secret=_get_credential("firstrade-mfa-secret", "FIRSTRADE_MFA_SECRET") if include_login_credentials else "",
-            mfa_code=(env("FIRSTRADE_MFA_CODE", "") or "") if include_login_credentials else "",
+            pin=(env("FIRSTRADE_PIN", "") or "") if include_login_credentials and include_mfa_credentials else "",
+            email=(env("FIRSTRADE_MFA_EMAIL", "") or "") if include_login_credentials and include_mfa_credentials else "",
+            phone=(env("FIRSTRADE_MFA_PHONE", "") or "") if include_login_credentials and include_mfa_credentials else "",
+            mfa_secret=_get_credential("firstrade-mfa-secret", "FIRSTRADE_MFA_SECRET") if include_login_credentials and include_mfa_credentials else "",
+            mfa_code=(env("FIRSTRADE_MFA_CODE", "") or "") if include_login_credentials and include_mfa_credentials else "",
             cookie_dir=env("FIRSTRADE_COOKIE_DIR", ".runtime/firstrade-cookies")
             or ".runtime/firstrade-cookies",
             reuse_session=(env("FIRSTRADE_REUSE_SESSION", "false") or "").strip().lower() == "true",
