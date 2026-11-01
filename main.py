@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from notifications.telegram import build_translator
 
 import hashlib
@@ -85,6 +86,9 @@ from runtime_config_support import (
 )
 from strategy_registry import get_platform_profile_status_matrix
 from strategy_runtime import load_strategy_runtime
+
+from quant_platform_kit.notifications import install_log_redaction
+install_log_redaction(wrap_streams=True)
 
 MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
 MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")

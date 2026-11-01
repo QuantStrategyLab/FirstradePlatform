@@ -152,7 +152,8 @@ def test_unscoped_mixed_services_unknown_is_visible(monkeypatch):
     monkeypatch.setattr(heartbeat, '_cat_gcs_json', read)
     assert heartbeat.main(NOW) == 0
     assert len(sent) == 1
-    assert 'unknown' in sent[0]
+    assert 'Runtime check evidence needs review' in sent[0]
+    assert 'See the workflow or cloud runtime logs' in sent[0]
 
 
 def test_conflicting_latest_identity_cannot_be_hidden_by_old_healthy(monkeypatch):
@@ -170,7 +171,9 @@ def test_conflicting_latest_identity_cannot_be_hidden_by_old_healthy(monkeypatch
     monkeypatch.setattr(heartbeat, '_cat_gcs_json', read)
     assert heartbeat.main(NOW) == 1
     assert len(sent) == 1
-    assert 'conflicting report identity' in sent[0]
+    assert 'None of the most recent 2 execution reports was acceptable' in sent[0]
+    assert 'conflicting report identity' not in sent[0]
+    assert 'See the workflow or cloud runtime logs' in sent[0]
 
 
 @pytest.mark.parametrize('value', [True, 1, 'bad'])
@@ -337,4 +340,5 @@ def test_reuploaded_old_payload_is_visible_only_against_existing_precise_due(mon
     assert bool(sent) is stale
     if stale:
         assert heartbeat._notice('status_normal') not in sent[0]
-        assert 'predates latest due' in sent[0]
+        assert 'Runtime check evidence needs review' in sent[0]
+        assert 'See the workflow or cloud runtime logs' in sent[0]
