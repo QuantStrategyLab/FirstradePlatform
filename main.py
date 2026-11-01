@@ -66,7 +66,9 @@ from application.broker_reconciliation import (
     validate_reconciliation_candidate,
     validate_reconciliation_preconditions,
 )
-from application.session_check_service import run_forced_session_renewal, run_session_check
+from application.session_check_service import (
+    archive_cached_account_facts, run_forced_session_renewal, run_session_check,
+)
 from application.session_renewal_guard import run_guarded_renewal, check_renewal_deadline
 from notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
@@ -125,7 +127,7 @@ _ACCOUNT_FACTS_LOG_REASONS = frozenset({
     "account_identity_mismatch", "account_list_empty", "balances_unavailable",
     "positions_unavailable", "readonly_client_unavailable", "sync_unavailable",
     "sync_rejected", "sync_ack_invalid", "configuration_incomplete",
-    "account_facts_unavailable", "runtime_target_mismatch",
+    "account_facts_unavailable", "runtime_target_mismatch", "funds_archive_unavailable",
 })
 _ACCOUNT_FACTS_LOG_STAGES = frozenset({"cache", "userinfo", "account_list", "account_read", "unclassified"})
 
@@ -1135,6 +1137,12 @@ def account_facts_sync():
                 client.close()
             except Exception:
                 pass
+
+    try:
+        archive_cached_account_facts(observation)
+    except Exception:
+        _log_account_facts_failure("funds_archive_unavailable")
+        return jsonify({"ok": False, "error": "funds_archive_unavailable"}), 503
 
     try:
         publish_firstrade_account_snapshot(payload, config)
