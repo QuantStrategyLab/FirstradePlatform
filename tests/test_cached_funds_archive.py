@@ -109,3 +109,48 @@ def test_unrequested_positions_stay_absent(archive_route):
     observation.update(positions_status="not_requested", positions=None)
     assert invoke().status_code == 200
     assert "positions" not in writes[1][1]
+
+
+@pytest.mark.parametrize("currency", ["USD", "EUR", None, "missing"])
+def test_cached_archive_retains_native_currency_in_both_json_records(archive_route, currency):
+    import json
+
+    observation, writes, publishes, _, service = archive_route
+    observation["observed_started_at"] = "2026-11-03T23:59:59+00:00"
+    observation["observed_finished_at"] = "2026-11-04T00:00:03+00:00"
+    observation["balances"].update(currency=currency, cash_balance="0.00000000")
+    if currency == "missing":
+        del observation["balances"]["currency"]
+    expected = observation["balances"].get("currency")
+    # Exercise the archive independently: unknown currency is retained as null,
+    # even though the publisher rejects it before the endpoint archives anything.
+    service.archive_cached_account_facts(observation)
+    assert len(writes) == 2
+    for key, value in writes:
+        saved = json.loads(json.dumps(value))
+        assert saved["balance_metrics"] == {
+            "total_equity": "100.123456", "cash_balance": "0.00000000",
+            "available_cash": "25.01", "buying_power": None, "currency": expected,
+        }
+        assert saved["as_of"] == observation["observed_started_at"]
+        assert saved["observed_finished_at"] == observation["observed_finished_at"]
+    assert writes[0][0].endswith("/funds/latest.json")
+    assert writes[1][0].endswith("/funds/history/2026/11/03/20261103T235959Z.json")
+    assert publishes == []
+
+
+@pytest.mark.parametrize("currency", [None, "", "usd"])
+def test_unknown_or_invalid_currency_blocks_archive_and_publish(archive_route, currency):
+    observation, writes, publishes, client, _ = archive_route
+    observation["balances"]["currency"] = currency
+    response = invoke()
+    assert response.status_code == 503
+    assert response.json == {"ok": False, "error": "provider_currency_unavailable"}
+    assert writes == publishes == []
+    assert client.closed
+
+
+def test_endpoint_does_not_publish_available_cash_as_exact_cash(archive_route):
+    _, _, publishes, _, _ = archive_route
+    assert invoke().status_code == 200
+    assert publishes[0][0]["cash"] == []

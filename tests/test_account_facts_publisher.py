@@ -73,13 +73,15 @@ def test_builds_fixed_snapshot_with_only_provider_equity_and_cash():
     assert "buying_power" not in repr(payload)
 
 
-def test_defaults_missing_provider_currency_to_usd():
+@pytest.mark.parametrize("missing_key", [False, True])
+def test_rejects_missing_native_currency_even_with_configured_position_currency(missing_key):
     data = observation()
     data["balances"]["currency"] = None
-    payload = build_firstrade_account_snapshot(
-        data, load_account_facts_publish_config(config()), account_scope="us"
-    )
-    assert payload["broker_reported_balances"][0]["currency"] == "USD"
+    if missing_key:
+        del data["balances"]["currency"]
+    cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="EUR"))
+    with pytest.raises(AccountFactsPublishError, match="^provider_currency_unavailable$"):
+        build_firstrade_account_snapshot(data, cfg, account_scope="us")
 
 
 @pytest.mark.parametrize("value", ["", "usd", "US", "USDX", "USD "])
@@ -125,20 +127,20 @@ def test_allows_cash_to_be_absent_without_synthesizing_it():
     assert payload["cash"] == []
 
 
-def test_falls_back_to_available_cash_when_cash_balance_absent():
+@pytest.mark.parametrize("missing_key", [False, True])
+def test_available_cash_never_replaces_missing_exact_cash(missing_key):
     data = observation()
     data["balances"]["cash_balance"] = None
     data["balances"]["available_cash"] = "240.00"
+    if missing_key:
+        del data["balances"]["cash_balance"]
 
     payload = build_firstrade_account_snapshot(
         data, load_account_facts_publish_config(config()), account_scope="us"
     )
 
-    assert payload["cash"] == [{
-        "currency": "USD",
-        "cash_balance": "240.00",
-        "source_tag": "provider.cash_balance",
-    }]
+    assert payload["cash"] == []
+    assert payload["broker_reported_balances"] == [{"currency": "USD", "net_assets": "1234.50"}]
 
 
 @pytest.mark.parametrize(
@@ -383,3 +385,16 @@ def test_opt_in_reports_ambiguous_long_stock_value_distinctly():
     with pytest.raises(AccountFactsPublishError, match="long_stock_value_ambiguous"):
         build_firstrade_account_snapshot(
             data, cfg, account_scope="us", include_valuation_basis=True)
+
+
+@pytest.mark.parametrize("cash_balance", ["0.00", "-12.34567890", "250.25000000"])
+def test_preserves_exact_cash_and_native_currency_separately(cash_balance):
+    data = observation()
+    data["balances"].update(currency="EUR", cash_balance=cash_balance)
+    cfg = load_account_facts_publish_config(config(FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY="USD"))
+    data.update(positions_status="available", positions=[])
+    payload = build_firstrade_account_snapshot(data, cfg, account_scope="us")
+    assert payload["cash"] == [{
+        "currency": "EUR", "cash_balance": cash_balance, "source_tag": "provider.cash_balance",
+    }]
+    assert payload["broker_reported_balances"] == [{"currency": "EUR", "net_assets": "1234.50"}]

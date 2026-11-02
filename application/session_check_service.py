@@ -388,6 +388,7 @@ def archive_cached_account_facts(
         "source": "cached_account_facts",
         "balance_metrics": {
             "total_equity": balances.get("provider_equity"),
+            "currency": balances.get("currency"),
             "cash_balance": balances.get("cash_balance"),
             "available_cash": balances.get("available_cash"),
             "buying_power": balances.get("buying_power"),
