@@ -147,6 +147,12 @@ jobs:
           assert resolve_canonical_profile("russell_top50_leader_rotation") == "russell_top50_leader_rotation"
           PY
 
+      - name: Verify installed shared test imports
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -m pytest -q -p test_support.pytest_provenance \
+            --shared-import-mode installed-lock tests/test_shared_import_contract.py
+
       - name: Verify Python dependencies
         run: uv pip check
 
