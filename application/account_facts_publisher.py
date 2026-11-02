@@ -216,10 +216,6 @@ def build_firstrade_account_snapshot(
     if not isinstance(balances, Mapping):
         raise AccountFactsPublishError("snapshot_invalid")
     currency = balances.get("currency")
-    # Firstrade US equity balance payloads often omit an ISO currency field; the
-    # rest of this platform already treats Firstrade cash as USD.
-    if currency is None:
-        currency = "USD"
     if not isinstance(currency, str) or not _CURRENCY_RE.fullmatch(currency):
         raise AccountFactsPublishError("provider_currency_unavailable")
     provider_equity = balances.get("provider_equity")
@@ -232,10 +228,6 @@ def build_firstrade_account_snapshot(
         raise AccountFactsPublishError("snapshot_time_invalid")
 
     cash_balance = balances.get("cash_balance")
-    # Use exact available_cash only when cash_balance is absent — still a real
-    # provider cash figure, never synthesized from equity or buying power.
-    if cash_balance is None:
-        cash_balance = balances.get("available_cash")
     cash: list[dict[str, str]] = []
     if cash_balance is not None:
         cash.append({
