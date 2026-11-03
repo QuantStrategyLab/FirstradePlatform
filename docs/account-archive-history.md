@@ -127,6 +127,27 @@ unchanged. Existing conflicting records are rejected; unknown POST outcomes are
 not automatically retried. A successful exact history-only ACK is not a logged-in
 API or page acceptance result.
 
+## Cached observation cash and currency
+
+For forward observations from 2026-11-03, the cached account-facts publisher
+uses only exact `balances.cash_balance` for `cash[].cash_balance`, tagged
+`provider.cash_balance`. Missing exact cash produces an empty `cash` list;
+`available_cash` and `buying_power` never replace it. Decimal text, including
+zero and negative cash, is preserved without conversion.
+
+Published balance and cash rows require an explicit native `balances.currency`.
+Missing or invalid currency fails with `provider_currency_unavailable` before
+archive or publication; neither USD nor configured position currency supplies
+that native fact. The existing payload schema is unchanged.
+
+The cached archive independently retains `balance_metrics.currency`, including
+JSON null when the native currency is absent. Exact/null cash, available cash
+and buying power remain separate fields in both existing latest and history
+records. Original observation times and storage paths are unchanged. This is
+an additive archive field for new writes, with no history backfill or rewrite.
+The two archive writes remain non-atomic. Older saved-history projection above
+is a separate route and retains its existing currency policy.
+
 ## Cached account-history source inspection
 
 Cached-only account facts and history reads use the shared session cache as the
