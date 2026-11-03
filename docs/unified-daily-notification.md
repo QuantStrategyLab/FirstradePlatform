@@ -115,6 +115,12 @@ or access Secret Manager. Archive reads use the Storage SDK and the job's
 attached identity; the image does not need gcloud. Existing candidate writes,
 merge semantics and identity checks remain authoritative.
 
+The heartbeat candidate publisher uses the same bounded SDK archive reader.
+A successfully listed empty month is empty input, including when a completed
+window spans two UTC months. Permission, timeout and JSON failures still abort
+publication. An empty window produces idle evidence only after the existing
+schedule check confirms that no run was due.
+
 Use one job per existing central target, with its exact protected runtime JSON,
 archive prefix, opaque UID, target ID, destination and slot. No identifiers can
 be inferred from a display label. Supply the existing notification schedule so
