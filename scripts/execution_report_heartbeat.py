@@ -55,7 +55,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _notification_locale() -> str:
-    return resolve_operational_notification_locale(os.environ.get("NOTIFY_LANG"))
+    return resolve_operational_notification_locale(os.environ.get("QSL_NOTIFY_LANG") or os.environ.get("NOTIFY_LANG"))
 
 
 def _notice(key: str, /, **values: object) -> str:
@@ -760,52 +760,45 @@ def _send_telegram(message: str) -> bool:
 
 
 def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=None) -> bool:
-    from notifications.unified import alert_text, enabled, notify_heartbeat
+    from notifications.unified import alert_text, enabled, notify_heartbeat, workflow_run_url
+    display_kind = "receipt_identity_conflict" if "conflicting report identity" in message else kind
+    message = alert_text(display_kind, _notification_locale(), occurred_at=now,
+                         source="heartbeat", run_url=workflow_run_url())
     if not enabled():
         return _send_telegram(message)
-    result = notify_heartbeat(kind=kind, send=lambda: _send_telegram(alert_text(kind, _notification_locale())),
+    result = notify_heartbeat(kind=kind, send=lambda: _send_telegram(message),
                               now=now, affected_keys=affected_keys)
     return any(item.get("transport_acknowledged") for item in result.get("deliveries", []))
 
 
 def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True,
                            now: dt.datetime | None = None, recovery_reports=(), affected_keys=None) -> int:
-    from notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat
-    if quiet_eligible or enabled():
-        locale = coverage_locale() if quiet_eligible else _notification_locale()
-        message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", locale)
-        def send_attention():
-            marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
-            if quiet_eligible and marker:
-                try:
-                    Path(marker).write_text("attempted\n")
-                except OSError:
-                    pass
-            acknowledged = _send_telegram(message[:3900])
-            if quiet_eligible and acknowledged is True and marker:
-                try:
-                    Path(marker).write_text("acknowledged\n")
-                except OSError:
-                    pass
-            return acknowledged
-        result = notify_heartbeat(kind="healthy_heartbeat" if quiet_eligible else "receipt_unacceptable",
-            send=send_attention, now=now or dt.datetime.now(dt.timezone.utc),
-            recovery_reports=recovery_reports, affected_keys=affected_keys)
-        return 1 if result.get("failed") or not result.get("candidate_persisted") else 0
-    if quiet_eligible and not _env_bool("RUNTIME_HEARTBEAT_NOTIFY_ON_SUCCESS", False):
-        return 0
-    if quiet_eligible:
-        message = format_operational_heartbeat_status(
-            locale=_notification_locale(), name=name, detail=detail,
-        )
-    else:
-        message = format_operational_alert(
-            locale=_notification_locale(), alert_type="execution_report_heartbeat", name=name,
-            issues=["运行检查证据待核对" if _notification_locale() == "zh" else "Runtime check evidence needs review"],
-            technical_details=[detail],
-        )
-    print(message)
-    return 0 if _send_telegram(message[:3900]) else 1
+    from notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat, workflow_run_url
+    locale = coverage_locale() if quiet_eligible else _notification_locale()
+    kind = "candidate_write_failure" if quiet_eligible else (
+        "receipt_stale" if "predates latest due" in detail else "receipt_unacceptable")
+    message = alert_text(kind, locale,
+                         occurred_at=now, source="heartbeat", run_url=workflow_run_url())
+    if not quiet_eligible and not enabled():
+        return 0 if _send_telegram(message) else 1
+    def send_attention():
+        marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
+        if quiet_eligible and marker:
+            try:
+                Path(marker).write_text("attempted\n")
+            except OSError:
+                pass
+        acknowledged = _send_telegram(message[:3900])
+        if quiet_eligible and acknowledged is True and marker:
+            try:
+                Path(marker).write_text("acknowledged\n")
+            except OSError:
+                pass
+        return acknowledged
+    result = notify_heartbeat(kind="healthy_heartbeat" if quiet_eligible else "receipt_unacceptable",
+        send=send_attention, now=now or dt.datetime.now(dt.timezone.utc),
+        recovery_reports=recovery_reports, affected_keys=affected_keys)
+    return 1 if result.get("failed") or not result.get("candidate_persisted") else 0
 
 
 def main(now: dt.datetime | None = None) -> int:

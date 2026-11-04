@@ -13,10 +13,22 @@ import pytest
 import main
 from application.rebalance_service import _publish_cycle_notification
 from notifications.telegram import render_cycle_notification
+from notifications import unified
 from scripts import execution_report_heartbeat as heartbeat
 
 GOLDEN = Path(__file__).parent / "fixtures" / "notification_main_c320fa0.json"
 NOW = datetime(2026, 10, 16, 23, tzinfo=timezone.utc)
+ERROR_GOLDEN = Path(__file__).parent / "fixtures" / "notification_p10_errors.json"
+
+
+class FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+
+
+def missing_candidate_store():
+    raise RuntimeError("synthetic_candidate_store_unavailable")
 
 
 def record_main(monkeypatch, *, outcome, lang, notify=True):
@@ -160,8 +172,14 @@ def test_flags_off_entrypoints_renderers_match_main_golden(monkeypatch, flag, mo
     else:
         monkeypatch.setenv("FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED", flag)
     monkeypatch.setenv("QSL_ROUTINE_NOTIFICATION_MODE", mode)
+    # Offline: the fixture intentionally lacks a source-bound candidate store.
+    # Do not let the SDK attempt metadata/credential discovery.
+    monkeypatch.setattr(unified, "GcsJsonStore", missing_candidate_store)
+    monkeypatch.setattr(main, "datetime", FixedDateTime)
     actual = record_all(monkeypatch)
     expected = json.loads(GOLDEN.read_text())[mode]
+    # Retain the historical broker/state golden; P10 changes only error bodies.
+    expected.update(json.loads(ERROR_GOLDEN.read_text()))
     for lang in ("zh", "en"):
         for outcome in ("no_action", "filled", "error"):
             key = f"main:{lang}:{outcome}"

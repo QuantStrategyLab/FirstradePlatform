@@ -1,0 +1,170 @@
+{
+  "heartbeat:zh:blocked:False": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "read",
+        "gs://synthetic/reports/source.json",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "【资产管理｜运行错误】\n时间：2026-10-17 07:00:00（新加坡时间）\n平台 / 策略：第一证券 / 未核实\n问题：执行回执无法核实\n影响：是否提交订单：未知；是否有待处理订单：未知\n证据：回执检查；运行链接不可用\n处理：查看本次运行记录，核实输入；未恢复前保持执行保护\n事件：未提供安全事件引用｜投递状态以回执为准"
+      ]
+    ]
+  },
+  "heartbeat:zh:blocked:True": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "read",
+        "gs://synthetic/reports/source.json",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "【资产管理｜运行错误】\n时间：2026-10-17 07:00:00（新加坡时间）\n平台 / 策略：第一证券 / 未核实\n问题：执行回执无法核实\n影响：是否提交订单：未知；是否有待处理订单：未知\n证据：回执检查；运行链接不可用\n处理：查看本次运行记录，核实输入；未恢复前保持执行保护\n事件：未提供安全事件引用｜投递状态以回执为准"
+      ]
+    ]
+  },
+  "heartbeat:zh:missing:False": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "【资产管理｜运行错误】\n时间：2026-10-17 07:00:00（新加坡时间）\n平台 / 策略：第一证券 / 未核实\n问题：执行回执缺失\n影响：是否提交订单：未知；是否有待处理订单：未知\n证据：回执检查；运行链接不可用\n处理：查看本次运行记录，核实输入；未恢复前保持执行保护\n事件：未提供安全事件引用｜投递状态以回执为准"
+      ]
+    ]
+  },
+  "heartbeat:zh:missing:True": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "【资产管理｜运行错误】\n时间：2026-10-17 07:00:00（新加坡时间）\n平台 / 策略：第一证券 / 未核实\n问题：执行回执缺失\n影响：是否提交订单：未知；是否有待处理订单：未知\n证据：回执检查；运行链接不可用\n处理：查看本次运行记录，核实输入；未恢复前保持执行保护\n事件：未提供安全事件引用｜投递状态以回执为准"
+      ]
+    ]
+  },
+  "runtime_error:zh": {
+    "result": true,
+    "sends": [
+      "【资产管理｜运行错误】\n时间：2026-10-17 07:00:00（新加坡时间）\n平台 / 策略：第一证券 / 未核实\n问题：运行发生异常\n影响：是否提交订单：未知；是否有待处理订单：未知\n证据：策略运行；运行链接不可用\n处理：查看本次运行记录，核实输入；未恢复前保持执行保护\n事件：未提供安全事件引用｜投递状态以回执为准"
+    ]
+  },
+  "heartbeat:en:blocked:False": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "read",
+        "gs://synthetic/reports/source.json",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "[Asset management | Runtime error]\nTime: 2026-10-17 07:00:00 SGT\nPlatform / Strategy: Firstrade / unverified\nProblem: Execution receipt cannot be verified\nImpact: order submission unknown; pending orders unknown\nEvidence: receipt monitor; run link unavailable\nAction: review this run and its inputs; retain execution protection until recovery\nEvent: safe reference unavailable | Delivery status follows the receipt"
+      ]
+    ]
+  },
+  "heartbeat:en:blocked:True": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "read",
+        "gs://synthetic/reports/source.json",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "[Asset management | Runtime error]\nTime: 2026-10-17 07:00:00 SGT\nPlatform / Strategy: Firstrade / unverified\nProblem: Execution receipt cannot be verified\nImpact: order submission unknown; pending orders unknown\nEvidence: receipt monitor; run link unavailable\nAction: review this run and its inputs; retain execution protection until recovery\nEvent: safe reference unavailable | Delivery status follows the receipt"
+      ]
+    ]
+  },
+  "heartbeat:en:missing:False": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "[Asset management | Runtime error]\nTime: 2026-10-17 07:00:00 SGT\nPlatform / Strategy: Firstrade / unverified\nProblem: Execution receipt is missing\nImpact: order submission unknown; pending orders unknown\nEvidence: receipt monitor; run link unavailable\nAction: review this run and its inputs; retain execution protection until recovery\nEvent: safe reference unavailable | Delivery status follows the receipt"
+      ]
+    ]
+  },
+  "heartbeat:en:missing:True": {
+    "exit_code": 1,
+    "calls": [
+      [
+        "list",
+        "gs://synthetic/reports",
+        {
+          "project": null
+        }
+      ],
+      [
+        "send",
+        "[Asset management | Runtime error]\nTime: 2026-10-17 07:00:00 SGT\nPlatform / Strategy: Firstrade / unverified\nProblem: Execution receipt is missing\nImpact: order submission unknown; pending orders unknown\nEvidence: receipt monitor; run link unavailable\nAction: review this run and its inputs; retain execution protection until recovery\nEvent: safe reference unavailable | Delivery status follows the receipt"
+      ]
+    ]
+  },
+  "runtime_error:en": {
+    "result": true,
+    "sends": [
+      "[Asset management | Runtime error]\nTime: 2026-10-17 07:00:00 SGT\nPlatform / Strategy: Firstrade / unverified\nProblem: Runtime error\nImpact: order submission unknown; pending orders unknown\nEvidence: strategy runtime; run link unavailable\nAction: review this run and its inputs; retain execution protection until recovery\nEvent: safe reference unavailable | Delivery status follows the receipt"
+    ]
+  }
+}

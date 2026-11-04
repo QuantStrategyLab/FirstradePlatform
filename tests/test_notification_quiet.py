@@ -170,7 +170,8 @@ def test_conflicting_latest_identity_cannot_be_hidden_by_old_healthy(monkeypatch
     monkeypatch.setattr(heartbeat, '_cat_gcs_json', read)
     assert heartbeat.main(NOW) == 1
     assert len(sent) == 1
-    assert 'conflicting report identity' in sent[0]
+    assert 'Execution receipt identity conflict' in sent[0]
+    assert 'wrong-scope' not in sent[0]
 
 
 @pytest.mark.parametrize('value', [True, 1, 'bad'])
@@ -337,4 +338,4 @@ def test_reuploaded_old_payload_is_visible_only_against_existing_precise_due(mon
     assert bool(sent) is stale
     if stale:
         assert heartbeat._notice('status_normal') not in sent[0]
-        assert 'predates latest due' in sent[0]
+        assert 'Execution receipt predates the required run' in sent[0]

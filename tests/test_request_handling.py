@@ -455,6 +455,7 @@ def test_probe_endpoint_calls_service_when_gate_enabled(monkeypatch):
 
 
 def test_probe_endpoint_notifies_only_on_error(monkeypatch):
+    monkeypatch.setenv("QSL_NOTIFY_LANG", "en")
     monkeypatch.setenv("FIRSTRADE_RUN_SESSION_CHECK_ON_HTTP", "true")
     monkeypatch.setenv("TELEGRAM_TOKEN", "token-1")
     monkeypatch.setenv("GLOBAL_TELEGRAM_CHAT_ID", "chat-1")
@@ -483,11 +484,13 @@ def test_probe_endpoint_notifies_only_on_error(monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0][0] == "token-1"
     assert sent_messages[0][1] == "chat-1"
-    assert "Firstrade health check failed" in sent_messages[0][2]
+    assert sent_messages[0][2].startswith("[Asset management | Runtime error]")
+    assert "receipt monitor" in sent_messages[0][2]
     assert "RuntimeError: session denied" not in sent_messages[0][2]
 
 
 def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
+    monkeypatch.setenv("QSL_NOTIFY_LANG", "en")
     sent_messages = []
 
     def fake_build_sender(token, chat_id):
@@ -521,9 +524,9 @@ def test_run_endpoint_notifies_telegram_on_strategy_cycle_error(monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0][0] == "token-1"
     assert sent_messages[0][1] == "chat-1"
-    assert "Firstrade strategy run failed" in sent_messages[0][2]
+    assert "[Asset management | Runtime error]" in sent_messages[0][2]
     assert "ValueError: snapshot denied" not in sent_messages[0][2]
-    assert "Strategy: russell_top50_leader_rotation" in sent_messages[0][2]
+    assert "Platform / Strategy: Firstrade / unverified" in sent_messages[0][2]
 
 
 def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
@@ -553,8 +556,8 @@ def test_run_endpoint_error_notification_uses_chinese_copy(monkeypatch):
 
     assert response.status_code == 500
     text = sent_messages[0][2]
-    assert "Firstrade 策略运行失败" in text
-    assert "策略: russell_top50_leader_rotation" in text
+    assert text.startswith("【资产管理｜运行错误】")
+    assert "平台 / 策略：第一证券 / 未核实" in text
     assert "snapshot denied" not in text
 
 

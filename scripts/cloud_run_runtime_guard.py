@@ -72,7 +72,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _notification_locale() -> str:
-    return resolve_operational_notification_locale(os.environ.get("NOTIFY_LANG"))
+    return resolve_operational_notification_locale(os.environ.get("QSL_NOTIFY_LANG") or os.environ.get("NOTIFY_LANG"))
 
 
 def _notice(key: str, /, **values: object) -> str:
@@ -792,16 +792,9 @@ def main() -> int:
             f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
             f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         )
-    message = format_operational_alert(
-        locale=_notification_locale(),
-        alert_type="runtime_guard",
-        name=name,
-        context={"project": project, "lookback_minutes": lookback_minutes},
-        issues=issues,
-        # Keep provider audit payloads in their source logs, including on pinned QPK.
-        technical_details=(),
-        workflow_url=run_url,
-    )
+    from notifications.unified import alert_text
+    message = alert_text("runtime_guard", _notification_locale(), occurred_at=dt.datetime.now(dt.timezone.utc),
+                         source="runtime_guard", run_url=run_url)
     print(message)
     decision = alert_dedupe.decide(name=name, issues=issues, event_ids=alert_event_ids)
     print(decision.log_line())

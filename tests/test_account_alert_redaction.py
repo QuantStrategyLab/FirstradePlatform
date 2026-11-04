@@ -77,7 +77,7 @@ def test_account_selection_failure_through_real_alert_sender(
     assert "******21" in payload["error"]
     assert len(sent) == 1
     assert sent[0]["chat_id"] == "synthetic-chat"
-    assert ("health check failed" if lang == "en" else "健康检查失败") in sent[0]["text"]
+    assert sent[0]["text"].startswith("[Asset management | Runtime error]" if lang == "en" else "【资产管理｜运行错误】")
     assert "Requested account" not in sent[0]["text"]
     surfaces = [response.get_data(as_text=True), json.dumps(sent), capsys.readouterr().out]
     for surface in surfaces:
@@ -107,7 +107,8 @@ def test_cycle_alert_redacts_raw_and_legacy_accounts_at_log_and_transport(monkey
     settings = SimpleNamespace(tg_token="synthetic-token", tg_chat_id="synthetic-chat", notify_lang=lang)
     assert _publish_cycle_notification(result, settings=settings, log_message=logged.append) is True
     assert len(sent) == 1
-    assert logged and "******21" in "\n".join(logged)
+    assert logged and "******21" not in "\n".join(logged)
+    assert ("Execution is blocked" if lang == "en" else "执行被阻断") in "\n".join(logged)
     for surface in (json.dumps(sent), "\n".join(logged)):
         assert "87654321" not in surface
         assert "4321" not in surface
