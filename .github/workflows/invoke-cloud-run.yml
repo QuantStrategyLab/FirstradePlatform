@@ -43,7 +43,7 @@ jobs:
   invoke:
     name: Invoke Firstrade Cloud Run
     runs-on: ubuntu-latest
-    environment: PROJECT_ID
+    environment: ${{ vars.FIRSTRADE_STEP5_ENVIRONMENT }}
     timeout-minutes: 15
     permissions:
       contents: read
