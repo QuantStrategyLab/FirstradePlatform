@@ -61,6 +61,16 @@ Direct runtime profiles can usually run from market history or portfolio state. 
 4. Confirm rollback steps and artifact versions.
 5. Enable scheduled or live execution only after the above checks are clear.
 
+The sync plan and cached-balance staging preflight use the versioned shared
+Cloud Run tag contract before emitting a plan or staging a candidate. Service
+names are validated exactly, without renaming. The diagnostic keeps the fixed
+`cbd` tag and requires `len(service_name) + 3 <= 46`; incompatible names are
+refused rather than shortened or given traffic. Existing diagnostic ownership,
+zero-traffic, identity and readback checks still apply. The legacy `cloudbuild.yaml`
+image-only path validates the exact service name before building; it allocates no
+tag and gains no traffic authority. See the [vendored contract](scripts/_vendor/README.md)
+for provenance and update rules.
+
 ## Read-only account facts
 
 The existing **Diagnose cached-balance stage failure** manual workflow can inspect saved

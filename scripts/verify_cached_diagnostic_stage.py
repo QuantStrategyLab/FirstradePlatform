@@ -11,11 +11,19 @@ from pathlib import Path
 from typing import Any
 
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts import cloud_run_tag_preflight
+
+
 DIAGNOSTIC_GATE = "FIRSTRADE_CACHED_BALANCE_DIAGNOSTIC_ON_HTTP"
 RUNTIME_TARGET_KEYS = ("QSL_RUNTIME_TARGET_JSON", "RUNTIME_TARGET_JSON")
 DIAGNOSTIC_TAG = "cbd"
-MIN_TRAFFIC_TAG_LENGTH = 3
-MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH = 46
+# Retain the diagnostic modules' public constants while sharing the policy values.
+MIN_TRAFFIC_TAG_LENGTH = cloud_run_tag_preflight.MIN_DIAGNOSTIC_TAG_LENGTH
+MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH = cloud_run_tag_preflight.TAGGED_URL_BUDGET
 EXPECTED_PLATFORM_ID = "firstrade"
 GENERATED_TEMPLATE_ANNOTATIONS = {
     "run.googleapis.com/client-name",
@@ -67,10 +75,9 @@ def _validate_diagnostic_tag_budget(service_name: str, tag: str) -> None:
         raise ValueError("diagnostic_service_name_missing")
     if tag != DIAGNOSTIC_TAG:
         raise ValueError("diagnostic_tag_mismatch")
-    if len(tag) < MIN_TRAFFIC_TAG_LENGTH:
+    if len(tag) < cloud_run_tag_preflight.MIN_DIAGNOSTIC_TAG_LENGTH:
         raise ValueError("diagnostic_tag_too_short")
-    if len(service_name) + len(tag) > MAX_SERVICE_AND_TRAFFIC_TAG_LENGTH:
-        raise ValueError("diagnostic_tag_name_budget_exceeded")
+    cloud_run_tag_preflight.validate_diagnostic(service_name, tag)
 
 
 def _normalize_template_metadata(template: dict[str, Any]) -> None:
