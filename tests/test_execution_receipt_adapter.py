@@ -136,6 +136,12 @@ class ExecutionReceiptAdapterTest(unittest.TestCase):
 
         self.assertEqual(report["execution_receipt"]["outcome"], "no_action")
 
+    def test_live_exception_preserves_submission_uncertainty(self) -> None:
+        report = _report()
+        attach_unknown_failure_execution_receipt(report)
+        self.assertEqual(report["execution_receipt"]["outcome"], "failed")
+        self.assertEqual(report["execution_receipt"]["broker_confirmation"], "not_observed")
+
     def test_dry_run_exception_is_failed_without_live_submission_uncertainty(self) -> None:
         report = _report()
         report["dry_run"] = True
