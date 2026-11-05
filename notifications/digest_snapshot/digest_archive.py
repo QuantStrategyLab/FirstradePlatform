@@ -53,12 +53,29 @@ class ArchiveReader:
 
 
 def _read(args):
-    from google.cloud import storage
+    operation = "initialize"
     try:
-        return ArchiveReader(storage.Client()).read(args)
+        from google.cloud import storage
+        client = storage.Client()
+        operation = {"ls": "list", "cat": "read"}.get(args[0], "unknown")
+        return ArchiveReader(client).read(args)
     except Exception as error:
-        # Empty SDK listings return []; all failed reads remain failures.
-        raise ValueError("candidate_archive_read_failed") from error
+        from google.api_core import exceptions
+        category = "unknown"
+        if isinstance(error, (exceptions.Forbidden, exceptions.Unauthorized)):
+            category = "permission_denied"
+        elif isinstance(error, exceptions.NotFound):
+            category = "not_found"
+        elif isinstance(error, (TimeoutError, exceptions.DeadlineExceeded)):
+            category = "timeout"
+        elif isinstance(error, (json.JSONDecodeError, UnicodeError)):
+            category = "invalid_json"
+        elif isinstance(error, exceptions.PreconditionFailed):
+            category = "integrity_failed"
+        elif isinstance(error, exceptions.ServiceUnavailable):
+            category = "unavailable"
+        # Only fixed labels cross this boundary, never provider text or locators.
+        raise ValueError(f"candidate_archive_read_failed:{operation}:{category}") from None
 
 
 def emit(env, *, now=None, read=_read, upload=None):
