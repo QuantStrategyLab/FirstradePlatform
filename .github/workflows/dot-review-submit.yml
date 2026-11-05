@@ -32,7 +32,10 @@ jobs:
   submit:
     if: >-
       github.ref == 'refs/heads/main' && vars.DOT_REVIEW_READY == 'true' &&
-      (github.event_name == 'workflow_dispatch' || vars.DOT_REVIEW_AUTO_ENABLED == 'true')
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request_target' &&
+        vars.DOT_REVIEW_AUTO_ENABLED == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
