@@ -43,6 +43,7 @@ jobs:
   invoke:
     name: Invoke Firstrade Cloud Run
     runs-on: ubuntu-latest
+    environment: PROJECT_ID
     timeout-minutes: 15
     permissions:
       contents: read

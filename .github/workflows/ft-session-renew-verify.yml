@@ -19,6 +19,7 @@ jobs:
   verify:
     name: Read probe logs and session-cache metadata
     runs-on: ubuntu-latest
+    environment: PROJECT_ID
     timeout-minutes: 10
     permissions:
       contents: read
