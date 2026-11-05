@@ -39,6 +39,8 @@ for candidate in (ROOT, QPK_SRC, UES_SRC):
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
 
+from scripts.cloud_run_tag_preflight import validate_diagnostic
+
 from strategy_registry import (  # noqa: E402
     FIRSTRADE_PLATFORM,
     get_platform_profile_status_matrix,
@@ -376,11 +378,11 @@ def _load_target_entries(
         entries = [_coerce_mapping(item) for item in raw_entries]
         return entries, defaults, True
 
-    raw_services = str(env.get("CLOUD_RUN_SERVICES", "") or "").strip()
+    raw_services = str(env.get("CLOUD_RUN_SERVICES", "") or "")
     if not raw_services:
-        raw_services = str(env.get("CLOUD_RUN_SERVICE", "") or "").strip()
+        raw_services = str(env.get("CLOUD_RUN_SERVICE", "") or "")
     services = [
-        item.strip()
+        item
         for chunk in raw_services.replace(";", ",").replace("\n", ",").split(",")
         for item in [chunk]
         if item.strip()
@@ -404,11 +406,16 @@ def _build_target_plan(
     )
     runtime_target = _resolve_runtime_target(target, defaults, env, per_service_mode)
     if not service_name:
-        service_name = str(runtime_target.get("service_name") or "").strip()
+        service_name = runtime_target.get("service_name") or ""
     if not service_name:
         raise ValueError("Each Cloud Run sync target requires service/service_name")
 
-    runtime_target_service = str(runtime_target.get("service_name") or "").strip()
+    # Sync targets must support the fixed no-traffic diagnostic lifecycle.
+    # Check the exact configured value; never repair or rename it silently.
+    validate_diagnostic(service_name)
+    runtime_target_service = runtime_target.get("service_name")
+    if runtime_target_service is not None and runtime_target_service != "":
+        validate_diagnostic(runtime_target_service)
     if runtime_target_service and runtime_target_service != service_name:
         raise ValueError(
             f"Target {service_name} runtime_target.service_name={runtime_target_service!r} does not match"

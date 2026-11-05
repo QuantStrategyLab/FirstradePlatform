@@ -288,6 +288,7 @@ jobs:
             exit 1
           fi
 
+      # Shared exact-name policy retains cbd and refuses incompatible zero-traffic diagnostics.
       - name: Validate fixed diagnostic traffic tag budget
         env:
           EXPECTED_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
