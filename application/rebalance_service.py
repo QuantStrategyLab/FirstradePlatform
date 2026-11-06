@@ -275,13 +275,33 @@ def _publish_cycle_notification(
     settings: PlatformRuntimeSettings,
     notification_sender: Callable[[str], None] | None = None,
     log_message: Callable[[str], None] = print,
+    report: Mapping[str, Any] | None = None,
 ) -> bool:
     sender = notification_sender
     if sender is None:
         if not settings.tg_token or not settings.tg_chat_id:
             return False
         sender = build_sender(settings.tg_token, settings.tg_chat_id)
-    notification = render_cycle_notification(result, lang=settings.notify_lang)
+    from notifications.unified import alert_text, cycle_kind
+    kind = cycle_kind(result)
+    if kind in {"routine_cycle", "order_submitted", "fill"}:
+        notification = render_cycle_notification(result, lang=settings.notify_lang)
+    else:
+        from quant_platform_kit.notifications.events import RenderedNotification
+        from datetime import datetime
+        observed_at = None
+        if report:
+            try:
+                observed_at = datetime.fromisoformat(str(report.get("started_at", "")).replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        skips = result.get("execution_blocking_skips") or result.get("skipped_orders") or ()
+        display_kind = "fractional_trading_disclosure_required" if any(
+            isinstance(item, Mapping) and item.get("reason") == "fractional_trading_disclosure_required"
+            for item in skips) else kind
+        text = alert_text(display_kind, settings.notify_lang, occurred_at=observed_at,
+                          run_url=(report or {}).get("workflow_run_url"))
+        notification = RenderedNotification(detailed_text=text, compact_text=text)
     def publish_log(text: str) -> None:
         try:
             log_message(text, flush=True)

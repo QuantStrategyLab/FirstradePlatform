@@ -606,13 +606,69 @@ def notify_heartbeat(*, kind, send, now, env=None, store=None, recovery_reports=
         return {"candidate_persisted": False, "failed": True}
 
 
-def alert_text(kind, locale):
+def alert_text(kind, locale=None, *, occurred_at=None, source="runtime", run_url=None):
+    """Plan P10 presentation contract; never interpolate private runtime payloads.
+
+    Monitor observations are not business runs. Missing source time/link stays
+    unverified. Replace this renderer with the step-1 shared formatter once its
+    reviewed dependency pin is available; no vendor snapshot is edited here.
+    """
+    from quant_platform_kit.notifications._redaction import redact_sensitive_text
+    from zoneinfo import ZoneInfo
+
+    zh = not str(locale or "zh").strip().lower().startswith("en")
     messages = {
-        "receipt_missing": ("执行回执缺失。", "Execution receipt is missing."),
-        "receipt_unacceptable": ("执行回执需要检查。", "Execution receipt needs review."),
-        "real_error": ("运行发生异常。", "The runtime encountered an error."),
-        "candidate_write_failure": ("通知候选未能确认写入。", "Notification candidate storage could not be confirmed."),
+        "receipt_missing": ("执行回执缺失", "Execution receipt is missing"),
+        "receipt_unacceptable": ("执行回执无法核实", "Execution receipt cannot be verified"),
+        "receipt_identity_conflict": ("执行回执身份冲突", "Execution receipt identity conflict"),
+        "receipt_stale": ("执行回执早于应运行时间", "Execution receipt predates the required run"),
+        "real_error": ("运行发生异常", "Runtime error"),
+        "auth_failure": ("认证失败", "Authentication failed"),
+        "blocked_run": ("执行被阻断", "Execution is blocked"),
+        "risk_escalation": ("风险检查需要处理", "Risk check requires attention"),
+        "order_status_unknown": ("订单结果无法核实", "Order outcome is unknown"),
+        "candidate_write_failure": ("通知候选未能确认写入", "Notification candidate storage could not be confirmed"),
+        "runtime_guard": ("运行监控发现异常", "Runtime monitor detected an error"),
     }
-    zh = str(locale or "").strip().lower().startswith("zh")
-    title = messages.get(kind, messages["receipt_unacceptable"])[0 if zh else 1]
-    return title + ("\n请查看本次运行记录。" if zh else "\nReview the current run record.")
+    problem = messages.get(kind, messages["receipt_unacceptable"])[0 if zh else 1]
+    if kind == "fractional_trading_disclosure_required":
+        from notifications.telegram import build_translator
+        problem = build_translator("zh" if zh else "en")("skip_reason_fractional_trading_disclosure_required")
+    stamp = "未核实" if zh else "unverified"
+    if isinstance(occurred_at, datetime) and occurred_at.tzinfo is not None and occurred_at.utcoffset() is not None:
+        stamp = occurred_at.astimezone(ZoneInfo("Asia/Singapore")).strftime("%Y-%m-%d %H:%M:%S")
+        if not zh:
+            stamp += " SGT"
+        else:
+            stamp += "（新加坡时间）"
+    producers = {
+        "runtime": ("策略运行", "strategy runtime"),
+        "heartbeat": ("回执检查", "receipt monitor"),
+        "runtime_guard": ("运行监控", "runtime monitor"),
+    }
+    producer = producers.get(source, producers["runtime"])[0 if zh else 1]
+    # Only authentic first-party Actions references, never arbitrary hostnames,
+    # query strings, account selectors or cloud resource paths.
+    link = "运行链接不可用" if zh else "run link unavailable"
+    if isinstance(run_url, str) and re.fullmatch(
+        r"https://github\.com/QuantStrategyLab/FirstradePlatform/actions/runs/[0-9]+", run_url
+    ):
+        link = redact_sensitive_text(run_url)
+    if zh:
+        lines = ["【资产管理｜运行错误】", f"时间：{stamp}", "平台 / 策略：第一证券 / 未核实",
+            f"问题：{problem}", "影响：是否提交订单：未知；是否有待处理订单：未知",
+            f"证据：{producer}；{link}", "处理：查看本次运行记录，核实输入；未恢复前保持执行保护",
+            "事件：未提供安全事件引用｜投递状态以回执为准"]
+    else:
+        lines = ["[Asset management | Runtime error]", f"Time: {stamp}", "Platform / Strategy: Firstrade / unverified",
+            f"Problem: {problem}", "Impact: order submission unknown; pending orders unknown",
+            f"Evidence: {producer}; {link}", "Action: review this run and its inputs; retain execution protection until recovery",
+            "Event: safe reference unavailable | Delivery status follows the receipt"]
+    return redact_sensitive_text("\n".join(lines))
+
+
+def workflow_run_url(env=None):
+    """Return the real monitor workflow reference, never a synthesized business run."""
+    env = os.environ if env is None else env
+    return (f"{env.get('GITHUB_SERVER_URL', '')}/{env.get('GITHUB_REPOSITORY', '')}"
+            f"/actions/runs/{env.get('GITHUB_RUN_ID', '')}")
