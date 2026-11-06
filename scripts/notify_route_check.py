@@ -123,6 +123,8 @@ def _accessor_members(secret: str, project: str) -> dict:
 
 
 def main() -> int:
+    from quant_platform_kit.notifications import install_log_redaction
+    install_log_redaction()
     project = os.environ["GCP_PROJECT_ID"]
     prefix = (os.environ.get("SERVICE_NAME_PREFIX") or "").strip()
     limit = int(os.environ.get("REVISION_LIMIT") or "5")
