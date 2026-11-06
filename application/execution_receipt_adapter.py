@@ -116,11 +116,16 @@ def attach_unknown_failure_execution_receipt(report: dict[str, Any]) -> dict[str
     if _is_legacy_unattested(report):
         return report
 
-    outcome, confirmation = resolve_execution_receipt_fact(
-        dry_run=bool(report.get("dry_run")),
-        submission_attempted=True,
-        failed=True,
-    )
+    if report.get("dry_run"):
+        # An escaped exception is a failure even when no broker call is possible.
+        # Keep this fact independent of the shared resolver's dry-run precedence.
+        outcome, confirmation = "failed", "not_applicable"
+    else:
+        outcome, confirmation = resolve_execution_receipt_fact(
+            dry_run=False,
+            submission_attempted=True,
+            failed=True,
+        )
     return attach_runtime_execution_receipt(
         report,
         outcome=outcome,
