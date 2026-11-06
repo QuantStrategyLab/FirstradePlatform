@@ -50,6 +50,14 @@ def _failure_diagnostic(error, stage):
         code = category if type(category) is str and category in _STORAGE_CATEGORIES else "storage_unknown"
         return {"stage": stage, "error_code": code, "error_category": code}
     code = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
+    if isinstance(error, ValueError) and type(code) is str:
+        parts = code.split(":")
+        if (len(parts) == 3 and parts[0] == "candidate_archive_read_failed"
+                and parts[1] in {"initialize", "list", "read", "unknown"}
+                and parts[2] in {"permission_denied", "not_found", "timeout", "invalid_json",
+                                 "integrity_failed", "unavailable", "unknown"}):
+            return {"stage": "archive_read", "error_code": parts[0],
+                    "operation": parts[1], "error_category": parts[2]}
     if isinstance(error, (ValueError, RuntimeError)) and code in _ERROR_STAGES:
         return {"stage": _ERROR_STAGES[code], "error_code": code}
     if isinstance(error, json.JSONDecodeError):

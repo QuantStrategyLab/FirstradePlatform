@@ -31,18 +31,33 @@ def _binding(env, target):
     return account, binding, binding
 
 
+class _ReadResult(tuple):
+    """Keep the reader's two-value interface with local diagnostic metadata."""
+
+    def __new__(cls, reports, error, diagnostics):
+        result = super().__new__(cls, (reports, error))
+        result.diagnostics = diagnostics
+        return result
+
+
 def _read_reports(day, now, project):
     """Use the existing report reader; never expose a URI or report body."""
     start = datetime.combine(day, time.min, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
     end = min(start + timedelta(days=2), now)
+    diagnostics = dict(files_scanned=None, files_eligible=None, files_read=None,
+                       archive_outcome="list_failed")
+    def result(reports, error):
+        diagnostics["archive_outcome"] = error or "success"
+        return _ReadResult(reports, error, diagnostics)
     try:
         entries = []
         for glob in heartbeat._report_globs(start, end):
             entries.extend(heartbeat._list_gcs_objects(glob, project=project))
         eligible = [entry for entry in entries if heartbeat._object_updated_at(entry) is not None
                     and start - timedelta(days=1) <= heartbeat._object_updated_at(entry) <= end + timedelta(days=1)]
+        diagnostics.update(files_scanned=len(entries), files_eligible=len(eligible))
         if len(eligible) > 20:
-            return [], "read_truncated"
+            return result([], "read_truncated")
         reports = []
         failed = False
         for entry in eligible:
@@ -53,9 +68,10 @@ def _read_reports(day, now, project):
                 failed = True
             else:
                 reports.append(report)
-        return reports, "report_read_error" if failed else None
+        diagnostics["files_read"] = len(reports)
+        return result(reports, "report_read_error" if failed else None)
     except Exception:
-        return [], "list_failed"
+        return result([], "list_failed")
 
 
 def _auth_config(env):
@@ -93,7 +109,7 @@ def auth_preflight(env, *, opener=None):
         return "unavailable"
 
 
-def publish_once(env, *, now=None, opener=None):
+def publish_once(env, *, now=None, opener=None, diagnostics=None):
     """Make one POST; an unconfirmed response is never retried."""
     now = now or datetime.now(timezone.utc)
     target = json.loads(env.get("RUNTIME_TARGET_JSON") or "null")
@@ -113,8 +129,19 @@ def publish_once(env, *, now=None, opener=None):
     kwargs = dict(target_key=target_key, account_binding=account_binding,
                   business_date=day.isoformat(), observed_at=now)
     project_runtime_daily([], **kwargs)
-    reports, error = _read_reports(day, now, env.get("GCP_PROJECT_ID"))
+    read_result = _read_reports(day, now, env.get("GCP_PROJECT_ID"))
+    reports, error = read_result
     projection = project_runtime_daily(reports, **kwargs)
+    if diagnostics is not None:
+        diagnostics.update(getattr(read_result, "diagnostics", {}))
+        record = projection["records"][0]
+        reasons = {key: 0 for key in ("identity_unverified", "invalid_report",
+                                     "invalid_run_time", "other_business_date", "duplicate_run")}
+        for item in projection["unmatched_reports"] + record["excluded_reports"]:
+            reasons[item["reason"]] += 1
+        reasons["duplicate_run"] = len(reports) - len(record["runs"]) - sum(reasons.values())
+        diagnostics.update(files_attributable=None if error else len(record["runs"]),
+                           excluded_by_reason={key: None for key in reasons} if error else reasons)
     if error:
         projection["read_errors"].append(error)
     if not projection["records"][0]["runs"]:
@@ -146,16 +173,17 @@ def publish_once(env, *, now=None, opener=None):
 
 
 def main():
+    diagnostics = {}
     try:
         if sys.argv[1:] == ["--preflight"]:
             status = auth_preflight(os.environ)
         elif not sys.argv[1:]:
-            status = publish_once(os.environ)
+            status = publish_once(os.environ, diagnostics=diagnostics)
         else:
             raise ValueError("invalid_mode")
     except Exception:
         status = "unavailable"
-    print(json.dumps({"status": status}, separators=(",", ":")))
+    print(json.dumps({"status": status, **({"diagnostics": diagnostics} if diagnostics else {})}, separators=(",", ":")))
     return 0 if status in {"published", "verified"} else 1
 
 
