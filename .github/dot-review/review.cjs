@@ -142,7 +142,8 @@ async function select(github, context) {
   assert(run.workflow_id === workflow.id && workflow.path === '.github/workflows/risk-gate.yml'
     && workflow.name === 'PR risk gate' && run.status === 'completed'
     && run.repository.full_name === `${context.repo.owner}/${context.repo.repo}`, 'untrusted_upstream_workflow');
-  if (run.event === 'schedule') return null;
+  // A sweep and a relayed signal run carry no single pull request.
+  if (['schedule', 'workflow_run'].includes(run.event)) return null;
   assert(['pull_request_target','pull_request','workflow_dispatch'].includes(run.event), 'unsupported_upstream_event');
   const linked = [...new Set((run.pull_requests || []).map(p => p.number))];
   if (linked.length === 1) return linked[0];
