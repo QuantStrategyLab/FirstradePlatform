@@ -70,7 +70,8 @@ test('failed upstream gate can select one PR; wrong workflows and ambiguous asso
   run.workflow_id=13;await assert.rejects(r.select(github,context));run.workflow_id=12;
   run.pull_requests=[{number:7},{number:8}];await assert.rejects(r.select(github,context));
   run.pull_requests=[];await assert.rejects(r.select(github,context));
-  run.event='schedule';assert.equal(await r.select(github,context),null);
+  for (const event of ['schedule','workflow_run']){run.event=event;
+    assert.equal(await r.select(github,context),null);}
 });
 
 for (const kind of ['premerge','posthoc']) for (const uncertain of [false,true]) test(kind + (uncertain ? ' uncertain' : '') + ': offline submit/collect keeps one task and never grants approval', async () => {
