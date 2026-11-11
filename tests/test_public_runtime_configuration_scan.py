@@ -284,20 +284,19 @@ class PublicRuntimeConfigurationScanTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_tool_install_failure_fails_without_certification(self):
-        sudo = self.tools / "sudo"
-        sudo.write_text(f"#!{self.bash}\nexec \"$@\"\n", encoding="utf-8")
-        sudo.chmod(0o755)
-        apt_get = self.tools / "apt-get"
-        apt_get.write_text(f"#!{self.bash}\nexit 1\n", encoding="utf-8")
-        apt_get.chmod(0o755)
+        curl = self.tools / "curl"
+        curl.write_text(f"#!{self.bash}\nprintf 'synthetic download failure\\n' >&2\nexit 1\n", encoding="utf-8")
+        curl.chmod(0o755)
         self.output.unlink(missing_ok=True)
         result = self.run_script(
-            self.install_script, environment={"GITHUB_OUTPUT": str(self.output)}
+            self.install_script,
+            environment={"GITHUB_OUTPUT": str(self.output), "RUNNER_TEMP": str(self.root)},
         )
+        self.assertIn("synthetic download failure", result.stderr)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.completion_output(), "")
         print(
-            f"Expected tool-install failure: synthetic apt-get; exit={result.returncode}; "
+            f"Expected tool-install failure: synthetic download; exit={result.returncode}; "
             "no completion certification emitted.",
             flush=True,
         )
