@@ -3,6 +3,11 @@ name: Deploy Cloud Run
 on:
   workflow_dispatch:
     inputs:
+      release_cached_currency:
+        description: "Publish only the native currency field in the cached account archive."
+        required: false
+        default: false
+        type: boolean
       expected_sha:
         description: "Full commit SHA to deploy; must match the dispatched and approved branch head"
         required: true
@@ -57,7 +62,7 @@ concurrency:
 jobs:
   sync-account-facts-configuration:
     name: Apply account-facts configuration (zero traffic)
-    if: github.event_name == 'workflow_dispatch' && inputs.sync_account_facts_configuration == true
+    if: github.event_name == 'workflow_dispatch' && inputs.release_cached_currency != true && inputs.sync_account_facts_configuration == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -216,7 +221,7 @@ jobs:
 
   stage-cached-balance-diagnostic:
     name: Stage cached-balance diagnostic (no traffic)
-    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic == true && inputs.sync_account_facts_configuration != true
+    if: github.event_name == 'workflow_dispatch' && inputs.release_cached_currency != true && inputs.stage_cached_balance_diagnostic == true && inputs.sync_account_facts_configuration != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -495,7 +500,7 @@ jobs:
   deploy-cloud-run:
     name: Deploy Cloud Run
     # Production deployment and environment sync require an explicit operator dispatch.
-    if: github.event_name == 'workflow_dispatch' && inputs.stage_cached_balance_diagnostic != true && inputs.sync_account_facts_configuration != true
+    if: github.event_name == 'workflow_dispatch' && inputs.release_cached_currency != true && inputs.stage_cached_balance_diagnostic != true && inputs.sync_account_facts_configuration != true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -1702,3 +1707,35 @@ jobs:
               --async \
               --quiet
           done <<< "${old_digests}"
+
+
+  release-cached-currency:
+    name: Release native currency in the cached archive
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 && inputs.release_cached_currency == true &&
+      inputs.expected_sha == github.sha && inputs.approved_ref == github.ref &&
+      !inputs.allow_configuration_sync && inputs.allow_traffic_promotion == true && !inputs.allow_cleanup &&
+      !inputs.stage_cached_balance_diagnostic && !inputs.sync_account_facts_configuration
+    environment: firstrade-step5
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Build and verify the archive-only revision
+        env:
+          CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
+          CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+          REVIEWED_WORKFLOW_SHA: ${{ inputs.expected_sha }}
+        run: python3 scripts/release_cached_currency.py
