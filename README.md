@@ -89,7 +89,16 @@ the serving revision or prove that historical snapshots contain returns, cash fl
 
 The existing Runtime Target Lifecycle manual entry with `metadata_only=true` inspects the actual serving revision. It reports only whether the sync switch, approved destination, binding settings, token reference and cache settings are configured. It does not resolve secrets, read a cache or invoke the broker; binding correctness and cached-session validity remain explicitly unchecked. Configured settings do not prove a successful balance sync.
 
-`POST /account-facts-sync` is a cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes only provider-reported equity and, when present, provider `cash_balance`; it does not read positions, so a positions read failure or incomplete positions cannot block the balance snapshot. Buying power and positions are not used to calculate assets or cash.
+`POST /account-facts-sync` is a cached-session-only balance snapshot path. It is disabled unless `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true`; it does not log in, refresh credentials, schedule itself, submit orders, or send notifications. It publishes provider-reported equity and, when present, provider `cash_balance`. The explicit `FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY` setting also enables position collection. Buying power and positions are not used to calculate assets or cash.
+
+The daily candidate Job can read the existing cached observation through its
+protected `DIGEST_FUNDS_SNAPSHOT_GCS_URI`. Bind it to the selected account's exact
+`funds/latest.json` object with read-only access. The Job includes it only when
+the archived account and original observation interval match the completed
+business window. Equity needs a recorded currency. Holdings are the observed
+symbols and quantities; they do not establish a complete account inventory.
+The snapshot does not change run, submission or fill counts, and a missing or
+unreadable snapshot does not block the execution candidate.
 
 The existing daily Execution Report Heartbeat also invokes this snapshot path once through the already-configured Scheduler bridge. Its independent snapshot job checks the exact service URL, POST route and OIDC audience, never creates or updates the bridge, and requires a new successful Scheduler completion plus the matching Cloud Run request HTTP 200. The endpoint returns 200 only after the publisher accepts its acknowledgement; its INFO log may be suppressed and is not required. Dispatch acceptance alone is not success, and independent website latest/identity/history readback remains a separate acceptance check. The existing daily schedule is unchanged; report and notification jobs remain independent. A manual `snapshot_only=true` run checks this path without reports or notifications. Expired/missing cached authentication fails the snapshot job; `/session-renew` remains manual and is never invoked automatically. No Cloud Run image update is needed for this workflow-only integration.
 

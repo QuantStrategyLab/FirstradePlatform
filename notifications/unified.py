@@ -21,6 +21,7 @@ from notifications.digest_snapshot.unified_contract import (
     order_identity_digest, route_notification_event,
     sgt_business_window, unified_notification_enabled,
 )
+from application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
 
 FLAG = "FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED"
 TARGET_KEYS = ("platform_id", "strategy_profile", "service_name", "account_scope",
@@ -219,7 +220,7 @@ def _aggregate(rows):
     return result
 
 
-def _merge(store, uri, rows, events, *, idle=None, archive=False):
+def _merge(store, uri, rows, events, *, idle=None, archive=False, account_snapshot=None):
     for _ in range(8):
         try:
             version, previous = store.read(uri)
@@ -229,8 +230,9 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
         # all merge history in their per-run rows, as required by QRS.
         sources = dict((previous or {}).get("notification_source_runs") or {})
         facts = dict((previous or {}).get("notification_events") or {})
+        previous_rows = (previous or {}).get("runs", [])
         if previous and "notification_source_runs" not in previous:
-            for original in previous.get("runs", []):
+            for original in previous_rows:
                 if original.get("actually_ran") is not True:
                     continue
                 run_id = original.get("source_run_id")
@@ -242,6 +244,12 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
                 for fact in row.pop("notification_events", []):
                     facts[fact["dedupe_key"]] = fact
                 row.pop("source_run_id")
+                # A daily account observation is independent of any run's facts.
+                account_facts = row.pop("account_daily_facts", None)
+                if isinstance(account_facts, Mapping):
+                    run_facts = {key: value for key, value in account_facts.items() if key != "snapshots"}
+                    if run_facts:
+                        row["account_daily_facts"] = run_facts
                 sources[run_id] = row
         for row in sources.values():
             row["field_status"] = {key: "unknown" if value == "counts_unknown" else value
@@ -275,8 +283,21 @@ def _merge(store, uri, rows, events, *, idle=None, archive=False):
         # QRS consumes only runs: each carries its own archive counts/events.
         run_rows = [{**sources[run_id], "source_run_id": run_id,
                      "notification_events": by_run[run_id]} for run_id in sorted(sources)]
-        payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected",
-            runs=run_rows if sources else [idle] if idle else [])
+        output = run_rows if sources else [dict(idle)] if idle else []
+        if output:
+            snapshots = [account_snapshot] if account_snapshot is not None else None
+            if snapshots is None:
+                for prior in previous_rows:
+                    if all(prior.get(key) == output[0].get(key) for key in identity[:5]):
+                        previous_facts = prior.get("account_daily_facts") or {}
+                        snapshots = previous_facts.get("snapshots")
+                        if snapshots:
+                            break
+            if snapshots:
+                output[0]["account_daily_facts"] = {
+                    **(output[0].get("account_daily_facts") or {}), "snapshots": snapshots,
+                }
+        payload = dict(schema_version="qsl.digest_candidates.v1", producer_status="projected", runs=output)
         try:
             written = store.compare_and_set(uri, version, payload)
         except Exception as error:
@@ -296,6 +317,64 @@ def persist_report_candidate(report, fact, *, env, now, store):
     prefix = binding["DIGEST_CANDIDATES_GCS_URI"].rstrip("/")
     uri = f"{prefix}/firstrade/{row['business_day']}/{binding['DIGEST_STORE_TARGET']}.json"
     return _merge(store, uri, {report["run_id"]: row}, {fact["dedupe_key"]: fact})
+
+
+def _funds_snapshot(binding, target, day, now, read):
+    """Project the bound account's existing cached-only archive, without broker IO."""
+    uri = binding.get("DIGEST_FUNDS_SNAPSHOT_GCS_URI")
+    selector = target.get("account_selector")
+    if (not uri or target.get("dry_run_only") is not False
+            or not isinstance(selector, list) or len(selector) != 1
+            or not isinstance(selector[0], str) or not selector[0]):
+        return None
+    if (not isinstance(uri, str)
+            or not re.fullmatch(r"gs://[a-z0-9][a-z0-9._-]+/[^\s?#*]+/funds/latest\.json", uri)):
+        print("digest_funds_snapshot_binding_invalid", flush=True)
+        return None
+    try:
+        value = read(["cat", uri])
+    except Exception:
+        print("digest_funds_snapshot_unavailable", flush=True)
+        return None
+    if (not isinstance(value, Mapping) or value.get("account") != selector[0]
+            or value.get("source") != "cached_account_facts" or value.get("session_reused") is not True):
+        return None
+    try:
+        observed = datetime.fromisoformat(value["as_of"].replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(value["observed_finished_at"].replace("Z", "+00:00"))
+        if (observed.tzinfo is None or finished.tzinfo is None or not observed <= finished <= now
+                or any(sgt_business_window(stamp).business_day.isoformat() != day for stamp in (observed, finished))):
+            return None
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
+
+    def amount(raw):
+        try:
+            value = _decimal_text(raw)
+        except AccountFactsUnavailable:
+            return None
+        return float(value) if value is not None else None
+
+    snapshot = {"as_of": observed.astimezone(timezone.utc).isoformat()}
+    balances = value.get("balance_metrics") or {}
+    if isinstance(balances, Mapping):
+        currency = balances.get("currency")
+        equity = amount(balances.get("total_equity"))
+        if equity is not None and isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency):
+            snapshot.update(equity=equity, equity_currency=currency)
+    coverage = value.get("coverage") or {}
+    positions = value.get("positions")
+    if isinstance(coverage, Mapping) and coverage.get("positions_requested") is True and isinstance(positions, list):
+        holdings = []
+        for position in positions:
+            if not isinstance(position, Mapping):
+                continue
+            symbol, quantity = position.get("symbol"), amount(position.get("quantity"))
+            if isinstance(symbol, str) and re.fullmatch(r"[A-Z0-9][A-Z0-9./ -]{0,31}", symbol) and quantity is not None:
+                holdings.append({"symbol": symbol, "quantity": quantity, "asset_type": "security"})
+        if holdings:
+            snapshot.update(holdings=holdings, holdings_scope="observed_positions")
+    return snapshot if len(snapshot) > 1 else None
 
 
 def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
@@ -325,7 +404,10 @@ def emit_candidates(env, *, now=None, read=digest_archive._read, store=None):
                     continue
                 rows[report["run_id"]] = _row(report, selected, target, current)
                 events[event.to_candidate()["dedupe_key"]] = event.to_candidate()
-            _merge(store, uri, rows, events, idle=payload["runs"][0] if not rows else None, archive=True)
+            first = payload["runs"][0]
+            snapshot = _funds_snapshot(binding, target, first["business_day"], current, read)
+            _merge(store, uri, rows, events, idle=first if not rows else None, archive=True,
+                   account_snapshot=snapshot)
         mapped = {**binding, "QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest"}
         results.append(digest_archive.emit(mapped, now=current, read=capture, upload=upload))
     return {"status": "projected", "uploaded": any(r["uploaded"] for r in results), "targets": len(results)}
