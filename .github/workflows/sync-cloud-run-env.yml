@@ -1714,6 +1714,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 && inputs.release_cached_currency == true &&
+      vars.ENABLE_GITHUB_CLOUD_RUN_DEPLOY == 'true' &&
       inputs.expected_sha == github.sha && inputs.approved_ref == github.ref &&
       !inputs.allow_configuration_sync && inputs.allow_traffic_promotion == true && !inputs.allow_cleanup &&
       !inputs.stage_cached_balance_diagnostic && !inputs.sync_account_facts_configuration
