@@ -41,7 +41,7 @@ concurrency:
 jobs:
   account_facts:
     name: Collect cached-session balance snapshot
-    if: ${{ github.event_name == 'schedule' || inputs.snapshot_only }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.snapshot_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 7
     permissions:
