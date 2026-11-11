@@ -72,7 +72,7 @@ def revision_path(path, revision):
     return revision
 
 
-def rollout(request, path, build):
+def rollout(request, path, build, *, verify_head=lambda: None):
     global STAGE
     baseline = request(path)
     require(baseline["ingress"] == "INGRESS_TRAFFIC_INTERNAL_ONLY" and not baseline.get("reconciling"),
@@ -114,6 +114,7 @@ def rollout(request, path, build):
     verify_configuration(template, candidate)
     verify_configuration(staged["template"], candidate)
     STAGE = "promote_currency_only"
+    verify_head()
     traffic = [{**row, "revision": new_path.rsplit("/", 1)[-1]} if row == route else row for row in baseline["traffic"]]
     payload = {"name": path, "etag": staged["etag"], "traffic": traffic}
     request(path + "?updateMask=traffic&validateOnly=true", "PATCH", payload)
@@ -174,7 +175,11 @@ def main():
         require(not result.get("error"), "cloud_run_api_error")
         return result
 
-    rollout(request, f"projects/{project}/locations/{region}/services/{service}", build_image)
+    def verify_head():
+        head = command("git", "ls-remote", "origin", "refs/heads/main").split()
+        require(len(head) == 2 and head[0] == os.environ["REVIEWED_WORKFLOW_SHA"], "reviewed_branch_changed")
+
+    rollout(request, f"projects/{project}/locations/{region}/services/{service}", build_image, verify_head=verify_head)
     print('{"cached_currency_release_verified":true,"runtime_configuration_preserved":true}')
 
 

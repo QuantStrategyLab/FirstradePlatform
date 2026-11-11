@@ -1729,6 +1729,16 @@ jobs:
         with:
           ref: ${{ inputs.expected_sha }}
           persist-credentials: false
+      - name: Recheck the approved branch after deployment review
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "The approved branch changed before the release." >&2
+            exit 1
+          fi
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
