@@ -95,6 +95,52 @@ def test_real_projector_publishes_completed_weekend_then_reads_exact_object(clie
     assert client.lists
 
 
+FUNDS = "gs://synthetic-funds/accounts/synthetic_account/funds/latest.json"
+
+
+@pytest.mark.parametrize("account,currency,observed,has_facts", [
+    ("synthetic-account", "USD", "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", None, "2026-10-31T21:30:00+00:00", True),
+    ("different-account", "USD", "2026-10-31T21:30:00+00:00", False),
+    ("synthetic-account", "USD", "2026-10-31T22:05:00+00:00", False),
+])
+def test_completed_window_uses_only_bound_funds_observation(client, account, currency, observed, has_facts):
+    env = {**ENV, "DIGEST_FUNDS_SNAPSHOT_GCS_URI": FUNDS}
+    client.blob(FUNDS).upload_from_string(json.dumps({
+        "account": account, "source": "cached_account_facts", "session_reused": True,
+        "as_of": observed, "observed_finished_at": observed,
+        "balance_metrics": {"total_equity": "125.50", "currency": currency},
+        "coverage": {"positions_requested": True},
+        "positions": [{"symbol": "SYN", "quantity": "-2"}],
+    }), retry=None)
+    assert publisher.publish(env, now=lambda: NOW, client=client)["readback_verified"]
+    uri = "gs://synthetic-candidates/digest/firstrade/2026-10-31/synthetic-slot.json"
+    payload = json.loads(client.blobs[uri].body)
+    row, = payload["runs"]
+    assert row["actually_ran"] is False and row["scheduled_idle"] is True
+    assert row.get("order_count") is None and row.get("fill_count") is None
+    if not has_facts:
+        assert "account_daily_facts" not in row
+        return
+    assert account not in json.dumps(row)
+    facts, = row["account_daily_facts"]["snapshots"]
+    assert facts["as_of"] == observed
+    assert facts.get("equity") == (125.50 if currency else None)
+    assert facts.get("equity_currency") == currency
+    assert facts["holdings"] == [{"symbol": "SYN", "quantity": -2.0, "asset_type": "security"}]
+    assert facts.get("holdings_complete") is not True
+    # A report-only projection cannot erase an accepted account observation.
+    assert publisher.publish(ENV, now=lambda: NOW, client=client)["readback_verified"]
+    assert json.loads(client.blobs[uri].body)["runs"][0]["account_daily_facts"] == row["account_daily_facts"]
+
+
+def test_unavailable_funds_snapshot_preserves_execution_coverage(client):
+    env = {**ENV, "DIGEST_FUNDS_SNAPSHOT_GCS_URI": FUNDS}
+    assert publisher.publish(env, now=lambda: NOW, client=client)["readback_verified"]
+    row, = json.loads(client.blobs["gs://synthetic-candidates/digest/firstrade/2026-10-31/synthetic-slot.json"].body)["runs"]
+    assert row["scheduled_idle"] is True and "account_daily_facts" not in row
+
+
 @pytest.mark.parametrize("hour,minute", [(21, 59), (22, 40), (23, 0), (1, 16)])
 def test_early_or_delayed_start_never_calls_emitter(hour, minute):
     now = NOW.replace(hour=hour, minute=minute)
@@ -232,12 +278,22 @@ def test_existing_business_report_uses_native_archive_reader_and_verified_public
                   {"execution_status": "no_action", "broker_submission_done": False}, [])}}
     archive = client.blob("gs://synthetic-archive/reports/firstrade/synthetic/2026-10/run.json")
     archive.upload_from_string(json.dumps(report), retry=None)
-    result = publisher.publish(env, now=lambda: NOW, client=client)
+    stamp = "2026-10-31T21:30:00+00:00"
+    client.blob(FUNDS).upload_from_string(json.dumps({
+        "account": "synthetic-account", "source": "cached_account_facts", "session_reused": True,
+        "as_of": stamp, "observed_finished_at": stamp,
+        "balance_metrics": {"total_equity": "125.50", "currency": "USD"},
+    }), retry=None)
+    result = publisher.publish({**env, "DIGEST_FUNDS_SNAPSHOT_GCS_URI": FUNDS}, now=lambda: NOW, client=client)
     assert result["readback_verified"] is True
     uri = f"gs://synthetic-candidates/digest/{PLATFORM}/2026-10-31/synthetic-slot.json"
     rows = json.loads(client.blobs[uri].body)["runs"]
     assert rows and all(row["actually_ran"] is True for row in rows)
     assert all(row["business_day"] == "2026-10-31" for row in rows)
+    assert rows[0]["account_daily_facts"] == {"snapshots": [
+        {"as_of": stamp, "equity": 125.50, "equity_currency": "USD"}]}
+    assert publisher.publish(env, now=lambda: NOW, client=client)["readback_verified"]
+    assert json.loads(client.blobs[uri].body)["runs"] == rows
 
 
 @pytest.mark.parametrize("key,value", [
