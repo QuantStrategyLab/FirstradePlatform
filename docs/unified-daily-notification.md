@@ -27,6 +27,15 @@ The producer aggregates every unique cycle in the completed 06:00 SGT window;
 missing evidence is unknown, never zero. No new collector or scheduler is added.
 The manual healthy-heartbeat option cannot force an immediate success message.
 
+For a bound cached account-funds snapshot, set
+`DIGEST_FUNDS_SNAPSHOT_CURRENCY` to the confirmed account valuation currency
+(an uppercase three-letter code) if the broker omits the currency. Set it
+beside `DIGEST_FUNDS_SNAPSHOT_GCS_URI` on the single-target publisher or in
+the individual target mapping. The broker currency takes precedence. The
+setting applies only to the digest total-asset line for a matching in-window
+snapshot. The original archive and account-facts publication retain their
+broker currency requirements.
+
 `QSL_NOTIFICATION_MARKER_GCS_URI` optionally separates incident reservations,
 delivery receipts and heartbeat event facts from `DIGEST_CANDIDATES_GCS_URI`.
 Use a dedicated per-account prefix so the runtime needs mutable access only to

@@ -98,14 +98,22 @@ def test_real_projector_publishes_completed_weekend_then_reads_exact_object(clie
 FUNDS = "gs://synthetic-funds/accounts/synthetic_account/funds/latest.json"
 
 
-@pytest.mark.parametrize("account,currency,observed,has_facts", [
-    ("synthetic-account", "USD", "2026-10-31T21:30:00+00:00", True),
-    ("synthetic-account", None, "2026-10-31T21:30:00+00:00", True),
-    ("different-account", "USD", "2026-10-31T21:30:00+00:00", False),
-    ("synthetic-account", "USD", "2026-10-31T22:05:00+00:00", False),
+@pytest.mark.parametrize("account,currency,configured,expected_currency,observed,has_facts", [
+    ("synthetic-account", "USD", None, "USD", "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", None, None, None, "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", None, "USD", "USD", "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", "CAD", "USD", "CAD", "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", "$", "USD", None, "2026-10-31T21:30:00+00:00", True),
+    ("synthetic-account", None, "$", None, "2026-10-31T21:30:00+00:00", True),
+    ("different-account", None, "USD", None, "2026-10-31T21:30:00+00:00", False),
+    ("synthetic-account", None, "USD", None, "2026-10-31T22:05:00+00:00", False),
 ])
-def test_completed_window_uses_only_bound_funds_observation(client, account, currency, observed, has_facts):
+def test_completed_window_uses_only_bound_funds_observation(
+    client, account, currency, configured, expected_currency, observed, has_facts,
+):
     env = {**ENV, "DIGEST_FUNDS_SNAPSHOT_GCS_URI": FUNDS}
+    if configured is not None:
+        env["DIGEST_FUNDS_SNAPSHOT_CURRENCY"] = configured
     client.blob(FUNDS).upload_from_string(json.dumps({
         "account": account, "source": "cached_account_facts", "session_reused": True,
         "as_of": observed, "observed_finished_at": observed,
@@ -125,13 +133,24 @@ def test_completed_window_uses_only_bound_funds_observation(client, account, cur
     assert account not in json.dumps(row)
     facts, = row["account_daily_facts"]["snapshots"]
     assert facts["as_of"] == observed
-    assert facts.get("equity") == (125.50 if currency else None)
-    assert facts.get("equity_currency") == currency
+    assert facts.get("equity") == (125.50 if expected_currency else None)
+    assert facts.get("equity_currency") == expected_currency
+    assert json.loads(client.blobs[FUNDS].body)["balance_metrics"]["currency"] == currency
     assert facts["holdings"] == [{"symbol": "SYN", "quantity": -2.0, "asset_type": "security"}]
     assert facts.get("holdings_complete") is not True
     # A report-only projection cannot erase an accepted account observation.
     assert publisher.publish(ENV, now=lambda: NOW, client=client)["readback_verified"]
     assert json.loads(client.blobs[uri].body)["runs"][0]["account_daily_facts"] == row["account_daily_facts"]
+
+
+def test_configured_currency_does_not_carry_over_to_other_target_bindings():
+    from notifications.unified import _bindings
+
+    bindings = _bindings({
+        "DIGEST_FUNDS_SNAPSHOT_CURRENCY": "USD",
+        "DIGEST_TARGET_BINDINGS_JSON": json.dumps([{"DIGEST_FUNDS_SNAPSHOT_CURRENCY": "CAD"}, {}]),
+    })
+    assert [binding.get("DIGEST_FUNDS_SNAPSHOT_CURRENCY") for binding in bindings] == ["CAD", None]
 
 
 def test_unavailable_funds_snapshot_preserves_execution_coverage(client):

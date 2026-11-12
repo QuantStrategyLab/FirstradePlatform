@@ -117,7 +117,11 @@ def _bindings(env):
     values = json.loads(raw) if raw else [{}]
     if not isinstance(values, list) or not values or not all(isinstance(v, dict) for v in values):
         raise ValueError("candidate_bindings_invalid")
-    bindings = [{**env, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
+    base = dict(env)
+    if raw:
+        # An account currency must be set on each explicit target binding.
+        base.pop("DIGEST_FUNDS_SNAPSHOT_CURRENCY", None)
+    bindings = [{**base, **v, "DIGEST_TARGET_BINDINGS_JSON": ""} for v in values]
     override = env.get("DIGEST_CANDIDATES_OVERRIDE_GCS_URI", "")
     if override:
         override = override.rstrip("/") if isinstance(override, str) else override
@@ -359,6 +363,8 @@ def _funds_snapshot(binding, target, day, now, read):
     balances = value.get("balance_metrics") or {}
     if isinstance(balances, Mapping):
         currency = balances.get("currency")
+        if currency is None:
+            currency = binding.get("DIGEST_FUNDS_SNAPSHOT_CURRENCY")
         equity = amount(balances.get("total_equity"))
         if equity is not None and isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency):
             snapshot.update(equity=equity, equity_currency=currency)
