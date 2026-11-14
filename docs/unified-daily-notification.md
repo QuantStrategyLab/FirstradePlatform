@@ -225,3 +225,22 @@ Private state object and submission-claim locators retain their existing identit
 format so a display change cannot bypass an existing duplicate-submission lock
 or session-maintenance marker. New state payload account fields use the two-character
 mask. State-store errors omit object locators and provider exception details.
+
+
+### Daily attribution diagnostics
+
+The daily runtime publisher's local JSON output includes `diagnostics` after
+archive projection: `files_scanned`, `files_eligible`, `files_read`,
+`files_attributable`, and `excluded_by_reason`. Reasons are fixed labels:
+`identity_unverified`, `invalid_report`, `invalid_run_time`,
+`other_business_date`, and `duplicate_run`. Failed or truncated reads leave
+attribution and exclusion totals null; successful empty listings produce zeros.
+`archive_outcome` distinguishes success, listing failure, report read failure,
+and truncation. These diagnostics do not change the receiver payload or certify
+archive completeness, identity, execution, or reconciliation.
+
+Candidate archive failures retain `candidate_archive_read_failed` and expose only
+allowlisted operation (`initialize`, `list`, `read`, `unknown`) and category
+(`permission_denied`, `not_found`, `timeout`, `invalid_json`, `integrity_failed`,
+`unavailable`, `unknown`). Provider messages, source locators, bindings and report
+bodies are excluded. Failures still exit nonzero; no retry or sending gate changes.

@@ -146,7 +146,10 @@ def test_unreadable_empty_source_keeps_safe_failure_category(monkeypatch, capsys
     ):
         monkeypatch.setattr(publisher, "_read_reports", lambda *_: ([], error))
         assert publisher.main() == 1
-        assert json.loads(capsys.readouterr().out) == {"status": expected}
+        output = json.loads(capsys.readouterr().out)
+        assert output["status"] == expected
+        assert output["diagnostics"]["files_attributable"] is None
+        assert all(value is None for value in output["diagnostics"]["excluded_by_reason"].values())
 
 
 def test_archive_listing_exception_is_redacted_and_preserved(monkeypatch, capsys):
