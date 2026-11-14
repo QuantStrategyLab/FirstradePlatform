@@ -1,0 +1,252 @@
+name: FT step 5 bucket IAM removal
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate only; false removes the two approved grants
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ft-step5-bucket-iam
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require configured Environment and default branch
+        env:
+          IAM_ENVIRONMENT: ${{ vars.FIRSTRADE_STEP5_ENVIRONMENT }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ -z "$IAM_ENVIRONMENT" ] || [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo 'Missing FIRSTRADE_STEP5_ENVIRONMENT or dispatch is not on the default branch.'
+            exit 1
+          fi
+
+  remove-grants:
+    needs: preflight
+    environment: ${{ vars.FIRSTRADE_STEP5_ENVIRONMENT }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_AUTH_SERVICE_ACCOUNT: ${{ secrets.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+      TARGET_BUCKET: ${{ secrets.FIRSTRADE_STEP5_BUCKET }}
+      TARGET_SERVICE_ACCOUNT: ${{ secrets.FIRSTRADE_STEP5_SERVICE_ACCOUNT }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Validate Environment configuration and mask identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCONFIG'
+          import os
+          import re
+          import sys
+          names = ('GCP_PROJECT_ID', 'GCP_WIF_PROVIDER', 'GCP_AUTH_SERVICE_ACCOUNT',
+                   'TARGET_BUCKET', 'TARGET_SERVICE_ACCOUNT')
+          missing = [name for name in names if not os.environ.get(name)]
+          if missing:
+              print('Missing Environment configuration: ' + ', '.join(missing))
+              sys.exit(1)
+          for name in names:
+              value = os.environ[name]
+              if any(c in value for c in '\r\n'):
+                  print('Invalid Environment configuration')
+                  sys.exit(1)
+              for part in [value, *re.split(r'[/@.:]', value)]:
+                  if len(part) > 2:
+                      print('::add-mask::' + part)
+          PYCONFIG
+      - name: Authenticate with Environment WIF credentials
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_AUTH_SERVICE_ACCOUNT }}
+          create_credentials_file: false
+          token_format: access_token
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+      - name: Validate and optionally remove exactly two grants
+        env:
+          CLOUDSDK_AUTH_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYIAM'
+          import copy
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          ROLES = ("roles/storage.objectCreator", "roles/storage.objectViewer")
+
+
+          def require(ok, message):
+              if not ok:
+                  raise ValueError(message)
+
+
+          def mask(value):
+              # One shared serializer for policies and diagnostics; never emit raw strings.
+              if isinstance(value, str):
+                  return "***" + value[-2:]
+              if isinstance(value, list):
+                  return [mask(item) for item in value]
+              if isinstance(value, dict):
+                  return {key: mask(item) for key, item in value.items()}
+              return value
+
+
+          def normalized(policy):
+              result = copy.deepcopy(policy)
+              result.pop("etag", None)
+              bindings = result.get("bindings", [])
+              for binding in bindings:
+                  binding["members"] = sorted(binding["members"])
+              result["bindings"] = sorted(bindings, key=lambda b: json.dumps(b, sort_keys=True))
+              return result
+
+
+          def plan(before, member):
+              require(isinstance(before, dict), "Invalid policy")
+              require(set(before) <= {"bindings", "etag", "version"}, "Unknown policy fields")
+              require(isinstance(before.get("etag"), str) and before["etag"], "Missing etag")
+              require(before.get("version") in (1, 3), "Unknown policy version")
+              require(isinstance(before.get("bindings"), list), "Missing bindings")
+              after = copy.deepcopy(before)
+              counts = dict.fromkeys(ROLES, 0)
+              kept = []
+              for binding in after["bindings"]:
+                  require(isinstance(binding, dict), "Invalid binding")
+                  require(set(binding) <= {"role", "members", "condition"}, "Unknown binding fields")
+                  require(isinstance(binding.get("role"), str), "Missing role")
+                  if "condition" in binding:
+                      condition = binding["condition"]
+                      require(isinstance(condition, dict) and set(condition) <= {"title", "description", "expression", "location"}
+                              and all(isinstance(v, str) for v in condition.values()), "Invalid condition")
+                  members = binding.get("members")
+                  require(isinstance(members, list) and all(isinstance(m, str) for m in members),
+                          "Invalid members")
+                  require(len(members) == len(set(members)) and members, "Invalid duplicate/empty members")
+                  role = binding["role"]
+                  if role in ROLES and member in members:
+                      require("condition" not in binding, "Conditional target binding requires review")
+                      counts[role] += 1
+                      members.remove(member)
+                      if not members:
+                          continue
+                  kept.append(binding)
+              require(all(count == 1 for count in counts.values()), "Expected exactly two target grants")
+              after["bindings"] = kept
+              # Independent reconstruction proves that no other policy content was edited.
+              restored = copy.deepcopy(after)
+              for role in ROLES:
+                  matches = [b for b in restored["bindings"] if b["role"] == role and "condition" not in b]
+                  original = [b for b in before["bindings"] if b["role"] == role and member in b["members"]][0]
+                  if len(original["members"]) == 1:
+                      restored["bindings"].append(copy.deepcopy(original))
+                  else:
+                      expected = [m for m in original["members"] if m != member]
+                      matches = [b for b in matches if b["members"] == expected]
+                      require(len(matches) == 1, "Ambiguous target binding")
+                      matches[0]["members"].append(member)
+              require(normalized(restored) == normalized(before), "Unexpected planned difference")
+              return after
+
+
+          def verify(expected, after):
+              require(isinstance(after.get("etag"), str) and after["etag"], "Missing readback etag")
+              require(normalized(expected) == normalized(after), "Unexpected policy readback difference")
+
+
+          def main():
+              bucket = os.environ.get("TARGET_BUCKET", "")
+              account = os.environ.get("TARGET_SERVICE_ACCOUNT", "")
+              dry = os.environ.get("DRY_RUN", "")
+              require(re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]", bucket), "Invalid bucket config")
+              require(re.fullmatch(r"[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com", account),
+                      "Invalid target service account config")
+              require(dry in ("true", "false"), "Invalid dry_run")
+              token_result = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True,
+                                            text=True, check=False)
+              require(token_result.returncode == 0 and token_result.stdout.strip(), "Token acquisition failed")
+              token = token_result.stdout.strip()
+              url = "https://storage.googleapis.com/storage/v1/b/" + urllib.parse.quote(bucket, safe="") + "/iam"
+
+              def request(method, policy=None):
+                  data = None if policy is None else json.dumps(policy).encode()
+                  endpoint = url + ("?optionsRequestedPolicyVersion=3" if method == "GET" else "")
+                  req = urllib.request.Request(endpoint, data=data, method=method, headers={
+                      "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as response:
+                          return json.load(response)
+                  except urllib.error.HTTPError as error:
+                      # Never echo the server body, URL, principal, token, or raw exception.
+                      permission = "storage.buckets.setIamPolicy" if method == "PUT" else "storage.buckets.getIamPolicy"
+                      print(f"IAM request failed: HTTP {error.code}; required permission: {permission}")
+                      raise ValueError("IAM request rejected; no retry") from None
+                  except (OSError, ValueError):
+                      raise ValueError("IAM transport or response integrity failure; no retry") from None
+
+              member = "serviceAccount:" + account
+              before = request("GET")
+              expected = plan(before, member)
+              evidence = {"dry_run": dry == "true", "before": mask(before), "planned": mask(expected),
+                          "removals": [{"role": role, "member": mask(member)} for role in ROLES],
+                          "planned_diff": "EXACT_TWO_REMOVALS"}
+              directory = Path("evidence")
+              directory.mkdir(exist_ok=True)
+              (directory / "policy.json").write_text(json.dumps(evidence, indent=2) + "\n")
+              print(json.dumps(evidence))
+              if dry == "false":
+                  # The original etag is included in PUT. A competing update must fail, never retry.
+                  response = request("PUT", expected)
+                  verify(expected, response)
+                  after = request("GET")
+                  evidence["after"] = mask(after)
+                  (directory / "policy.json").write_text(json.dumps(evidence, indent=2) + "\n")
+                  verify(expected, after)
+                  evidence["applied_diff"] = "EXACT_TWO_REMOVALS"
+                  (directory / "policy.json").write_text(json.dumps(evidence, indent=2) + "\n")
+                  print(json.dumps({"after": mask(after), "applied_diff": evidence["applied_diff"]}))
+
+
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Exception:
+                  print("FAIL CLOSED: IAM operation or integrity check failed; inspect masked evidence.")
+                  sys.exit(1)
+          PYIAM
+      - name: Upload masked policy evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: step5-masked-policy
+          path: evidence/*.json
+          if-no-files-found: ignore
+          retention-days: 7
