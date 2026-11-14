@@ -196,16 +196,10 @@ def _telegram_notification_targets() -> tuple[tuple[str, str], ...]:
 
 
 def _runtime_error_notification_message(exc: Exception) -> str:
-    t = build_translator(os.getenv("QSL_NOTIFY_LANG") or os.getenv("NOTIFY_LANG"))
-    title = "runtime_probe_failure_title" if request.path == "/probe" else "runtime_failure_title"
-    strategy_name = os.getenv("STRATEGY_DISPLAY_NAME") or os.getenv("STRATEGY_PROFILE") or "Firstrade"
-    return "\n".join((
-        t(title),
-        t("strategy_label", name=strategy_name),
-        t("runtime_failure_context", context=os.getenv('ACCOUNT_REGION') or os.getenv('K_SERVICE') or 'Firstrade'),
-        t("runtime_failure_result"),
-        t("runtime_failure_action"),
-    ))
+    from notifications.unified import alert_text, coverage_locale, workflow_run_url
+    return alert_text("real_error", coverage_locale(), occurred_at=datetime.now(timezone.utc),
+                      source="heartbeat" if request.path == "/probe" else "runtime",
+                      run_url=workflow_run_url())
 
 
 def _notify_runtime_error(exc: Exception) -> bool:
@@ -550,7 +544,7 @@ def _run_strategy_cycle_with_report(
                     return result
                 result["report_persistence_error"] = "execution_report_write_unconfirmed"
             delivery = notify_cycle(report, result, settings=settings,
-                send=lambda: _publish_cycle_notification(result, settings=settings),
+                send=lambda: _publish_cycle_notification(result, settings=settings, report=report),
                 send_failure=send_failure)
             result["notification_consolidation"] = delivery
             result["notification_sent"] = delivery.get("transport_acknowledged") is True
