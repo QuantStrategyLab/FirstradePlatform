@@ -3,6 +3,11 @@ name: Runtime Guard
 on:
   workflow_dispatch:
     inputs:
+      verify_identity_only:
+        description: "Verify target and log reads without sending alerts or writing cache state."
+        required: false
+        type: boolean
+        default: false
       lookback_minutes:
         description: "Cloud Logging lookback window in minutes."
         required: false
@@ -28,9 +33,9 @@ on:
     - cron: "17,47 * * * *"
 
 env:
-  GCP_PROJECT_ID: firstradequant
-  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
-  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
+  GCP_PROJECT_ID: ${{ secrets.RUNTIME_GUARD_PROJECT_ID }}
+  GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.RUNTIME_GUARD_WIF_PROVIDER }}
+  GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.RUNTIME_GUARD_SERVICE_ACCOUNT }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -38,6 +43,7 @@ concurrency:
 
 jobs:
   guard:
+    if: github.ref == 'refs/heads/main'
     name: Check Cloud Run runtime
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -102,7 +108,37 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Verify runtime guard identity without alerts
+        if: ${{ inputs.verify_identity_only }}
+        run: |
+          uv run --no-sync python - <<'PY'
+          import datetime as dt
+          import os
+
+          from scripts import cloud_run_runtime_guard as guard
+
+          project = os.environ["GCP_PROJECT_ID"]
+          services = guard._load_services()
+          if not services:
+              raise SystemExit("Runtime Guard has no configured services.")
+          since = guard._format_timestamp(dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=15))
+          try:
+              for service in services:
+                  if guard._latest_ready_revision_started_at(project, service) is None:
+                      raise RuntimeError("No ready revision found.")
+                  guard._run_gcloud_logging(
+                      project, guard._cloud_run_log_filter(service, since, guard._region_for_service(service)), 1
+                  )
+              guard._run_gcloud_logging(
+                  project, f'resource.type="cloud_scheduler_job" AND timestamp >= "{since}"', 1
+              )
+          except RuntimeError:
+              raise SystemExit("Runtime Guard could not read the target metadata or logs.") from None
+          print("Runtime Guard identity verified: Cloud Run and Cloud Scheduler reads succeeded.")
+          PY
+
       - name: Restore runtime-guard alert dedupe state
+        if: ${{ !inputs.verify_identity_only }}
         uses: actions/cache/restore@v4
         with:
           path: .runtime-guard-dedupe
@@ -111,10 +147,11 @@ jobs:
             runtime-guard-dedupe-
 
       - name: Check Cloud Scheduler and Cloud Run logs
+        if: ${{ !inputs.verify_identity_only }}
         run: uv run --no-sync python scripts/cloud_run_runtime_guard.py
 
       - name: Save runtime-guard alert dedupe state
-        if: ${{ always() && hashFiles('.runtime-guard-dedupe/state.json') != '' }}
+        if: ${{ always() && !inputs.verify_identity_only && hashFiles('.runtime-guard-dedupe/state.json') != '' }}
         uses: actions/cache/save@v4
         with:
           path: .runtime-guard-dedupe

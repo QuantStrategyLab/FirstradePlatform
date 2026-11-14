@@ -78,6 +78,12 @@ Fill counts require individual execution identifiers. A completed order response
 proves an order completed, not how many fills it received. Missing fill counts
 remain unknown; confirmed routine orders still appear without a false diagnostic.
 
+The standalone Runtime Guard authenticates with a dedicated short-lived identity
+for Cloud Run metadata and project log reads. Its existing notifier can read one
+configured secret when a token is not supplied. To verify access from the default
+branch without sending a notification or changing alert deduplication state,
+dispatch Runtime Guard with `verify_identity_only` enabled.
+
 Runtime Guard notifications keep the localized summary and workflow link. Raw
 provider audit entries remain in their original restricted logs and are not
 passed as Telegram technical details, including when the deployed formatter is
