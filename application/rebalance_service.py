@@ -513,6 +513,23 @@ def _unsupported_strategy_execution_result(
     )
 
 
+def _build_platform_execution_record(result, *, settings):
+    return {
+        "platform": "firstrade",
+        "action_done": result.get("action_done"),
+        "broker_submission_done": result.get("broker_submission_done"),
+        "execution_status": result.get("execution_status"),
+        "orders_pending_count": result.get("orders_pending_count"),
+        "strategy_run_stage": result.get("strategy_run_stage"),
+        "dry_run_only": settings.dry_run_only,
+        "submitted_orders": result.get("submitted_orders"),
+        "skipped_orders": result.get("skipped_orders"),
+        "error": result.get("error"),
+        "total_equity": (result.get("portfolio") or {}).get("total_equity")
+        or (result.get("portfolio") or {}).get("equity"),
+    }
+
+
 def run_strategy_cycle(
     *,
     runtime_settings: PlatformRuntimeSettings | None = None,
@@ -1007,19 +1024,6 @@ def run_strategy_cycle(
         result["notification_suppressed"] = True
     try_record_platform_execution(
         strategy_runtime.profile,
-        {
-            "platform": "firstrade",
-            "action_done": result.get("action_done"),
-            "broker_submission_done": result.get("broker_submission_done"),
-            "execution_status": result.get("execution_status"),
-            "orders_pending_count": result.get("orders_pending_count"),
-            "strategy_run_stage": result.get("strategy_run_stage"),
-            "dry_run_only": settings.dry_run_only,
-            "submitted_orders": result.get("submitted_orders"),
-            "skipped_orders": result.get("skipped_orders"),
-            "error": result.get("error"),
-            "total_equity": (result.get("portfolio") or {}).get("total_equity")
-            or (result.get("portfolio") or {}).get("equity"),
-        },
+        _build_platform_execution_record(result, settings=settings),
     )
     return result
