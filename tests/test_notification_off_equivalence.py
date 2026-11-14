@@ -172,6 +172,17 @@ def test_flags_off_entrypoints_renderers_match_main_golden(monkeypatch, flag, mo
         for outcome in ("blocked", "missing"):
             for notify in (False, True):
                 key = f"heartbeat:{lang}:{outcome}:{notify}"
+                # The pinned QPK privacy contract replaces raw technical details.
+                # Keep the historical golden immutable and compare every control call.
+                if outcome == "blocked":
+                    raw = ("技术详情（原文）：\nsynthetic-service: rejected inner execution status"
+                           if lang == "zh" else
+                           "Technical details (original):\nsynthetic-service: rejected inner execution status")
+                    safe = ("排查详情请查看工作流或云端运行日志。" if lang == "zh" else
+                            "See the workflow or cloud runtime logs for diagnostic details.")
+                    send_call = expected[key]["calls"][-1]
+                    assert send_call[0] == "send" and send_call[1].endswith(raw)
+                    send_call[1] = send_call[1][:-len(raw)] + safe
                 assert actual[key] == expected[key]
     actual_broker = actual["broker_cycle"]
     expected_broker = expected["broker_cycle"]
