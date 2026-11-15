@@ -107,6 +107,8 @@ FUNDS = "gs://synthetic-funds/accounts/synthetic_account/funds/latest.json"
     ("synthetic-account", None, "$", None, "2026-10-31T21:30:00+00:00", True),
     ("different-account", None, "USD", None, "2026-10-31T21:30:00+00:00", False),
     ("synthetic-account", None, "USD", None, "2026-10-31T22:05:00+00:00", False),
+    ("synthetic-account", "USD", "USD", "USD", "2026-10-12T20:00:00+00:00", True),
+    ("synthetic-account", "USD", "USD", "USD", "2026-09-10T20:00:00+00:00", False),
 ])
 def test_completed_window_uses_only_bound_funds_observation(
     client, account, currency, configured, expected_currency, observed, has_facts,

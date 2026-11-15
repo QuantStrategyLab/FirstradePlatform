@@ -156,7 +156,7 @@ def main():
     except Exception:
         status = "unavailable"
     print(json.dumps({"status": status}, separators=(",", ":")))
-    return 0 if status in {"published", "verified"} else 1
+    return 0 if status in {"published", "verified", "no_attributable_runs"} else 1
 
 
 if __name__ == "__main__":
