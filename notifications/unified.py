@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -346,8 +346,10 @@ def _funds_snapshot(binding, target, day, now, read):
     try:
         observed = datetime.fromisoformat(value["as_of"].replace("Z", "+00:00"))
         finished = datetime.fromisoformat(value["observed_finished_at"].replace("Z", "+00:00"))
-        if (observed.tzinfo is None or finished.tzinfo is None or not observed <= finished <= now
-                or any(sgt_business_window(stamp).business_day.isoformat() != day for stamp in (observed, finished))):
+        window = sgt_business_window(datetime.fromisoformat(f"{day}T12:00:00+08:00"))
+        if (observed.tzinfo is None or finished.tzinfo is None
+                or not window.end - timedelta(days=45) <= observed <= finished <= now
+                or not observed < window.end or not finished < window.end):
             return None
     except (KeyError, TypeError, AttributeError, ValueError):
         return None

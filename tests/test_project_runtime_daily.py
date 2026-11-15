@@ -204,3 +204,12 @@ def test_auth_preflight_accepts_only_exact_safe_json_without_retry(monkeypatch):
                                  (403, b'{}', "unavailable"), (302, b'{}', "unavailable")):
         opener = Opener(code, body)
         assert publisher.auth_preflight(env, opener=opener) == expected and opener.calls == 1
+
+
+def test_main_exits_zero_when_no_attributable_runs(monkeypatch, capsys):
+    from scripts import publish_runtime_daily as publisher
+
+    monkeypatch.setattr(publisher.sys, "argv", ["publish_runtime_daily"])
+    monkeypatch.setattr(publisher, "publish_once", lambda _env: "no_attributable_runs")
+    assert publisher.main() == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "no_attributable_runs"}

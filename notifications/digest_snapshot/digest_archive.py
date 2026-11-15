@@ -142,6 +142,7 @@ def emit(env, *, now=None, read=_read, upload=None):
             "platform_id": platform, "strategy_profile": target["strategy_profile"],
             "opaque_account_uid": uid, "target_id": tid, "business_day": day.isoformat(),
             "actually_ran": False, "status": "ok", "scheduled_idle": True,
+            "execution_status": "not_run", "reason_code": "not_due",
             "evidence_provenance": "candidates",
         }]}
     else:
