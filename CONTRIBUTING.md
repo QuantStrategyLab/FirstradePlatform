@@ -22,3 +22,5 @@ Run the local unit tests before opening a pull request:
 .venv/bin/python -m pytest -q
 .venv/bin/python -m build
 ```
+
+Documentation follows the [QuantStrategyLab documentation style guide](https://github.com/QuantStrategyLab/.github/blob/main/docs/STYLE_GUIDE.md).
