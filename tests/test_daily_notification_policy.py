@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from notifications import unified
-from notifications.digest_snapshot.digest_candidates import cycle_evidence
+from firstrade_platform.notifications import unified
+from firstrade_platform.notifications.digest_snapshot.digest_candidates import cycle_evidence
 
 
 class MemoryStore:
@@ -184,8 +184,8 @@ def test_coverage_error_is_localized_without_trade_details(locale, expected):
 
 
 def test_routine_plugin_filter_preserves_urgent_and_counts_only_safe_routes():
-    from notifications.digest_snapshot.digest_candidates import routine_observation_counts
-    from notifications.digest_snapshot.digest_routing import immediate_plugin_signals
+    from firstrade_platform.notifications.digest_snapshot.digest_candidates import routine_observation_counts
+    from firstrade_platform.notifications.digest_snapshot.digest_routing import immediate_plugin_signals
     watch = SimpleNamespace(canonical_route="watch", suggested_action="observe")
     urgent = SimpleNamespace(canonical_route="watch", suggested_action="observe", error="synthetic")
     assert immediate_plugin_signals([watch, urgent], mode="daily_digest") == (urgent,)
@@ -193,7 +193,7 @@ def test_routine_plugin_filter_preserves_urgent_and_counts_only_safe_routes():
 
 
 def test_archive_confirmation_requires_exact_configured_uri(monkeypatch):
-    from main import _report_archive_confirmed
+    from firstrade_platform.main import _report_archive_confirmed
     from quant_platform_kit.common.runtime_reports import build_runtime_report_cloud_uri
     monkeypatch.setenv("EXECUTION_REPORT_GCS_URI", "gs://synthetic/reports")
     monkeypatch.delenv("QSL_EXECUTION_REPORT_GCS_URI", raising=False)
@@ -209,7 +209,7 @@ def test_archive_confirmation_requires_exact_configured_uri(monkeypatch):
 
 
 def test_direct_urgent_with_watch_reports_coverage_without_suppressing_urgent(monkeypatch):
-    from application.rebalance_service import _report_unarchived_direct_coverage
+    from firstrade_platform.application.rebalance_service import _report_unarchived_direct_coverage
     settings = SimpleNamespace(notify_lang="en", tg_token=None, tg_chat_id=None)
     monkeypatch.setenv("QSL_NOTIFY_LANG", " EN-us ")
     result = {"ok": False, "error": "synthetic", "routine_observation_counts": {"watch": 1}}
@@ -224,7 +224,7 @@ def test_direct_urgent_with_watch_reports_coverage_without_suppressing_urgent(mo
 
 
 def test_direct_normal_preview_does_not_send_coverage():
-    from application.rebalance_service import _report_unarchived_direct_coverage
+    from firstrade_platform.application.rebalance_service import _report_unarchived_direct_coverage
     result = {"ok": True, "dry_run_only": True, "execution_status": "dry_run",
               "routine_observation_counts": {"watch": 1}}
     sent = []
@@ -234,7 +234,7 @@ def test_direct_normal_preview_does_not_send_coverage():
 
 
 def test_main_normal_preview_without_archive_does_not_send(monkeypatch):
-    import main
+    from firstrade_platform import main
     settings = SimpleNamespace(dry_run_only=True, tg_token="synthetic", tg_chat_id="synthetic")
     result = {"ok": True, "dry_run_only": True, "execution_status": "dry_run"}
     monkeypatch.setattr(main, "_runtime_settings", lambda **kwargs: settings)
@@ -254,8 +254,8 @@ def test_main_normal_preview_without_archive_does_not_send(monkeypatch):
 
 @pytest.mark.parametrize("flag", [None, "false", "true"])
 def test_actual_main_archives_before_staging_and_never_sends_routine(flag, monkeypatch):
-    import main
-    from application import rebalance_service
+    from firstrade_platform import main
+    from firstrade_platform.application import rebalance_service
     from quant_platform_kit.common.runtime_reports import build_runtime_report_cloud_uri
     now, result, report, env = fixtures()
     result["strategy_run_stage"] = "PENDING_RECONCILIATION"

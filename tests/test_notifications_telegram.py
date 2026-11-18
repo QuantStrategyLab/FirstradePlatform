@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from notifications.telegram import render_cycle_notification, render_cycle_summary
+from firstrade_platform.notifications.telegram import render_cycle_notification, render_cycle_summary
 
 
 def test_funding_block_reason_is_localized_in_both_notification_formats():

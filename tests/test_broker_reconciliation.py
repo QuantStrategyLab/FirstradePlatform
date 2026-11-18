@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.broker_reconciliation import (
+from firstrade_platform.application.broker_reconciliation import (
     FirstradeReconciliationUnavailable,
     FirstradeReconciliationObservations,
     build_reconciliation_candidate,

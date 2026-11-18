@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from application.account_payload_utils import (
+from firstrade_platform.application.account_payload_utils import (
     float_or_none,
     get_first,
     iter_position_rows,
     selected_numeric_metrics,
 )
-from application.firstrade_client import (
+from firstrade_platform.application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
     FirstradeSafetyError,
@@ -23,10 +23,10 @@ from application.firstrade_client import (
     mask_account_id,
     suppress_firstrade_http_debug,
 )
-from application.state_persistence import (
+from firstrade_platform.application.state_persistence import (
     GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
 )
-from strategy_registry import (
+from firstrade_platform.strategy_registry import (
     FIRSTRADE_PLATFORM,
     resolve_strategy_definition,
     resolve_strategy_metadata,

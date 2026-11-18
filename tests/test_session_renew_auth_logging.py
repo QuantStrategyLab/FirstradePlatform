@@ -11,13 +11,13 @@ import pytest
 from firstrade.account import FTSession
 from firstrade.exceptions import AccountResponseError, LoginResponseError
 
-from application.firstrade_client import (
+from firstrade_platform.application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
     FirstradeMfaRequired,
     FirstradeSafetyError,
 )
-from application.session_check_service import run_forced_session_renewal
+from firstrade_platform.application.session_check_service import run_forced_session_renewal
 
 
 @pytest.mark.parametrize("failure_stage", ["login", "seed_verify", "code_verify", "account_read"])
@@ -25,7 +25,7 @@ from application.session_check_service import run_forced_session_renewal
 def test_renewal_route_contains_exceptions_without_logging_secrets(
     tmp_path, monkeypatch, caplog, capsys, failure_stage, error_kind,
 ):
-    import main
+    from firstrade_platform import main
 
     # Exercise Flask's production error handling and the pinned SDK with synthetic data only.
     private = ("synthetic-account-private", "246802", "A" * 32,

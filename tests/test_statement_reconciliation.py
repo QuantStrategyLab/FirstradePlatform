@@ -5,12 +5,12 @@ from decimal import Decimal
 
 import pytest
 
-from application.firstrade_fee_schedule import (
+from firstrade_platform.application.firstrade_fee_schedule import (
     DEFAULT_FEE_SCHEDULE_CONFIG,
     FeeScheduleError,
     load_fee_schedule,
 )
-from application.statement_reconciliation import (
+from firstrade_platform.application.statement_reconciliation import (
     decompose_sell_fees,
     valuation_basis_difference,
     valuation_basis_report,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from strategy_loader import load_strategy_runtime_adapter_for_profile
-from strategy_registry import (
+from firstrade_platform.strategy_loader import load_strategy_runtime_adapter_for_profile
+from firstrade_platform.strategy_registry import (
     FIRSTRADE_PLATFORM,
     get_platform_profile_status_matrix,
     get_supported_profiles_for_platform,

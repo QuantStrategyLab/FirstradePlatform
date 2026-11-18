@@ -8,10 +8,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from application.account_facts_publisher import (
+from firstrade_platform.application.account_facts_publisher import (
     AccountFactsPublishConfig, AccountFactsPublishError, publish_firstrade_account_snapshot,
 )
-from application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
+from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
 from scripts import publish_archived_account_history as history
 
 

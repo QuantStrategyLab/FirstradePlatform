@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from runtime_config_support import PlatformRuntimeSettings
-from strategy_runtime import _build_runtime_overrides
+from firstrade_platform.runtime_config_support import PlatformRuntimeSettings
+from firstrade_platform.strategy_runtime import _build_runtime_overrides
 
 
 def _runtime_settings(**overrides) -> PlatformRuntimeSettings:
@@ -118,7 +118,7 @@ def test_stamp_portfolio_risk_metadata_calls_qpk_helper(monkeypatch):
     StrategyManifest,
     StrategyRuntimeAdapter,
 )
-    import strategy_runtime as strategy_runtime_module
+    import firstrade_platform.strategy_runtime as strategy_runtime_module
 
     class _Entrypoint:
         manifest = StrategyManifest(

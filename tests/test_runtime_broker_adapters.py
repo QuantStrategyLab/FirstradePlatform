@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from application.runtime_broker_adapters import build_runtime_broker_adapters
+from firstrade_platform.application.runtime_broker_adapters import build_runtime_broker_adapters
 
 
 def _timestamp_ms(value: datetime) -> int:

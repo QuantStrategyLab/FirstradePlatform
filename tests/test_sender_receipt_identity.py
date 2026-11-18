@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from notifications import unified
+from firstrade_platform.notifications import unified
 from quant_platform_kit.notifications.unified_contract import order_identity_digest
-from notifications.telegram import build_sender
+from firstrade_platform.notifications.telegram import build_sender
 from test_notification_consolidation import ENV, NOW, TARGET, Store, source
 
 CASES = ["boolean", "boolean_false", "missing", "null", "empty", "blank", "negative_ack", "transport_ack",

@@ -10,7 +10,12 @@ from quant_platform_kit.common.strategy_contracts import (
     StrategyRuntimeAdapter,
 )
 
-from strategy_registry import FIRSTRADE_PLATFORM as PLATFORM, PLATFORM_POLICY, STRATEGY_CATALOG, get_platform_runtime_adapter
+from firstrade_platform.strategy_registry import (
+    FIRSTRADE_PLATFORM as PLATFORM,
+    PLATFORM_POLICY,
+    STRATEGY_CATALOG,
+    get_platform_runtime_adapter,
+)
 
 
 def load_strategy_definition(raw_profile: str | None) -> StrategyDefinition:

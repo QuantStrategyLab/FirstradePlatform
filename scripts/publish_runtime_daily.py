@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from scripts import execution_report_heartbeat as heartbeat
 from scripts.project_runtime_daily import PLATFORM, project_runtime_daily
-from application.account_facts_publisher import _APPROVED_SYNC_URL as _FACTS_URL
+from firstrade_platform.application.account_facts_publisher import _APPROVED_SYNC_URL as _FACTS_URL
 
 
 class _NoRedirect(HTTPRedirectHandler):

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from quant_platform_kit.common.us_equity_sessions import Session
 
-import main
+from firstrade_platform import main
 
 
 def test_market_hours_gate_uses_regular_session_only(monkeypatch):

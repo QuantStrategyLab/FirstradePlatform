@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from application.account_facts_readonly import AccountFactsUnavailable
+from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable
 
 _APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync"
 _TARGET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?", re.ASCII)

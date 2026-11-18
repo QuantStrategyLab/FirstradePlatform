@@ -15,7 +15,6 @@ dependencies = [
     "google-cloud-storage",
     "gunicorn",
     "pandas_market_calendars",
-    "pytest",
     "pytz",
     "requests",
     "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@5d0714201f3813f68a9833083cd21f6d61e5b702",
@@ -35,29 +34,15 @@ test = [
 ]
 
 [tool.setuptools]
-py-modules = [
-  "decision_mapper",
-  "main",
-  "runtime_config_support",
-  "runtime_execution_policy",
-  "strategy_loader",
-  "strategy_registry",
-  "strategy_runtime",
-]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = [
-  "application*",
-  "entrypoints*",
-  "notifications*",
-  "scripts*",
-]
+where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = [
+  "src",
   ".",
-  "../QuantPlatformKit/src",
-  "../UsEquityStrategies/src",
 ]
 testpaths = ["tests"]
 
@@ -74,7 +59,7 @@ ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"
 
 [tool.coverage.run]
 branch = true
-source = ["."]
+source = ["src/firstrade_platform"]
 omit = ["tests/*", "*/external/*", ".venv/*", "build/*", "dist/*"]
 
 [tool.coverage.report]

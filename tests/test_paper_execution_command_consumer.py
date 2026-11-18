@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from application.paper_execution_command_consumer import (
+from firstrade_platform.application.paper_execution_command_consumer import (
     FIRSTRADE_PAPER_EXECUTION_INTENT_SCHEMA_VERSION,
     consume_due_paper_execution_commands,
     resolve_paper_execution_command_consumer_enabled,

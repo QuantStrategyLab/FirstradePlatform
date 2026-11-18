@@ -41,7 +41,7 @@ def mock_heartbeat(monkeypatch, payload):
     monkeypatch.setattr(heartbeat, '_cat_gcs_json', lambda *args, **kw: payload)
     sent = []
     monkeypatch.setattr(heartbeat, '_send_telegram', lambda msg, **kw: sent.append(msg) or True)
-    from notifications import unified
+    from firstrade_platform.notifications import unified
     monkeypatch.setattr(unified, 'notify_heartbeat', lambda **kw: {'candidate_persisted': True})
     return sent
 

@@ -23,7 +23,7 @@ from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-from application.firstrade_fee_schedule import FeeSchedule, FeeScheduleError, load_fee_schedule
+from firstrade_platform.application.firstrade_fee_schedule import FeeSchedule, FeeScheduleError, load_fee_schedule
 
 _CENT = Decimal("0.01")
 _MILLION = Decimal("1000000")

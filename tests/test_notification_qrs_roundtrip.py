@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from notifications import unified
+from firstrade_platform.notifications import unified
 from test_notification_consolidation import ENV, NOW, Store, archive_read, candidate, notify, source
 
 QRS_SHA = "160933eaa376bd4297616e8affc946430be69771"

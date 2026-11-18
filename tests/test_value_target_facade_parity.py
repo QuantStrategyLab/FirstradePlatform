@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-import decision_mapper
+import firstrade_platform.decision_mapper as decision_mapper
 from value_target_parity_cases import GOLDEN_PATH, build_cases, canonical
 
 _GOLDEN = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))

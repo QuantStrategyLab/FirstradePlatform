@@ -8,10 +8,10 @@ import pytest
 
 pytest.importorskip("flask")
 
-import main
-from application.account_facts_readonly import AccountFactsUnavailable
-from application.account_facts_publisher import AccountFactsPublishError
-from application.firstrade_client import FirstradeCachedSessionError
+from firstrade_platform import main
+from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable
+from firstrade_platform.application.account_facts_publisher import AccountFactsPublishError
+from firstrade_platform.application.firstrade_client import FirstradeCachedSessionError
 
 
 def test_cached_failure_logs_correlate_without_changing_response(monkeypatch, capsys):

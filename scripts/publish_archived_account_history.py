@@ -9,15 +9,21 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
-from application.account_facts_publisher import (
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from firstrade_platform.application.account_facts_publisher import (  # noqa: E402
     build_firstrade_account_snapshot,
     load_account_facts_publish_config,
     publish_firstrade_account_snapshot,
 )
-from application.account_facts_readonly import _exact_balance_value
+from firstrade_platform.application.account_facts_readonly import _exact_balance_value  # noqa: E402
 from scripts.inspect_funds_snapshot_schema import configured_account, history_objects
 
 

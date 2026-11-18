@@ -8,7 +8,7 @@ import signal
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from notifications.digest_snapshot.digest_archive import ArchiveReader
+from firstrade_platform.notifications.digest_snapshot.digest_archive import ArchiveReader
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 PLATFORM = "firstrade"
@@ -28,7 +28,7 @@ def publication_day(now):
 
 
 def _emit(env, *, now, read):
-    from notifications.unified import emit_candidates
+    from firstrade_platform.notifications.unified import emit_candidates
     return emit_candidates(env, now=now, read=read)
 
 
@@ -94,7 +94,7 @@ def main(argv=None):
         return 0
     except (Exception, DeadlineExceeded) as error:
         # Never expose exception messages, private locators or credentials.
-        from notifications.unified import CandidateStorageError
+        from firstrade_platform.notifications.unified import CandidateStorageError
         diagnostic = ({"stage": error.stage, "error_category": error.category}
                       if isinstance(error, CandidateStorageError) else {})
         print(json.dumps({"status": "failed", "reason_code": "candidate_publication_unconfirmed",

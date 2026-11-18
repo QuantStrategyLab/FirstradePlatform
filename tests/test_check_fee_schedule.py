@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from application.firstrade_fee_schedule import DEFAULT_FEE_SCHEDULE_CONFIG
+from firstrade_platform.application.firstrade_fee_schedule import DEFAULT_FEE_SCHEDULE_CONFIG
 from scripts import check_fee_schedule as cfs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fee_schedule_check"

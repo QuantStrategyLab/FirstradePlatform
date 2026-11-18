@@ -8,7 +8,7 @@ Dependency installation is preparation; run tests without network or credential 
 The installed-lock lane checks VCS URL, exact locked revision and version together
 with every loaded shared module's actual file/spec origin, package search path,
 distribution ownership and RECORD SHA-256. Editable installs and sibling shadows fail.
-The existing sibling entries in pytest's `pythonpath` remain unchanged.
+Pytest's `pythonpath` resolves `src` and `.` without sibling repository checkouts.
 
 ```bash
 uv run --no-sync python -m pytest -q -p test_support.pytest_provenance \
@@ -55,4 +55,5 @@ transient modules loaded and removed between boundaries by arbitrary third-party
 Existing test-specific path edits and mocks remain in place, so legacy whole-suite
 source ambiguity remains characterized rather than eliminated. The test support is
 excluded from the setuptools production package selection; pins, production source,
-existing scanner/completion checks and coverage configuration are unchanged.
+existing scanner/completion checks and `src/firstrade_platform` coverage configuration
+remain intact.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from application.firstrade_client import mask_account_id
+from firstrade_platform.application.firstrade_client import mask_account_id
 from quant_platform_kit.common.display_names import display_name
 
 from quant_platform_kit.common.operational_notification_localization import resolve_operational_notification_locale
@@ -28,7 +28,7 @@ from quant_platform_kit.notifications.renderer_base import (
     localize_price_source_label as _localize_price_source_label,
     present as _present,
 )
-from notifications.compact_adapter import adapt_compact_sections
+from firstrade_platform.notifications.compact_adapter import adapt_compact_sections
 from quant_platform_kit.notifications.events import RenderedNotification
 
 from quant_platform_kit.common.notification_localization import (

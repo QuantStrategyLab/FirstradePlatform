@@ -27,4 +27,4 @@ USER appuser
 
 RUN /app/.venv/bin/python -m scripts.publish_digest_before_read --help
 
-CMD ["/app/.venv/bin/python", "-m", "gunicorn", "--bind", ":8080", "main:app"]
+CMD ["/app/.venv/bin/python", "-m", "gunicorn", "--bind", ":8080", "firstrade_platform.main:app"]

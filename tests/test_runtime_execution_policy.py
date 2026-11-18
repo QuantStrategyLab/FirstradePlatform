@@ -19,11 +19,9 @@ from quant_platform_kit.common.strategies import (
 )
 
 ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
-QPK_SRC = ROOT.parent / "QuantPlatformKit" / "src"
-if str(QPK_SRC) not in sys.path:
-    sys.path.insert(0, str(QPK_SRC))
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 _DCA_DEFINITIONS = {
     "nasdaq_sp500_smart_dca": StrategyDefinition(
@@ -71,17 +69,21 @@ _FIRSTRADE_CAPABILITY_MATRIX = PlatformCapabilityMatrix(
 )
 _FAKE_CATALOG = StrategyCatalog(definitions=_DCA_DEFINITIONS)
 
-_fake_registry = types.ModuleType("strategy_registry")
+_fake_registry = types.ModuleType("firstrade_platform.strategy_registry")
 _fake_registry.PLATFORM_CAPABILITY_MATRIX = _FIRSTRADE_CAPABILITY_MATRIX
 _fake_registry.STRATEGY_CATALOG = _FAKE_CATALOG
 
 
 @pytest.fixture
 def notional_buy_fn(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setitem(sys.modules, "strategy_registry", _fake_registry)
-    rep = importlib.import_module("runtime_execution_policy")
+    monkeypatch.setitem(sys.modules, "firstrade_platform.strategy_registry", _fake_registry)
+    rep = importlib.import_module("firstrade_platform.runtime_execution_policy")
     rep = importlib.reload(rep)
-    return rep.notional_buy_execution_enabled
+    try:
+        yield rep.notional_buy_execution_enabled
+    finally:
+        monkeypatch.undo()
+        importlib.reload(rep)
 
 
 @pytest.mark.parametrize(

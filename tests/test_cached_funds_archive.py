@@ -3,8 +3,8 @@ from copy import deepcopy
 
 import pytest
 
-import main
-from application.account_facts_publisher import AccountFactsPublishError
+from firstrade_platform import main
+from firstrade_platform.application.account_facts_publisher import AccountFactsPublishError
 from tests.test_account_facts_endpoint import FakeClient, _configure
 
 
@@ -33,7 +33,7 @@ def archive_route(monkeypatch):
     monkeypatch.setattr(main, "collect_firstrade_account_facts", lambda *a, **k: observation)
     monkeypatch.setattr(main, "publish_firstrade_account_snapshot", lambda *a: publishes.append(a))
     # Patch the existing state-store boundary; no cloud or broker traffic.
-    import application.session_check_service as service
+    import firstrade_platform.application.session_check_service as service
     monkeypatch.setattr(service, "build_gcs_state_store_from_env", lambda *a: Store())
     return observation, writes, publishes, client, service
 

@@ -104,7 +104,7 @@ The existing daily Execution Report Heartbeat also invokes this snapshot path on
 
 The Cloud Run service must remain IAM-protected. The caller needs `roles/run.invoker` and must send its Google-signed ID token in `X-Serverless-Authorization`; the separate application token goes in `Authorization: Bearer …`. See [Cloud Run service-to-service authentication](https://cloud.google.com/run/docs/authenticating/service-to-service). Neither token is a Firstrade credential.
 
-Configure the following only through protected Cloud Run environment variables and Secret Manager references: `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`, `FIRSTRADE_ACCOUNT_FACTS_SYNC_URL` (must equal the approved sync URL defined as `_APPROVED_SYNC_URL` in `application/account_facts_publisher.py`), `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN` (a dedicated secret), `FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`, `FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`, `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY`, and `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`. The account identity is taken from the single exact selector in the protected runtime target; if `FIRSTRADE_ACCOUNT` is also set, it must match. All values must match the trusted QRS binding and current runtime target. Do not derive or invent a binding ID.
+Configure the following only through protected Cloud Run environment variables and Secret Manager references: `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`, `FIRSTRADE_ACCOUNT_FACTS_SYNC_URL` (must equal the approved sync URL defined as `_APPROVED_SYNC_URL` in `src/firstrade_platform/application/account_facts_publisher.py`), `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN` (a dedicated secret), `FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`, `FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`, `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY`, and `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`. The account identity is taken from the single exact selector in the protected runtime target; if `FIRSTRADE_ACCOUNT` is also set, it must match. All values must match the trusted QRS binding and current runtime target. Do not derive or invent a binding ID.
 
 The existing manual Cloud Run environment sync carries the six non-token settings through the selected Firstrade target's `env` configuration in `CLOUD_RUN_SERVICE_TARGETS_JSON`; the legacy single-service path can use matching `FIRSTRADE_ACCOUNT_FACTS_*` inputs. Keep target, binding, account key, and scope in protected GitHub configuration. Set the protected GitHub variable `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME` to the name of the already-approved Secret Manager secret. The workflow maps that Secret Manager reference to `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`; it never accepts a raw token value from GitHub Actions. Keep the enable switch unset or `false` until deployment adoption is separately reviewed. This source change does not apply Cloud Run configuration or establish deployment adoption.
 
@@ -128,9 +128,11 @@ Keep the sync disabled until the receiver-side account binding and separate sync
 
 ## Repository layout
 
+- `src/firstrade_platform/`: installable runtime package (`application/`, `entrypoints/`, `notifications/`, `main.py`, and strategy and runtime policy modules).
 - `tests/`: unit, contract, and regression tests.
 - `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 - `scripts/`: operator scripts and local helpers.
+- `docs/`: runtime, reconciliation, and notification contracts.
 
 ## Quick start
 
@@ -142,7 +144,9 @@ uv run --no-sync python scripts/check_qpk_pin_consistency.py
 
 ## Useful docs
 
+- [Documentation index](docs/README.md)
 - [Isolated paper command consumer](docs/paper-execution-command-consumer.md)
+- [Configurable display names](docs/display-names.md)
 
 ## Community and security
 
@@ -157,5 +161,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). AI assistants and maintainers follow [AG
 ## License
 
 See [LICENSE](LICENSE).
-
-Display/notification naming configuration: [display names](docs/display-names.md).

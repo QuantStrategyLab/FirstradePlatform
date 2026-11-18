@@ -22,8 +22,8 @@ from threading import RLock
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from application.account_payload_utils import flatten_values, float_or_none
-from application.state_persistence import GcsStateStore
+from firstrade_platform.application.account_payload_utils import flatten_values, float_or_none
+from firstrade_platform.application.state_persistence import GcsStateStore
 
 _HTTP_DEBUG_LOCK = RLock()
 

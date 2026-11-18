@@ -3,13 +3,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-PLATFORM_KIT_SRC = ROOT.parent / "QuantPlatformKit" / "src"
-if str(PLATFORM_KIT_SRC) not in sys.path:
-    sys.path.insert(0, str(PLATFORM_KIT_SRC))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
-from notifications.telegram import build_sender
+from firstrade_platform.notifications.telegram import build_sender
 
 
 class FakeRequests:

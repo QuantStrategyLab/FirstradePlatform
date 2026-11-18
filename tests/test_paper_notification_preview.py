@@ -26,6 +26,13 @@ _FORBIDDEN_IMPORT_ROOTS = (
     "entrypoints",
     "runtime_config_support",
     "runtime_execution_policy",
+    "firstrade_platform.main",
+    "firstrade_platform.application",
+    "firstrade_platform.strategy_runtime",
+    "firstrade_platform.decision_mapper",
+    "firstrade_platform.entrypoints",
+    "firstrade_platform.runtime_config_support",
+    "firstrade_platform.runtime_execution_policy",
 )
 
 _FORBIDDEN_TEXT = (
@@ -72,7 +79,7 @@ def test_build_preview_message_supports_english_locale():
 
 
 def test_preview_profile_is_enabled_on_firstrade():
-    from strategy_registry import SUPPORTED_STRATEGY_PROFILES
+    from firstrade_platform.strategy_registry import SUPPORTED_STRATEGY_PROFILES
 
     assert preview._PREVIEW_STRATEGY_PROFILE in SUPPORTED_STRATEGY_PROFILES
 
@@ -137,7 +144,7 @@ def test_preview_script_has_no_broker_or_execution_imports():
             name == forbidden or name.startswith(f"{forbidden}.") for name in imported
         )
 
-    assert "notifications.telegram" in imported
+    assert "firstrade_platform.notifications.telegram" in imported
 
 
 def test_send_preview_fails_closed_without_telegram_target(monkeypatch):

@@ -16,10 +16,7 @@ QuantPlatformKit and UsEquityStrategies at pinned revisions.
 
 ## Layout
 
-- `application/` — Firstrade client, execution and reconciliation logic.
-- `entrypoints/`, `main.py` — service entry points.
-- `strategy/` — strategy loading and registry.
-- `notifications/` — notification composition.
+- `src/firstrade_platform/` — installable runtime package (`application/`, `entrypoints/`, `notifications/`, `main.py`, strategy loading/registry, and runtime policy modules).
 - `scripts/`, `cloudbuild.yaml` — deployment and operator tooling.
 - `docs/` — runtime and notification contracts.
 - `tests/` — offline tests with a mocked broker boundary.
@@ -54,7 +51,7 @@ Organization documentation rules run in CI via `QuantStrategyLab/.github/.github
 ## Do not
 
 - Do not remove the default dry-run behaviour or weaken the live order gates in
-  `application/firstrade_client.py`.
+  `src/firstrade_platform/application/firstrade_client.py`.
 - Do not add credentials, cookies, account identifiers, balances or raw order
   payloads to examples or tests.
 - Do not treat a successful call to the unofficial API as proof of account

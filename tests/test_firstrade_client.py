@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.firstrade_client import (
+from firstrade_platform.application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCachedSessionError,
     FirstradeCredentials,
@@ -319,7 +319,7 @@ def test_client_reuses_cached_session_without_logging_in_again(tmp_path):
     assert second_client.read_only_transport_enabled is False
     assert ReusableFakeSession.login_calls == 1
 
-    from application.account_facts_readonly import AccountFactsUnavailable, collect_firstrade_account_facts
+    from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable, collect_firstrade_account_facts
 
     with pytest.raises(AccountFactsUnavailable) as error:
         collect_firstrade_account_facts(
@@ -416,7 +416,7 @@ def test_order_reads_preserve_supported_complete_payloads(wrapper, rows):
 
 
 def _cached_read_only_client(tmp_path, monkeypatch, *, saved_at=1000.0, account_factory=HeaderCheckingAccountData):
-    import application.firstrade_client as module
+    import firstrade_platform.application.firstrade_client as module
     import requests
 
     monkeypatch.setattr(module, "time", lambda: 1001.0)
@@ -478,7 +478,7 @@ def test_read_only_connection_reuses_cache_without_auth_or_writes(tmp_path, monk
     assert store.writes == 0
     assert not (tmp_path / "absent").exists()
     assert calls == []
-    from application.account_facts_readonly import collect_firstrade_account_facts
+    from firstrade_platform.application.account_facts_readonly import collect_firstrade_account_facts
 
     facts = collect_firstrade_account_facts(client, expected_account="12345678")
     assert facts["status"] == "available"

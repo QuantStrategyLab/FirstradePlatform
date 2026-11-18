@@ -3,10 +3,13 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+for candidate in (ROOT / "src", ROOT):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 import json
 import os
-from notifications.unified import CandidateStorageError, emit_candidates  # noqa: E402
+from firstrade_platform.notifications.unified import CandidateStorageError, emit_candidates  # noqa: E402
 
 
 # Exact local codes only. Never print provider messages, exception class names,
@@ -85,7 +88,7 @@ def main():
     except Exception as error:
         diagnostic = _failure_diagnostic(error, stage)
         print(json.dumps({"status": "candidate_projection_failed", "uploaded": False, **diagnostic}))
-        from notifications.unified import alert_text, coverage_locale
+        from firstrade_platform.notifications.unified import alert_text, coverage_locale
         from scripts.execution_report_heartbeat import _send_telegram
         marker = os.environ.get("RUNTIME_HEARTBEAT_COVERAGE_ACK_PATH")
         try:
