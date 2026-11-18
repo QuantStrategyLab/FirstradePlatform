@@ -24,10 +24,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for candidate in (ROOT / "src", ROOT):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
-from notifications.telegram import build_sender  # noqa: E402
+from firstrade_platform.notifications.telegram import build_sender  # noqa: E402
 
 _QRS_SNAPSHOT = ROOT / "tests" / "fixtures" / "qrs_notification_716"
 _PREVIEW_PLATFORM_ID = "firstrade"
@@ -41,7 +42,7 @@ _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 def _require_supported_preview_profile(profile: str) -> str:
     """Fail when the preview profile is not enabled here, so the sample cannot go stale."""
-    from strategy_registry import SUPPORTED_STRATEGY_PROFILES
+    from firstrade_platform.strategy_registry import SUPPORTED_STRATEGY_PROFILES
 
     if profile not in SUPPORTED_STRATEGY_PROFILES:
         raise RuntimeError(f"preview strategy profile {profile!r} is not enabled on Firstrade")

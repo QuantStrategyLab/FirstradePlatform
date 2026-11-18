@@ -4,9 +4,9 @@
 /.env.example @Pigbibi
 /.github/CODEOWNERS @Pigbibi
 /.github/workflows/ @Pigbibi
-/application/execution_receipt_adapter.py @Pigbibi
-/application/execution_service.py @Pigbibi
-/application/paper_execution_admission.py @Pigbibi
-/application/paper_execution_command_consumer.py @Pigbibi
-/runtime_execution_policy.py @Pigbibi
+/src/firstrade_platform/application/execution_receipt_adapter.py @Pigbibi
+/src/firstrade_platform/application/execution_service.py @Pigbibi
+/src/firstrade_platform/application/paper_execution_admission.py @Pigbibi
+/src/firstrade_platform/application/paper_execution_command_consumer.py @Pigbibi
+/src/firstrade_platform/runtime_execution_policy.py @Pigbibi
 /scripts/execution_report_heartbeat.py @Pigbibi

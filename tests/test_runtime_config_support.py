@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from runtime_config_support import (
+from firstrade_platform.runtime_config_support import (
     _default_market_signal_handoff_index_uri_from_report_bucket,
     _resolve_market_signal_fallback_mode,
     _resolve_market_signal_handoff_index_uri,

@@ -3,7 +3,7 @@ name: Fee schedule check
 # Monthly review of the Firstrade fee schedule (tracking issue #497).
 #
 # check:  compares the SEC Section 31 rate and the FINRA TAF rates on the official sites with
-#         application/firstrade_fee_schedule.py. Any fetch/parse failure is an error, never a pass.
+#         src/firstrade_platform/application/firstrade_fee_schedule.py. Any fetch/parse failure is an error, never a pass.
 # bump:   only when every value is unchanged. Pushes a branch that moves `verified_through` to the
 #         end of next month (plus the test pin and docs) and opens a PR. It never merges.
 # notify: when rates changed, the check failed, or the PR could not be opened. Opens or updates one
@@ -205,7 +205,7 @@ jobs:
             echo
             echo "## What changed"
             echo
-            echo "Moves \`verified_through\` in \`application/firstrade_fee_schedule.py\` to \`$new_date\`"
+            echo "Moves \`verified_through\` in \`src/firstrade_platform/application/firstrade_fee_schedule.py\` to \`$new_date\`"
             echo "so sells dated up to then keep reconciling instead of returning \`unsupported\`. No"
             echo "rate row was changed. The test review pin and the doc mentions move with it."
             echo

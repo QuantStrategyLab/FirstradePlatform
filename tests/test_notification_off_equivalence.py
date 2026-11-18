@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import main
-from application.rebalance_service import _publish_cycle_notification
-from notifications.telegram import render_cycle_notification
+from firstrade_platform import main
+from firstrade_platform.application.rebalance_service import _publish_cycle_notification
+from firstrade_platform.notifications.telegram import render_cycle_notification
 from scripts import execution_report_heartbeat as heartbeat
 
 GOLDEN = Path(__file__).parent / "fixtures" / "notification_main_c320fa0.json"
@@ -109,8 +109,8 @@ def record_all(monkeypatch):
 
 
 def record_broker_cycle(monkeypatch):
-    import application.rebalance_service as rebalance
-    from application.firstrade_client import FirstradeCredentials
+    import firstrade_platform.application.rebalance_service as rebalance
+    from firstrade_platform.application.firstrade_client import FirstradeCredentials
     from test_rebalance_service import (FakeFirstradeClient, FakeStateStore, FakeStrategyRuntime,
                                        _runtime_settings_with_persistence)
     calls = []

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from application.paper_execution_admission import (
+from firstrade_platform.application.paper_execution_admission import (
     PAPER_ADMISSION_ENABLED_ENV,
     PAPER_EXECUTION_COMMAND_ENV,
     evaluate_paper_dry_run_admission,

@@ -8,7 +8,7 @@ from quant_platform_kit.common.strategy_contracts import (
     StrategyDecision,
 )
 
-from decision_mapper import map_strategy_decision_to_plan
+from firstrade_platform.decision_mapper import map_strategy_decision_to_plan
 
 
 def test_applies_platform_reserved_cash_policy_to_weight_decision():

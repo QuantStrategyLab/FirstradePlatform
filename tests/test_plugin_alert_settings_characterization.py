@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import runtime_config_support as config
+import firstrade_platform.runtime_config_support as config
 
 BASELINE_LOADER = r'''
 def load_platform_runtime_settings(
@@ -46,7 +46,7 @@ def load_platform_runtime_settings(
         strategy_metadata=strategy_metadata,
         platform_env_prefix="FIRSTRADE",
         env=os.environ,
-        repo_root=Path(__file__).resolve().parent,
+        repo_root=Path(__file__).resolve().parents[2],
     )
     return PlatformRuntimeSettings(
         project_id=project_id_resolver(),

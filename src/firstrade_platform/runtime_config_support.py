@@ -29,7 +29,7 @@ from quant_platform_kit.common.runtime_target import (
     resolve_runtime_target_from_env,
 )
 from quant_platform_kit.common.live_continuity import runtime_target_permits_standard_execution
-from strategy_registry import (
+from firstrade_platform.strategy_registry import (
     FIRSTRADE_PLATFORM,
     resolve_strategy_definition,
     resolve_strategy_metadata,
@@ -207,7 +207,7 @@ def load_platform_runtime_settings(
         strategy_metadata=strategy_metadata,
         platform_env_prefix="FIRSTRADE",
         env=os.environ,
-        repo_root=Path(__file__).resolve().parent,
+        repo_root=Path(__file__).resolve().parents[2],
     )
     return PlatformRuntimeSettings(
         project_id=project_id_resolver(),

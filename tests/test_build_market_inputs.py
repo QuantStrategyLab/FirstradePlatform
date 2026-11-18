@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from application.rebalance_service import build_market_inputs
+from firstrade_platform.application.rebalance_service import build_market_inputs
 
 
 class _FakeMarketDataPort:

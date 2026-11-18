@@ -19,10 +19,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for candidate in (ROOT / "src", ROOT):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
-from application.firstrade_client import (  # noqa: E402
+from firstrade_platform.application.firstrade_client import (  # noqa: E402
     FirstradeBrokerClient,
     FirstradeCredentials,
     FirstradePlatformError,

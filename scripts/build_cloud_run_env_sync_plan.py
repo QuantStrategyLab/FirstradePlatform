@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
 QPK_SRC = ROOT.parent / "QuantPlatformKit" / "src"
 UES_SRC = ROOT.parent / "UsEquityStrategies" / "src"
 
@@ -32,7 +33,7 @@ def _should_add_local_src(candidate: Path) -> bool:
     return True
 
 
-for candidate in (ROOT, QPK_SRC, UES_SRC):
+for candidate in (SRC, ROOT, QPK_SRC, UES_SRC):
     if not _should_add_local_src(candidate):
         continue
     candidate_str = str(candidate)
@@ -41,7 +42,7 @@ for candidate in (ROOT, QPK_SRC, UES_SRC):
 
 from scripts.cloud_run_tag_preflight import validate_diagnostic
 
-from strategy_registry import (  # noqa: E402
+from firstrade_platform.strategy_registry import (  # noqa: E402
     FIRSTRADE_PLATFORM,
     get_platform_profile_status_matrix,
     resolve_strategy_definition,

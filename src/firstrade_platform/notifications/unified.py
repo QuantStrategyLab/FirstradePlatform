@@ -13,15 +13,15 @@ import json
 import os
 import re
 
-from notifications.digest_snapshot import digest_archive
-from notifications.digest_snapshot.digest_candidates import project_reports
-from notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
-from notifications.digest_snapshot.unified_contract import (
+from firstrade_platform.notifications.digest_snapshot import digest_archive
+from firstrade_platform.notifications.digest_snapshot.digest_candidates import project_reports
+from firstrade_platform.notifications.digest_snapshot.digest_routing import defer_routine_cycle_to_digest
+from firstrade_platform.notifications.digest_snapshot.unified_contract import (
     CandidatePersistenceError, IncidentTracker, NotificationEvent,
     order_identity_digest, route_notification_event,
     sgt_business_window, unified_notification_enabled,
 )
-from application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
+from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable, _decimal_text
 
 FLAG = "FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED"
 TARGET_KEYS = ("platform_id", "strategy_profile", "service_name", "account_scope",

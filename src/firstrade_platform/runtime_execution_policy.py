@@ -6,7 +6,7 @@ from quant_platform_kit.common.execution_capabilities import (
     fractional_share_execution_unsupported_reason,
 )
 from quant_platform_kit.common.strategies import normalize_profile_name
-from strategy_registry import PLATFORM_CAPABILITY_MATRIX, STRATEGY_CATALOG
+from firstrade_platform.strategy_registry import PLATFORM_CAPABILITY_MATRIX, STRATEGY_CATALOG
 
 
 def dca_execution_unsupported_reason(strategy_profile: str) -> str | None:

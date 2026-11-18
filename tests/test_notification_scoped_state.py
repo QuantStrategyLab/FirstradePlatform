@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from notifications import unified
+from firstrade_platform.notifications import unified
 from test_notification_consolidation import ENV, NOW, Store, notify, source
 
 

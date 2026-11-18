@@ -9,8 +9,13 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
-from application.firstrade_client import (
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from firstrade_platform.application.firstrade_client import (  # noqa: E402
     FirstradeBrokerClient, FirstradeCachedSessionError, FirstradeCredentials,
 )
 from scripts.inspect_funds_snapshot_schema import configured_account

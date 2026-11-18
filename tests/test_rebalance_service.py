@@ -6,18 +6,22 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.firstrade_client import FirstradeBrokerClient, FirstradeCredentials, FirstradePlatformError
-from application.rebalance_service import (
+from firstrade_platform.application.firstrade_client import (
+    FirstradeBrokerClient,
+    FirstradeCredentials,
+    FirstradePlatformError,
+)
+from firstrade_platform.application.rebalance_service import (
     _publish_cycle_notification,
     _runtime_metadata_with_execution_policy,
     run_strategy_cycle,
 )
-from notifications.telegram import I18N, build_translator, render_cycle_summary
+from firstrade_platform.notifications.telegram import I18N, build_translator, render_cycle_summary
 from quant_platform_kit.common.strategy_contracts import (
     PositionTarget,
     StrategyDecision,
 )
-from runtime_config_support import PlatformRuntimeSettings
+from firstrade_platform.runtime_config_support import PlatformRuntimeSettings
 
 
 def _runtime_settings() -> PlatformRuntimeSettings:
@@ -194,11 +198,11 @@ def _latest_strategy_run_payloads(store: FakeStateStore) -> list[dict]:
 def live_cycle(monkeypatch):
     client = FakeFirstradeClient(None, live_trading_enabled=True)
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 9, 5, tzinfo=timezone.utc),
     )
 
@@ -229,7 +233,7 @@ def live_cycle(monkeypatch):
 def test_live_sell_release_uses_real_order_status_execution_fields(
     monkeypatch, execution_fields, expected_buy_quantity,
 ):
-    import application.rebalance_service as module
+    import firstrade_platform.application.rebalance_service as module
 
     class OrderReadClient(FakeFirstradeClient):
         get_orders = FirstradeBrokerClient.get_orders
@@ -313,7 +317,7 @@ def test_live_submission_requires_enabled_persistence_and_store(live_cycle, pers
 def test_live_noop_without_persistence_does_not_acquire_claim(live_cycle, monkeypatch):
     run, client = live_cycle
     monkeypatch.setattr(
-        "application.rebalance_service.map_strategy_decision_to_plan",
+        "firstrade_platform.application.rebalance_service.map_strategy_decision_to_plan",
         lambda *_args, **_kwargs: {
             "allocation": {"targets": {}},
             "portfolio": {},
@@ -332,7 +336,7 @@ def test_dry_run_without_persistence_only_previews(live_cycle, monkeypatch):
     def unexpected_claim(**_kwargs):
         pytest.fail("dry-run must not acquire a live claim")
 
-    monkeypatch.setattr("application.rebalance_service.claim_live_strategy_run", unexpected_claim)
+    monkeypatch.setattr("firstrade_platform.application.rebalance_service.claim_live_strategy_run", unexpected_claim)
     result = run(dry_run_only=True, persist_strategy_runs=False)
     assert result["strategy_run_stage"] == "DRY_RUN_COMPLETED"
     assert client.orders
@@ -448,7 +452,7 @@ def test_run_strategy_cycle_builds_dry_run_order(monkeypatch):
         return client
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
@@ -499,7 +503,7 @@ def test_runtime_target_requires_exactly_one_account_selector_before_connect(
 ):
     factory_calls = []
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: pytest.fail("strategy must not load"),
     )
 
@@ -566,7 +570,7 @@ def test_runtime_target_native_account_mismatch_stops_before_strategy_and_snapsh
     observed = {}
     strategy_calls = []
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: strategy_calls.append(True),
     )
 
@@ -606,7 +610,7 @@ def test_runtime_target_native_account_mismatch_stops_before_strategy_and_snapsh
 def test_runtime_target_selects_exact_account_before_strategy_and_snapshot(monkeypatch):
     observed = {}
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
@@ -648,11 +652,11 @@ def test_unsupported_strategy_returns_before_runtime_account_validation(
 ):
     client_factory_calls = []
     monkeypatch.setattr(
-        "application.rebalance_service.dca_execution_unsupported_reason",
+        "firstrade_platform.application.rebalance_service.dca_execution_unsupported_reason",
         lambda _profile: "Synthetic unsupported strategy",
     )
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: pytest.fail("strategy must not load"),
     )
 
@@ -702,15 +706,15 @@ def test_run_strategy_cycle_persists_broker_rejection_as_retryable_block(monkeyp
     store = FakeStateStore()
     messages = []
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: IbitRuntime(),
     )
     monkeypatch.setattr(
-        "application.rebalance_service.notional_buy_execution_enabled",
+        "firstrade_platform.application.rebalance_service.notional_buy_execution_enabled",
         lambda _profile: True,
     )
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 7, 27, 19, 45, tzinfo=timezone.utc),
     )
 
@@ -803,7 +807,7 @@ def test_run_strategy_cycle_translates_weight_targets_when_balance_total_missing
             )
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: WeightTargetRuntime(),
     )
 
@@ -847,7 +851,7 @@ def test_run_strategy_cycle_no_executes_weight_targets_when_total_equity_zero(mo
             )
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: WeightTargetRuntime(),
     )
 
@@ -918,7 +922,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
     observed_alerts = []
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
@@ -947,7 +951,7 @@ def test_run_strategy_cycle_loads_strategy_plugin_report_and_sends_email(
             },
         )
 
-    monkeypatch.setattr("application.rebalance_service.dispatch_strategy_plugin_alerts", fake_dispatch)
+    monkeypatch.setattr("firstrade_platform.application.rebalance_service.dispatch_strategy_plugin_alerts", fake_dispatch)
 
     result = run_strategy_cycle(
         runtime_settings=settings,
@@ -977,7 +981,7 @@ def test_run_strategy_cycle_strategy_plugin_load_error_is_non_blocking(monkeypat
     settings = _runtime_settings_with_persistence(strategy_plugin_mounts_json="{bad-json")
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
@@ -1010,11 +1014,11 @@ def test_run_strategy_cycle_dry_run_preserves_live_strategy_run_state(monkeypatc
     store.payloads[key] = dict(existing_state)
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
     )
 
@@ -1061,11 +1065,11 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_run(monkeypatch):
         return client
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
     )
 
@@ -1115,11 +1119,11 @@ def test_run_strategy_cycle_skips_duplicate_live_monthly_no_action(monkeypatch):
         return client
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
     )
 
@@ -1159,7 +1163,7 @@ def test_run_strategy_cycle_persists_live_execution_blocked_without_terminal_sta
     )
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FakeStrategyRuntime(),
     )
 
@@ -1219,7 +1223,7 @@ def test_run_strategy_cycle_retries_live_funding_block_after_cash_arrives(monkey
             )
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: FundingBlockedRuntime(),
     )
 
@@ -1315,7 +1319,7 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
     }
     messages = []
     monkeypatch.setattr(
-        "application.rebalance_service._utcnow",
+        "firstrade_platform.application.rebalance_service._utcnow",
         lambda: datetime(2026, 5, 15, tzinfo=timezone.utc),
     )
     settings = _runtime_settings_with_persistence(
@@ -1353,7 +1357,7 @@ def test_run_strategy_cycle_persists_live_partial_submission_as_non_terminal(mon
             return {"symbol": symbol, "last": prices[symbol], "bid": "9.90", "ask": "10.10"}
 
     monkeypatch.setattr(
-        "application.rebalance_service.load_strategy_runtime",
+        "firstrade_platform.application.rebalance_service.load_strategy_runtime",
         lambda *_args, **_kwargs: PartialRuntime(),
     )
 
@@ -1683,7 +1687,7 @@ def test_render_cycle_summary_shows_retryable_execution_blocked_banner():
     {"ok": True, "dry_run_only": True, "action_done": True, "submitted_orders": [{"status": "preview"}]},
 ])
 def test_cycle_notification_quiets_only_verified_success_and_dry_run_preview(result):
-    from application.rebalance_service import _should_publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
     assert not _should_publish_cycle_notification(result)
 
@@ -1704,7 +1708,7 @@ def test_cycle_notification_quiets_only_verified_success_and_dry_run_preview(res
     {"pending_reconciliation": True},
 ])
 def test_cycle_notification_preserves_zero_order_attention(change):
-    from application.rebalance_service import _should_publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
     result = {"ok": True, "dry_run_only": False, "submitted_orders": [], **change}
     before = json.loads(json.dumps(result))
@@ -1713,7 +1717,7 @@ def test_cycle_notification_preserves_zero_order_attention(change):
 
 
 def test_cycle_notification_preserves_real_submission_and_existing_repeat_funding_policy():
-    from application.rebalance_service import _should_publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
     assert _should_publish_cycle_notification({
         "ok": True, "dry_run_only": False,
@@ -1744,7 +1748,7 @@ def test_cycle_notification_preserves_real_submission_and_existing_repeat_fundin
     {"execution_status": "pending_reconciliation"},
 ])
 def test_repeat_funding_suppression_keeps_independent_new_attention(attention):
-    from application.rebalance_service import _should_publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
     result = {
         "ok": False, "error": "Strategy execution blocked; see execution_blocking_skips.",
@@ -1758,7 +1762,7 @@ def test_repeat_funding_suppression_keeps_independent_new_attention(attention):
 
 
 def test_unrecognized_suppression_policy_keeps_existing_authority():
-    from application.rebalance_service import _should_publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
     for change in (
         {"strategy_plugin_error": "synthetic_error"},
@@ -1773,8 +1777,8 @@ def test_unrecognized_suppression_policy_keeps_existing_authority():
 
 
 def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, monkeypatch):
-    from application.execution_service import ExecutionCycleResult
-    from application.rebalance_service import _should_publish_cycle_notification, persist_strategy_run_state
+    from firstrade_platform.application.execution_service import ExecutionCycleResult
+    from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification, persist_strategy_run_state
 
     run, _client = live_cycle
     store = FakeStateStore()
@@ -1783,7 +1787,7 @@ def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, m
         "dry_run_only": False,
     }
     monkeypatch.setattr(
-        "application.rebalance_service.execute_value_target_plan",
+        "firstrade_platform.application.rebalance_service.execute_value_target_plan",
         lambda **_kwargs: ExecutionCycleResult(
             submitted_orders=(), skipped_orders=({"reason": "insufficient_cash_for_whole_share"},),
             action_done=False,
@@ -1793,7 +1797,7 @@ def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, m
         if state["stage"] == "FUNDING_BLOCKED":
             raise RuntimeError("synthetic_final_persistence_failure")
         return persist_strategy_run_state(store=store, state=state, storage_account=storage_account, now=now)
-    monkeypatch.setattr("application.rebalance_service.persist_strategy_run_state", fail_final_funding_persistence)
+    monkeypatch.setattr("firstrade_platform.application.rebalance_service.persist_strategy_run_state", fail_final_funding_persistence)
 
     result = run(store=store)
     assert result["submitted_orders"] == []
@@ -1804,7 +1808,7 @@ def test_native_repeat_funding_result_keeps_late_persistence_error(live_cycle, m
 
 
 def test_preexisting_submission_claim_still_blocks_after_display_redaction(live_cycle):
-    from application.strategy_run_persistence import LIVE_SUBMISSION_CLAIM_BOUNDARY
+    from firstrade_platform.application.strategy_run_persistence import LIVE_SUBMISSION_CLAIM_BOUNDARY
 
     run, client = live_cycle
     key = "strategy-runs/claims/____5678/tqqq_growth_income/2026_09.json"

@@ -8,8 +8,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
-from application.state_persistence import GcsStateStore
-from application.firstrade_client import mask_account_id
+from firstrade_platform.application.state_persistence import GcsStateStore
+from firstrade_platform.application.firstrade_client import mask_account_id
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_TERMINAL_STRATEGY_RUN_STAGES,
     STAGE_NO_ACTION,

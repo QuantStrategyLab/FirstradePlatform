@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from application.execution_receipt_adapter import (
+from firstrade_platform.application.execution_receipt_adapter import (
     attach_strategy_result_execution_receipt,
     attach_unknown_failure_execution_receipt,
     is_expected_funding_skip,

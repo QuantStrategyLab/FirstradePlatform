@@ -299,7 +299,7 @@ def _default(value: Any) -> Any:
 
 
 def render_all() -> dict[str, Any]:
-    from decision_mapper import map_strategy_decision_to_plan
+    from firstrade_platform.decision_mapper import map_strategy_decision_to_plan
 
     return {
         name: canonical(map_strategy_decision_to_plan(**kwargs))
@@ -308,7 +308,7 @@ def render_all() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
     rendered = render_all()
     text = json.dumps(rendered, indent=2, sort_keys=True) + "\n"
     if "--write" in sys.argv:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from application.firstrade_client import FirstradeCredentials
-from application.session_check_service import build_account_funds_snapshot, run_session_check
+from firstrade_platform.application.firstrade_client import FirstradeCredentials
+from firstrade_platform.application.session_check_service import build_account_funds_snapshot, run_session_check
 
 
 class FakeClient:

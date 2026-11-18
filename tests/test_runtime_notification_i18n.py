@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from notifications.telegram import build_translator
+from firstrade_platform.notifications.telegram import build_translator
 
 
 @pytest.mark.parametrize("locale", ["zh-CN", "zh_TW", "ZH-hans", " zh "])
@@ -14,7 +14,8 @@ def test_chinese_locale_variants_use_chinese(locale):
 
 
 def runtime_function(name, **overrides):
-    tree = ast.parse((Path(__file__).resolve().parents[1] / "main.py").read_text())
+    main_path = Path(__file__).resolve().parents[1] / "src" / "firstrade_platform" / "main.py"
+    tree = ast.parse(main_path.read_text())
     function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name)
     namespace = dict(os=os, request=SimpleNamespace(method="GET", path="/main"),
                      NOTIFY_LANG="zh-CN", SERVICE_NAME="Test service", SECRET_NAME="Test secret alias",
@@ -23,7 +24,7 @@ def runtime_function(name, **overrides):
                      t=build_translator("zh-CN"))
     namespace["_safe_exception_text"] = lambda exc, **kwargs: str(exc)
     namespace.update(overrides)
-    exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
+    exec(compile(ast.Module(body=[function], type_ignores=[]), str(main_path), "exec"), namespace)
     return namespace[name]
 
 

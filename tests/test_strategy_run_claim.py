@@ -1,10 +1,10 @@
-from application.strategy_run_persistence import (
+from firstrade_platform.application.strategy_run_persistence import (
     claim_live_strategy_run,
     has_effective_live_submission_claim,
     read_live_strategy_run_claim,
     strategy_run_claim_key,
 )
-from application.state_persistence import GcsStateStore
+from firstrade_platform.application.state_persistence import GcsStateStore
 
 
 class AtomicFakeStore:

@@ -14,7 +14,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 API = "https://run.googleapis.com/v2/"
-MODULE = "application/session_check_service.py"
+MODULE = "src/firstrade_platform/application/session_check_service.py"
 ANCHOR = '"total_equity": balances.get("provider_equity"),'
 CURRENCY = '"currency": balances.get("currency"),'
 STAGE = "configuration"

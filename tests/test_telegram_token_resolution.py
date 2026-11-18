@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-import runtime_config_support
-from runtime_config_support import LEGACY_TELEGRAM_TOKEN_SECRET_NAME, resolve_telegram_token
+import firstrade_platform.runtime_config_support as runtime_config_support
+from firstrade_platform.runtime_config_support import LEGACY_TELEGRAM_TOKEN_SECRET_NAME, resolve_telegram_token
 
 UNIFIED = "quant-sentinel-telegram-bot-token"
 
@@ -52,7 +52,7 @@ def test_missing_everywhere_returns_none():
 
 def test_main_get_telegram_token_prefers_injected(monkeypatch):
     pytest.importorskip("flask")
-    import main
+    from firstrade_platform import main
 
     seen = []
     monkeypatch.setattr(runtime_config_support, "_read_secret", lambda name: seen.append(name) or "legacy")
@@ -63,7 +63,7 @@ def test_main_get_telegram_token_prefers_injected(monkeypatch):
 
 def test_main_get_telegram_token_uses_configured_secret(monkeypatch):
     pytest.importorskip("flask")
-    import main
+    from firstrade_platform import main
 
     values = {UNIFIED: "unified", LEGACY_TELEGRAM_TOKEN_SECRET_NAME: "legacy"}
     monkeypatch.setattr(runtime_config_support, "_read_secret", lambda name: values.get(name))

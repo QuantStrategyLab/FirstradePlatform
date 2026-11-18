@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application import state_persistence as state
+from firstrade_platform.application import state_persistence as state
 
 
 @pytest.mark.parametrize("operation", ["read_json", "write_json", "create_json"])

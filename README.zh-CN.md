@@ -50,11 +50,11 @@ FirstradePlatform 是 QuantStrategyLab 的实验性 Firstrade 执行平台。实
 
 现有 Runtime Target Lifecycle 手动入口的 `metadata_only=true` 会核实际接收流量的修订，并只输出同步开关、固定目的地、绑定配置、token 引用与缓存配置是否存在。它不读取 Secret 内容或缓存，不调用券商；绑定准确性及缓存有效性明确标为尚未核验。配置存在不能代表余额已同步。
 
-`POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它只发布券商直接返回的净资产，以及存在时的 `cash_balance`；不会读取持仓，因此持仓读取失败或持仓资料不完整不会阻塞余额快照；也不会用 buying power 或持仓计算资产或现金。
+`POST /account-facts-sync` 是手动触发、仅读取缓存会话的账户快照入口。只有 `FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED=true` 时才开放；它不会登录、刷新凭据、自行定时、下单或发送通知。它发布券商直接返回的净资产，以及存在时的 `cash_balance`；显式设置 `FIRSTRADE_ACCOUNT_FACTS_POSITION_CURRENCY` 时也会采集持仓，否则不会因持仓读取失败或持仓资料不完整阻塞余额快照；也不会用 buying power 或持仓计算资产或现金。
 
 Cloud Run 服务必须继续受 IAM 保护。调用方需要 `roles/run.invoker`，并把 Google 签名的 ID token 放在 `X-Serverless-Authorization`；独立的应用 token 放在 `Authorization: Bearer …`。参见 [Cloud Run 服务间认证文档](https://cloud.google.com/run/docs/authenticating/service-to-service)。这两种 token 都不是 Firstrade 凭据。
 
-以下配置只能通过受保护的 Cloud Run 环境变量和 Secret Manager 引用配置：`FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`、`FIRSTRADE_ACCOUNT_FACTS_SYNC_URL`（必须与 `application/account_facts_publisher.py` 中 `_APPROVED_SYNC_URL` 定义的已批准同步地址完全一致）、`FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`（专用 secret）、`FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`、`FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`、`FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY` 和 `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`。账户身份复用受保护 runtime target 中唯一且精确的 selector；若同时设置 `FIRSTRADE_ACCOUNT`，它必须完全匹配。所有值都必须与 QRS 可信绑定及当前 runtime target 一致；不要推导或编造 binding ID。
+以下配置只能通过受保护的 Cloud Run 环境变量和 Secret Manager 引用配置：`FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED`、`FIRSTRADE_ACCOUNT_FACTS_SYNC_URL`（必须与 `src/firstrade_platform/application/account_facts_publisher.py` 中 `_APPROVED_SYNC_URL` 定义的已批准同步地址完全一致）、`FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`（专用 secret）、`FIRSTRADE_ACCOUNT_FACTS_TARGET_ID`、`FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID`、`FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY` 和 `FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE`。账户身份复用受保护 runtime target 中唯一且精确的 selector；若同时设置 `FIRSTRADE_ACCOUNT`，它必须完全匹配。所有值都必须与 QRS 可信绑定及当前 runtime target 一致；不要推导或编造 binding ID。
 
 现有手动 Cloud Run 环境同步会从 `CLOUD_RUN_SERVICE_TARGETS_JSON` 中所选 Firstrade target 的 `env` 配置传递六个非 token 项；单服务旧配置路径也可使用匹配的 `FIRSTRADE_ACCOUNT_FACTS_*` 输入。target、binding、account key 和 scope 放在受保护的 GitHub 配置中。受保护的 GitHub variable `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME` 只填写已批准 Secret Manager secret 的名称；workflow 只把这个 Secret Manager 引用映射到 `FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN`，不会接受 GitHub Actions 传入的明文 token。部署另行审查和采用前，启用开关应保持未设置或 `false`。本次源码修改没有应用 Cloud Run 配置，也不代表部署已采用。
 
@@ -80,9 +80,11 @@ FIRSTRADE_ACCOUNT=synthetic-native-account-id  # 可选；设置后必须匹配 
 
 ## 仓库结构
 
+- `src/firstrade_platform/`：可安装的运行时包（`application/`、`entrypoints/`、`notifications/`、`main.py` 及策略与运行时策略模块）。
 - `tests/`：单元测试、契约测试和回归测试。
 - `.github/workflows/`：CI、定时任务、发布或部署 workflow。
 - `scripts/`：运维脚本和本地辅助工具。
+- `docs/`：运行时、对账与通知契约文档。
 
 ## 快速开始
 
@@ -94,7 +96,9 @@ uv run --no-sync python scripts/check_qpk_pin_consistency.py
 
 ## 延伸文档
 
-- 暂无独立 `docs/` 目录；请先阅读本 README 和 workflow 文件。
+- [文档索引](docs/README.md)
+- [隔离的 paper 命令消费者](docs/paper-execution-command-consumer.md)
+- [显示名称配置](docs/display-names.md)
 
 ## 社区和安全
 

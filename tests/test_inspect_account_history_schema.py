@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application.firstrade_client import FirstradeCachedSessionError
+from firstrade_platform.application.firstrade_client import FirstradeCachedSessionError
 from scripts import inspect_account_history_schema as module
 
 

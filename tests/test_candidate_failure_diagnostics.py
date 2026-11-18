@@ -4,7 +4,7 @@ import json
 import pytest
 from google.api_core.exceptions import Forbidden
 
-from notifications import unified
+from firstrade_platform.notifications import unified
 from scripts import emit_unified_digest_candidates as publisher
 from scripts import execution_report_heartbeat as heartbeat
 from test_notification_consolidation import ENV, NOW, Store

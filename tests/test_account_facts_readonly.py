@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from application.account_facts_readonly import (
+from firstrade_platform.application.account_facts_readonly import (
     AccountFactsUnavailable,
     collect_firstrade_account_facts,
 )

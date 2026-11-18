@@ -1,4 +1,4 @@
-from entrypoints import cloud_run
+from firstrade_platform.entrypoints import cloud_run
 
 
 def test_market_hours_after_close_is_closed_without_calendar_error(monkeypatch):

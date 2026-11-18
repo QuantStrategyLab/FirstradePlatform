@@ -12,9 +12,14 @@ import json
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
-from strategy_registry import FIRSTRADE_PLATFORM, resolve_strategy_definition
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from firstrade_platform.strategy_registry import FIRSTRADE_PLATFORM, resolve_strategy_definition  # noqa: E402
 
 
 class AdmissionError(ValueError):

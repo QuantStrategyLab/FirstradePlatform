@@ -16,22 +16,22 @@ from typing import Any
 
 import pandas as pd
 
-from application.execution_service import (
+from firstrade_platform.application.execution_service import (
     execute_value_target_plan,
     substitute_small_safe_haven_targets_with_cash,
 )
-from application.firstrade_client import (
+from firstrade_platform.application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
     FirstradePlatformError,
     mask_account_id,
 )
-from application.runtime_broker_adapters import build_runtime_broker_adapters
-from application.signal_snapshot import build_signal_snapshot
-from application.state_persistence import (
+from firstrade_platform.application.runtime_broker_adapters import build_runtime_broker_adapters
+from firstrade_platform.application.signal_snapshot import build_signal_snapshot
+from firstrade_platform.application.state_persistence import (
     GcsStateStore, build_gcs_state_store_from_env, legacy_account_state_id,
 )
-from application.strategy_run_persistence import (
+from firstrade_platform.application.strategy_run_persistence import (
     build_strategy_run_state,
     claim_live_strategy_run,
     has_effective_live_submission_claim,
@@ -41,8 +41,8 @@ from application.strategy_run_persistence import (
     read_latest_strategy_run_state,
     resolve_strategy_run_period,
 )
-from decision_mapper import map_strategy_decision_to_plan
-from notifications.telegram import build_sender, build_translator, render_cycle_notification
+from firstrade_platform.decision_mapper import map_strategy_decision_to_plan
+from firstrade_platform.notifications.telegram import build_sender, build_translator, render_cycle_notification
 from quant_platform_kit.common.execution_outcomes import (
     DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
     filter_execution_blocking_skips,
@@ -68,10 +68,10 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
 )
 from quant_platform_kit.common.runtime_inputs import build_strategy_evaluation_inputs
 from quant_platform_kit.strategy_lifecycle.performance_monitor import try_record_platform_execution
-from runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
-from runtime_execution_policy import dca_execution_unsupported_reason, notional_buy_execution_enabled
+from firstrade_platform.runtime_config_support import IBIT_SMART_DCA_PROFILE, PlatformRuntimeSettings, load_platform_runtime_settings
+from firstrade_platform.runtime_execution_policy import dca_execution_unsupported_reason, notional_buy_execution_enabled
 from us_equity_strategies.signals import resolve_external_market_signal_inputs
-from strategy_runtime import load_strategy_runtime
+from firstrade_platform.strategy_runtime import load_strategy_runtime
 
 LIMIT_SELL_DISCOUNT = 0.995
 LIMIT_BUY_PREMIUM = 1.005
@@ -304,7 +304,7 @@ def _publish_cycle_notification(
 
 
 def _report_unarchived_direct_coverage(result, *, settings, notification_sender=None):
-    from notifications.unified import alert_text, coverage_locale, cycle_kind
+    from firstrade_platform.notifications.unified import alert_text, coverage_locale, cycle_kind
     routine = cycle_kind(result) in {"routine_cycle", "order_submitted", "fill"}
     if routine and result.get("dry_run_only") is True:
         return True
@@ -436,7 +436,7 @@ def publish_strategy_plugin_alerts(
     log_message: Callable[..., Any] = print,
     env_reader: Callable[[str, str | None], str | None] = os.getenv,
 ):
-    from notifications.digest_snapshot.digest_routing import immediate_plugin_signals
+    from firstrade_platform.notifications.digest_snapshot.digest_routing import immediate_plugin_signals
     return dispatch_strategy_plugin_alerts(
         immediate_plugin_signals(signals, mode="daily_digest"),
         notification_settings=settings,
@@ -917,7 +917,7 @@ def run_strategy_cycle(
         ),
     }
     if dispatch_plugin_alerts:
-        from notifications.digest_snapshot.digest_candidates import routine_observation_counts
+        from firstrade_platform.notifications.digest_snapshot.digest_candidates import routine_observation_counts
         result["routine_observation_counts"] = routine_observation_counts(strategy_plugin_signals)
     if execution_blocked:
         result["execution_blocked"] = True

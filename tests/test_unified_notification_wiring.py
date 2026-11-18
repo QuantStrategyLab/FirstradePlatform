@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from copy import deepcopy
 
-from application.rebalance_service import _should_publish_cycle_notification
+from firstrade_platform.application.rebalance_service import _should_publish_cycle_notification
 
 
 def test_confirmed_routine_orders_defer_and_failures_stay_live(monkeypatch):

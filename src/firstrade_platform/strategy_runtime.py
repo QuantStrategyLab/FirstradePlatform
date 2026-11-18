@@ -17,9 +17,9 @@ from quant_platform_kit.common.strategy_contracts import (
     build_execution_timing_metadata,
     build_strategy_context_from_available_inputs,
 )
-from runtime_config_support import PlatformRuntimeSettings
+from firstrade_platform.runtime_config_support import PlatformRuntimeSettings
 from us_equity_strategies.signals import resolve_external_market_signal_inputs
-from strategy_loader import (
+from firstrade_platform.strategy_loader import (
     load_strategy_entrypoint_for_profile,
     load_strategy_runtime_adapter_for_profile,
 )

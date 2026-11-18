@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from application.account_facts_publisher import (
+from firstrade_platform.application.account_facts_publisher import (
     AccountFactsPublishConfig,
     AccountFactsPublishError,
     build_firstrade_account_snapshot,

@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Callable
 
-from application.account_payload_utils import flatten_values, get_first
+from firstrade_platform.application.account_payload_utils import flatten_values, get_first
 
 _DECIMAL_RE = re.compile(r"[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?", re.ASCII)
 _ISO_CURRENCY_RE = re.compile(r"[A-Z]{3}", re.ASCII)

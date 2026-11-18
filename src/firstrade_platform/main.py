@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from notifications.telegram import build_translator
+from firstrade_platform.notifications.telegram import build_translator
 
 import hashlib
 import json
@@ -22,7 +22,7 @@ from quant_platform_kit.common.execution_commands import build_execution_command
 from quant_platform_kit.common.platform_runner import dispatch_due_monitors, load_monitor_targets
 from quant_platform_kit.common.strategy_release import build_runtime_loaded_receipt
 from quant_platform_kit.common.us_equity_sessions import Session, session_gate
-from application.firstrade_client import (
+from firstrade_platform.application.firstrade_client import (
     FirstradeBrokerClient,
     FirstradeCredentials,
     FirstradeCachedSessionError,
@@ -31,34 +31,34 @@ from application.firstrade_client import (
     is_live_trading_enabled,
     mask_account_id,
 )
-from application.account_facts_readonly import (
+from firstrade_platform.application.account_facts_readonly import (
     AccountFactsUnavailable,
     collect_firstrade_account_facts,
 )
-from application.account_facts_publisher import (
+from firstrade_platform.application.account_facts_publisher import (
     AccountFactsPublishError,
     bind_account_facts_runtime_selector,
     build_firstrade_account_snapshot,
     load_account_facts_publish_config,
     publish_firstrade_account_snapshot,
 )
-from application.paper_execution_admission import (
+from firstrade_platform.application.paper_execution_admission import (
     evaluate_paper_dry_run_admission,
     paper_dry_run_admission_requested,
 )
-from application.paper_execution_command_consumer import (
+from firstrade_platform.application.paper_execution_command_consumer import (
     consume_due_paper_execution_commands,
     resolve_paper_execution_command_consumer_enabled,
 )
-from application.rebalance_service import run_strategy_cycle
-from application.execution_receipt_adapter import (
+from firstrade_platform.application.rebalance_service import run_strategy_cycle
+from firstrade_platform.application.execution_receipt_adapter import (
     attach_strategy_result_execution_receipt,
     attach_unknown_failure_execution_receipt,
     is_expected_funding_skip,
     strategy_result_report_status,
 )
-from application.runtime_broker_adapters import build_runtime_broker_adapters
-from application.broker_reconciliation import (
+from firstrade_platform.application.runtime_broker_adapters import build_runtime_broker_adapters
+from firstrade_platform.application.broker_reconciliation import (
     FirstradeReconciliationUnavailable,
     build_reconciliation_candidate,
     collect_read_only_reconciliation_observations,
@@ -66,25 +66,25 @@ from application.broker_reconciliation import (
     validate_reconciliation_candidate,
     validate_reconciliation_preconditions,
 )
-from application.session_check_service import (
+from firstrade_platform.application.session_check_service import (
     archive_cached_account_facts, run_forced_session_renewal, run_session_check,
 )
-from notifications.telegram import build_sender
+from firstrade_platform.notifications.telegram import build_sender
 from quant_platform_kit.common.runtime_reports import (
     append_runtime_report_error,
     build_runtime_report_base,
     finalize_runtime_report,
     persist_runtime_report,
 )
-from entrypoints.cloud_run import is_market_open_now
-from runtime_config_support import (
+from firstrade_platform.entrypoints.cloud_run import is_market_open_now
+from firstrade_platform.runtime_config_support import (
     PlatformRuntimeSettings,
     _runtime_target_enabled_env,
     load_platform_runtime_settings,
     resolve_telegram_token,
 )
-from strategy_registry import get_platform_profile_status_matrix
-from strategy_runtime import load_strategy_runtime
+from firstrade_platform.strategy_registry import get_platform_profile_status_matrix
+from firstrade_platform.strategy_runtime import load_strategy_runtime
 
 MARKET_CALENDAR = os.getenv("FIRSTRADE_MARKET_CALENDAR", "NYSE")
 MARKET_TIMEZONE = os.getenv("FIRSTRADE_MARKET_TIMEZONE", "America/New_York")
@@ -219,7 +219,7 @@ def _notify_runtime_error(exc: Exception) -> bool:
         return False
 
     message = _runtime_error_notification_message(exc)
-    from notifications.unified import enabled, notify_heartbeat
+    from firstrade_platform.notifications.unified import enabled, notify_heartbeat
     if enabled():
         def send() -> bool:
             outcomes = [build_sender(token, chat_id)(message) for token, chat_id in targets]
@@ -344,8 +344,8 @@ def _strategy_result_summary(result: dict[str, Any], *, dry_run: bool) -> dict[s
         summary["orders_skipped"] = skipped_orders
     if execution_notes:
         summary["execution_notes"] = execution_notes
-    from notifications.digest_snapshot.digest_candidates import cycle_evidence
-    from notifications.unified import known_pending_orders
+    from firstrade_platform.notifications.digest_snapshot.digest_candidates import cycle_evidence
+    from firstrade_platform.notifications.unified import known_pending_orders
     evidence = dict(result)
     if not evidence.get("execution_status") and result.get("ok") is True:
         evidence["execution_status"] = "completed"
@@ -502,7 +502,7 @@ def _run_strategy_cycle_with_report(
         finally:
             report.pop("account_facts_source_binding_id", None)
 
-    from notifications.unified import notify_cycle
+    from firstrade_platform.notifications.unified import notify_cycle
     unified = bool(send_cycle_notification)
     try:
         cycle_options = {
@@ -528,8 +528,8 @@ def _run_strategy_cycle_with_report(
         except Exception as persist_exc:
             print(f"failed to persist execution report: {persist_exc}", flush=True)
         if unified:
-            from application.rebalance_service import _publish_cycle_notification
-            from notifications.unified import alert_text, coverage_locale, cycle_kind
+            from firstrade_platform.application.rebalance_service import _publish_cycle_notification
+            from firstrade_platform.notifications.unified import alert_text, coverage_locale, cycle_kind
             routine = cycle_kind(result) in {"routine_cycle", "order_submitted", "fill"}
             if dry_run and routine:
                 result["notification_consolidation"] = {"route": "preview", "candidate_persisted": False}

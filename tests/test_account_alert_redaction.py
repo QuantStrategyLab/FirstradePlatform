@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-import main
-from application.firstrade_client import FirstradeBrokerClient, FirstradeCredentials
-from notifications import unified
+from firstrade_platform import main
+from firstrade_platform.application.firstrade_client import FirstradeBrokerClient, FirstradeCredentials
+from firstrade_platform.notifications import unified
 
 
 class MemoryStore:
@@ -91,7 +91,7 @@ def test_account_selection_failure_through_real_alert_sender(
 @pytest.mark.parametrize("account", ["87654321", "****4321"])
 @pytest.mark.parametrize("lang", ["en", "zh"])
 def test_cycle_alert_redacts_raw_and_legacy_accounts_at_log_and_transport(monkeypatch, account, lang):
-    from application.rebalance_service import _publish_cycle_notification
+    from firstrade_platform.application.rebalance_service import _publish_cycle_notification
 
     sent, logged = [], []
 

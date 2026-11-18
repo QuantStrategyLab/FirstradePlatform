@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from notifications import unified
+from firstrade_platform.notifications import unified
 from test_notification_consolidation import ENV, NOW, Store, TARGET, candidate, notify, source
 
 
@@ -116,8 +116,8 @@ def test_candidate_slot_cannot_mix_accounts_even_if_misconfigured():
 
 
 def test_main_on_writes_report_then_candidate_and_preserves_cycle_options(monkeypatch):
-    import main
-    import application.rebalance_service as rebalance
+    from firstrade_platform import main
+    import firstrade_platform.application.rebalance_service as rebalance
     class FixtureDateTime(datetime):
         @classmethod
         def now(cls, tz=None):

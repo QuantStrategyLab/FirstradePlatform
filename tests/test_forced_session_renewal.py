@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from application import session_check_service
-from application.firstrade_client import FirstradeCredentials, FirstradeMfaRequired, FirstradeSafetyError
-from application.session_check_service import run_forced_session_renewal
+from firstrade_platform.application import session_check_service
+from firstrade_platform.application.firstrade_client import FirstradeCredentials, FirstradeMfaRequired, FirstradeSafetyError
+from firstrade_platform.application.session_check_service import run_forced_session_renewal
 
 ORDER_METHODS = ("place_stock_order", "place_order", "submit_order", "cancel_order", "preview_order")
 READ_METHODS = {"connect", "select_account", "get_balances", "save_verified_session_cache"}
@@ -106,7 +106,7 @@ def test_forced_renewal_refuses_live_client():
 
 
 def test_connect_force_login_skips_cached_session(tmp_path):
-    from application.firstrade_client import FirstradeBrokerClient
+    from firstrade_platform.application.firstrade_client import FirstradeBrokerClient
 
     events = []
 
@@ -134,7 +134,7 @@ def test_connect_force_login_skips_cached_session(tmp_path):
 @pytest.mark.parametrize("scenario", ["success", "auto_single", "empty_balances", "wrong_account", "auto_multiple", "balances_fail", "store_false", "store_error"])
 @pytest.mark.parametrize("invalid_token", [None, ("access-token", None), ("access-token", 123), ("access-token", "  "), ("ftat", None), ("ftat", 123), ("ftat", "  "), ("sid", None), ("sid", 123), ("sid", "  ")])
 def test_renewal_commits_shared_cache_only_after_account_and_balance_validation(tmp_path, scenario, invalid_token):
-    from application.firstrade_client import FirstradeBrokerClient, FirstradePlatformError
+    from firstrade_platform.application.firstrade_client import FirstradeBrokerClient, FirstradePlatformError
 
     events = []
 
@@ -198,7 +198,7 @@ def test_renewal_commits_shared_cache_only_after_account_and_balance_validation(
 @pytest.fixture
 def http_client(monkeypatch):
     pytest.importorskip("flask")
-    import main
+    from firstrade_platform import main
 
     def no_orders(*_a, **_k):
         raise AssertionError("strategy/order path reached")

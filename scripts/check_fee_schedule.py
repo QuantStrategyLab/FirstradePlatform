@@ -6,7 +6,7 @@ FINRA filing PDFs):
 
 ``check``
     Fetch the SEC Section 31 advisory and the FINRA Trading Activity Fee (TAF)
-    sources, compare them with ``application/firstrade_fee_schedule.py`` and
+    sources, compare them with ``src/firstrade_platform/application/firstrade_fee_schedule.py`` and
     write a Markdown report plus a JSON result. Any fetch or parse failure is an
     ``error``; any difference is ``changed``. Only a complete match is
     ``unchanged``. Rates are never edited.
@@ -42,10 +42,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-from application.firstrade_fee_schedule import DEFAULT_FEE_SCHEDULE_CONFIG
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEDULE_FILE = REPO_ROOT / "application" / "firstrade_fee_schedule.py"
+SRC_DIR = REPO_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from firstrade_platform.application.firstrade_fee_schedule import DEFAULT_FEE_SCHEDULE_CONFIG
+
+SCHEDULE_FILE = REPO_ROOT / "src" / "firstrade_platform" / "application" / "firstrade_fee_schedule.py"
 TEST_FILE = REPO_ROOT / "tests" / "test_statement_reconciliation.py"
 DOC_FILES = (
     REPO_ROOT / "docs" / "statement-reconciliation.md",
@@ -609,7 +613,7 @@ def render_report(status: str, report: Report | None, error: str | None, today: 
             lines += ["## Sources", ""] + [f"- {s}" for s in report.sources] + [""]
     if status != STATUS_UNCHANGED:
         lines += ["Rates are never changed automatically. Review the sources, update "
-                  "`application/firstrade_fee_schedule.py`, its tests and docs in a normal "
+                  "`src/firstrade_platform/application/firstrade_fee_schedule.py`, its tests and docs in a normal "
                   "PR, then move `verified_through`. Tracking issue: #497.", ""]
     return "\n".join(lines)
 

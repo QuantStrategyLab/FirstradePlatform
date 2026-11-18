@@ -760,7 +760,7 @@ def _send_telegram(message: str) -> bool:
 
 
 def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=None) -> bool:
-    from notifications.unified import alert_text, enabled, notify_heartbeat
+    from firstrade_platform.notifications.unified import alert_text, enabled, notify_heartbeat
     if not enabled():
         return _send_telegram(message)
     result = notify_heartbeat(kind=kind, send=lambda: _send_telegram(alert_text(kind, _notification_locale())),
@@ -770,7 +770,7 @@ def _deliver_alert(message: str, *, kind: str, now: dt.datetime, affected_keys=N
 
 def _send_normal_heartbeat(name: str, detail: str, *, quiet_eligible: bool = True,
                            now: dt.datetime | None = None, recovery_reports=(), affected_keys=None) -> int:
-    from notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat
+    from firstrade_platform.notifications.unified import alert_text, coverage_locale, enabled, notify_heartbeat
     if quiet_eligible or enabled():
         locale = coverage_locale() if quiet_eligible else _notification_locale()
         message = alert_text("candidate_write_failure" if quiet_eligible else "receipt_unacceptable", locale)

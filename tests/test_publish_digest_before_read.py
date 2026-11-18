@@ -146,7 +146,7 @@ def test_completed_window_uses_only_bound_funds_observation(
 
 
 def test_configured_currency_does_not_carry_over_to_other_target_bindings():
-    from notifications.unified import _bindings
+    from firstrade_platform.notifications.unified import _bindings
 
     bindings = _bindings({
         "DIGEST_FUNDS_SNAPSHOT_CURRENCY": "USD",
@@ -258,7 +258,7 @@ def test_watchdog_escapes_producer_exception_handlers(monkeypatch, capsys):
 
 @pytest.mark.parametrize("stage", ["candidate_read", "candidate_write"])
 def test_persistence_diagnostic_identifies_operation_without_raw_error(stage, monkeypatch, capsys):
-    from notifications.unified import _merge, CandidateStorageError
+    from firstrade_platform.notifications.unified import _merge, CandidateStorageError
     calls = []
     class Store:
         def read(self, uri):
@@ -286,7 +286,7 @@ def test_persistence_diagnostic_identifies_operation_without_raw_error(stage, mo
 
 
 def test_existing_business_report_uses_native_archive_reader_and_verified_publication(client):
-    from notifications.digest_snapshot.digest_candidates import cycle_evidence
+    from firstrade_platform.notifications.digest_snapshot.digest_candidates import cycle_evidence
     env = {**ENV, "FIRSTRADE_UNIFIED_NOTIFICATION_ENABLED": "true",
            "RUNTIME_HEARTBEAT_REPORT_PLATFORM": "firstrade",
            "IBKR_NOTIFICATION_MARKER_GCS_URI": "gs://synthetic-candidates/markers"}

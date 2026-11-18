@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from application.execution_service import (
+from firstrade_platform.application.execution_service import (
     _apply_notional_cash_buffer,
     execute_value_target_plan,
     substitute_small_safe_haven_targets_with_cash,
@@ -125,7 +125,7 @@ def test_unknown_outcome_stops_all_later_submissions_and_preserves_facts(side, n
 @pytest.mark.parametrize("payload", [{"statusCode": 500}, {"statusCode": 200, "result": {}}])
 @pytest.mark.parametrize("notional", [False, True])
 def test_real_adapter_ambiguous_response_stops_cycle_pending(payload, notional):
-    from application.runtime_broker_adapters import build_runtime_broker_adapters
+    from firstrade_platform.application.runtime_broker_adapters import build_runtime_broker_adapters
 
     class LocalClient:
         def __init__(self):

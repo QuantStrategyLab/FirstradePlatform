@@ -1,7 +1,7 @@
 # Statement reconciliation: fee split and valuation basis
 
 Two reconciliation gaps looked unexplained but have fixed, documented causes.
-`application/statement_reconciliation.py` models them as pure, offline helpers.
+`src/firstrade_platform/application/statement_reconciliation.py` models them as pure, offline helpers.
 Nothing in it calls a broker, reads credentials, or writes data.
 
 ## Desk-executed sells: broker-assisted fee plus regulatory fee
@@ -34,7 +34,7 @@ Worked case, 2026-08-28 IBIT: `2 x 43.7724 = 87.5448`, minus `19.95` and
 `0.01` gives `67.58`, which matches the reported amount. The earlier
 "unexplained `19.96`" is the sum of the two fees.
 
-Rates live in `application/firstrade_fee_schedule.py` as effective-dated
+Rates live in `src/firstrade_platform/application/firstrade_fee_schedule.py` as effective-dated
 segments (SEC `0.00` from 2025-05-14, `20.60` per million from 2026-04-04).
 TAF for covered equities: `0.000195` per share (max `$9.79`) in 2026, paused
 2026-10-01 to 2026-12-31 (SR-FINRA-2026-021), then `0.000195` / `$9.79` again

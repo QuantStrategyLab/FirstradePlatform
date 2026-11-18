@@ -1,9 +1,9 @@
 """Verify the coverage source layout measures shipped production code.
 
-The denominator is the repository tree minus explicitly excluded categories.
-A hermetic synthetic tree proves that unexecuted in-scope lines and files
-remain in the denominator while excluded test/external/build code cannot
-inflate the measurement.
+The denominator is the ``src/firstrade_platform`` package tree minus explicitly
+excluded categories. A hermetic synthetic tree proves that unexecuted in-scope
+lines and files remain in the denominator while excluded test/external/build
+code cannot inflate the measurement.
 """
 
 from __future__ import annotations
@@ -30,6 +30,18 @@ SYNTHETIC_MODULE = (
 )
 
 CANONICAL_OMIT_CATEGORIES = ("tests/", "external/", ".venv/", "build/", "dist/")
+LEGACY_ROOT_PATHS = (
+    "application",
+    "entrypoints",
+    "notifications",
+    "decision_mapper.py",
+    "main.py",
+    "runtime_config_support.py",
+    "runtime_execution_policy.py",
+    "strategy_loader.py",
+    "strategy_registry.py",
+    "strategy_runtime.py",
+)
 
 
 def pyproject():
@@ -46,10 +58,16 @@ def coverage_report_config():
 
 def declared_production_sources():
     data = pyproject()
-    modules = data["tool"]["setuptools"]["py-modules"]
-    include = data["tool"]["setuptools"]["packages"]["find"]["include"]
-    packages = sorted({p.name for pattern in include for p in ROOT.glob(pattern) if p.is_dir()})
-    return modules, packages
+    setuptools_cfg = data["tool"]["setuptools"]
+    package_dir = setuptools_cfg["package-dir"]
+    where = setuptools_cfg["packages"]["find"]["where"]
+    if package_dir != {"": "src"} or where != ["src"]:
+        raise AssertionError(f"Unexpected setuptools src layout: {package_dir!r}, {where!r}")
+    src_root = ROOT / "src"
+    packages = sorted(
+        p.name for p in src_root.iterdir() if p.is_dir() and (p / "__init__.py").is_file()
+    )
+    return packages
 
 
 def matches_any_omit(path, omit_patterns):
@@ -61,49 +79,54 @@ def matches_any_omit(path, omit_patterns):
 
 
 class CoverageSourceLayoutTests(unittest.TestCase):
-    def test_source_is_repository_root_with_explicit_category_exclusions(self):
+    def test_source_is_src_package_with_explicit_category_exclusions(self):
         run = coverage_run_config()
         report = coverage_report_config()
-        self.assertEqual(run["source"], ["."])
+        self.assertEqual(run["source"], ["src/firstrade_platform"])
         self.assertTrue(report.get("include_namespace_packages"))
-        self.assertFalse((ROOT / "src").exists())
+        self.assertTrue((ROOT / "src" / "firstrade_platform" / "__init__.py").is_file())
+        for legacy_path in LEGACY_ROOT_PATHS:
+            self.assertFalse((ROOT / legacy_path).exists(), legacy_path)
         self.assertNotIn("fail_under", str(pyproject()["tool"]["coverage"]))
         omit = " ".join(run["omit"])
         for category in CANONICAL_OMIT_CATEGORIES:
             self.assertIn(category, omit)
 
     def test_declared_production_paths_are_measured(self):
-        modules, packages = declared_production_sources()
+        packages = declared_production_sources()
+        self.assertEqual(packages, ["firstrade_platform"])
         omit = coverage_run_config()["omit"]
-        for module in modules:
-            relative = f"{module}.py"
-            self.assertTrue((ROOT / relative).exists(), relative)
-            self.assertFalse(matches_any_omit(relative, omit), relative)
         for package in packages:
-            self.assertFalse(matches_any_omit(package, omit), package)
+            pkg_root = ROOT / "src" / package
+            self.assertTrue(pkg_root.is_dir(), package)
+            for py_file in sorted(pkg_root.rglob("*.py")):
+                relative = py_file.relative_to(ROOT).as_posix()
+                self.assertFalse(matches_any_omit(relative, omit), relative)
 
     def test_unexecuted_in_scope_files_remain_in_denominator(self):
-        modules, packages = declared_production_sources()
+        packages = declared_production_sources()
+        package = packages[0]
         run = coverage_run_config()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for module in modules:
-                (root / f"{module}.py").write_text(SYNTHETIC_MODULE, encoding="utf-8")
-            for package in packages:
-                (root / package).mkdir()
-            (root / packages[0] / "synthetic_service.py").write_text(
+            pkg_dir = root / "src" / package
+            (pkg_dir / "application").mkdir(parents=True)
+            (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+            (pkg_dir / "executed_mod.py").write_text(SYNTHETIC_MODULE, encoding="utf-8")
+            (pkg_dir / "never_imported.py").write_text(SYNTHETIC_MODULE, encoding="utf-8")
+            (pkg_dir / "application" / "__init__.py").write_text("", encoding="utf-8")
+            (pkg_dir / "application" / "synthetic_service.py").write_text(
                 SYNTHETIC_MODULE, encoding="utf-8"
             )
             excluded = "def never_executed():\n    value = 1\n    return value\n"
             for directory in ("tests", "external", ".venv", "build", "dist"):
                 (root / directory).mkdir(parents=True)
                 (root / directory / "excluded_module.py").write_text(excluded, encoding="utf-8")
-            imported = modules[:-1]
-            imports = [
-                f"importlib.import_module({module!r}).executed()" for module in imported
-            ]
             (root / "runner.py").write_text(
-                "import importlib\n" + "\n".join(imports) + "\nprint('done')\n",
+                "import importlib, sys\n"
+                "sys.path.insert(0, 'src')\n"
+                f"importlib.import_module('{package}.executed_mod').executed()\n"
+                "print('done')\n",
                 encoding="utf-8",
             )
             (root / ".coveragerc").write_text(
@@ -142,13 +165,13 @@ class CoverageSourceLayoutTests(unittest.TestCase):
                 for candidate in output.splitlines()
                 if candidate and not candidate.startswith(("Name", "-", "TOTAL"))
             }
-            for module in imported:
-                self.assertIn(module + ".py", lines)
-                self.assertIn("6-7", lines[module + ".py"])
-            never_imported = modules[-1]
-            self.assertIn(never_imported + ".py", lines)
-            self.assertIn("0%", lines[never_imported + ".py"])
-            service_path = f"{packages[0]}/synthetic_service.py"
+            executed_path = f"src/{package}/executed_mod.py"
+            self.assertIn(executed_path, lines)
+            self.assertIn("6-7", lines[executed_path])
+            never_imported_path = f"src/{package}/never_imported.py"
+            self.assertIn(never_imported_path, lines)
+            self.assertIn("0%", lines[never_imported_path])
+            service_path = f"src/{package}/application/synthetic_service.py"
             self.assertIn(service_path, lines)
             self.assertIn("0%", lines[service_path])
             for directory in ("tests", "external", ".venv", "build", "dist"):
