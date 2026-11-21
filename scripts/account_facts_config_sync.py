@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync"
+APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"
 FACTS_ENV_KEYS = (
     "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
     "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",

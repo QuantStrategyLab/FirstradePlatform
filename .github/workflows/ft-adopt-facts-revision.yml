@@ -102,7 +102,7 @@ jobs:
           needed=["FIRSTRADE_ACCOUNT_FACTS_TARGET_ID","FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE"]
           if enabled != "true":
               print(f"sync_not_enabled value={enabled!r}", file=sys.stderr); sys.exit(1)
-          if url != "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync":
+          if url != "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync":
               print("sync_url_invalid", file=sys.stderr); sys.exit(1)
           if not has_secret_ref(token):
               keys=sorted((token or {}).keys())

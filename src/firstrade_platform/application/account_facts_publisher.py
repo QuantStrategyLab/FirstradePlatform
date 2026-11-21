@@ -14,7 +14,7 @@ import requests
 
 from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable
 
-_APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync"
+_APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"
 _TARGET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?", re.ASCII)
 _ACCOUNT_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*", re.ASCII)
 _ACCOUNT_SCOPE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*", re.ASCII)
@@ -77,7 +77,7 @@ def load_account_facts_publish_config(
     if (
         sync_url != _APPROVED_SYNC_URL
         or parsed.scheme != "https"
-        or parsed.netloc != "qsl-strategy-switch-console.pigbibi.workers.dev"
+        or parsed.netloc != "qsl-strategy-switch-console.pigbibi-e06.workers.dev"
         or parsed.path != "/api/account-facts/sync"
         or parsed.query
         or parsed.fragment
