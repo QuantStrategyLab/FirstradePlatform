@@ -27,7 +27,7 @@ jobs:
        (inputs.target == 'digest-candidate-release' && inputs.operation == 'verify'))
     permissions:
       id-token: write
-    uses: QuantStrategyLab/.github/.github/workflows/deploy-job.yml@fcf38f37e25c34580776ef1318718f434286f6e2
+    uses: QuantStrategyLab/.github/.github/workflows/deploy-job.yml@8c951ff422a035a323d5b97800b93bc69f6cc906
     with:
       provider: gcp
       environment: ${{ inputs.target }}
