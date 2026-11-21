@@ -14,7 +14,7 @@ from firstrade_platform.application.account_facts_publisher import (
 def config(**overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "synthetic-facts-token",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "firstrade-live-synthetic",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
@@ -147,9 +147,9 @@ def test_available_cash_never_replaces_missing_exact_cash(missing_key):
     ("overrides", "reason"),
     [
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false"}, "disabled"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"}, "destination_not_approved"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://other.example/api/account-facts/sync"}, "destination_not_approved"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync?next=other"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync?next=other"}, "destination_not_approved"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "A" * 64}, "source_binding_invalid"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "same", "ACCOUNT_FACTS_SYNC_TOKEN": "same"}, "sync_token_not_dedicated"),
     ],

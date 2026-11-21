@@ -24,7 +24,7 @@ PROJECT_NUMBER = "1088907247379"
 def _desired(monkeypatch, **overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "synthetic-target",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "b" * 64,
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-account-key",
