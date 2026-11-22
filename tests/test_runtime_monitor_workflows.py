@@ -56,7 +56,7 @@ def test_runtime_monitor_workflows_retry_gcp_authentication() -> None:
         if name == "execution-report-heartbeat.yml":
             workflow = workflow.split("  heartbeat:\n", 1)[1].split("  runtime_daily:\n", 1)[0]
 
-        assert workflow.count("google-github-actions/auth@v3") == 2
+        assert workflow.count("google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093") == 2
         assert "id: gcp_auth_primary" in workflow
         assert "continue-on-error: true" in workflow
         assert "steps.gcp_auth_primary.outcome == 'failure'" in workflow
@@ -83,7 +83,7 @@ def test_runtime_guard_callers_use_locked_uv_runtime_before_authentication() -> 
         assert "uv sync --frozen --no-dev" in workflow
         assert guard_command in workflow
         assert not re.search(r"pip install[^\n]*\buv\b", workflow)
-        assert "actions/setup-python@v6" not in workflow
+        assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" not in workflow
         setup_python_lines.extend(
             line for line in workflow.splitlines() if "actions/setup-python@" in line
         )
@@ -92,9 +92,9 @@ def test_runtime_guard_callers_use_locked_uv_runtime_before_authentication() -> 
             for line in workflow.splitlines()
             if "scripts/cloud_run_runtime_guard.py" in line
         )
-        assert workflow.index(setup_uv) < workflow.index("google-github-actions/auth@v3")
+        assert workflow.index(setup_uv) < workflow.index("google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093")
         assert workflow.index("uv sync --frozen --no-dev") < workflow.index(
-            "google-github-actions/auth@v3"
+            "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093"
         )
     assert setup_python_lines == [f"        uses: {setup_python}"]
 
