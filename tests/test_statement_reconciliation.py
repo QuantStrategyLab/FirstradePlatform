@@ -18,7 +18,7 @@ from firstrade_platform.application.statement_reconciliation import (
 
 # Review pin: the date the fee schedule is expected to be verified through. The monthly
 # fee-schedule check workflow moves this line together with ``verified_through``.
-VERIFIED_THROUGH = date(2026, 12, 1)
+VERIFIED_THROUGH = date(2026, 12, 31)
 DAY_AFTER_VERIFIED = VERIFIED_THROUGH + timedelta(days=1)
 
 # Shape of the Firstrade history CSV row for the 2026-08-28 margin sellout.

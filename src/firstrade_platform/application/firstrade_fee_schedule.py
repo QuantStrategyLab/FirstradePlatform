@@ -11,7 +11,7 @@ rate has not been published yet; the FY2026 rate stays in effect until 60 days
 after the FY2027 appropriation is enacted, so no date past ``verified_through``
 is assumed to keep the FY2026 rate.
 
-Sources (checked 2026-11-01):
+Sources (checked 2026-11-22):
 - Broker-assisted order fee: https://www.firstrade.com/trading/pricing
 - SEC Section 31 rate advisories (charge date is the trade date):
   FY2024 $27.80/M from 2024-05-22, FY2025 $0.00/M from 2025-05-14,
@@ -43,7 +43,7 @@ DEFAULT_FEE_SCHEDULE_CONFIG: dict[str, Any] = {
     "schema_version": "firstrade_fee_schedule.v1",
     # Last trade date for which every rate below was verified against the
     # published sources. Later trade dates are unsupported (fail closed).
-    "verified_through": "2026-12-01",
+    "verified_through": "2026-12-31",
     # Matched case-insensitively against the transaction description.
     "broker_assisted_markers": ["BROKER/DEALER ORDER"],
     "broker_assisted_fee": [
