@@ -83,7 +83,7 @@ def test_runtime_guard_callers_use_locked_uv_runtime_before_authentication() -> 
         assert "uv sync --frozen --no-dev" in workflow
         assert guard_command in workflow
         assert not re.search(r"pip install[^\n]*\buv\b", workflow)
-        assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" not in workflow
+        assert "actions/setup-python@v6" not in workflow
         setup_python_lines.extend(
             line for line in workflow.splitlines() if "actions/setup-python@" in line
         )
