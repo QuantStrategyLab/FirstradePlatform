@@ -119,7 +119,7 @@ jobs:
           fi
 
       - name: Checkout approved workflow source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.expected_sha }}
 
@@ -140,13 +140,13 @@ jobs:
           fi
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: projects/1088907247379/locations/global/workloadIdentityPools/github-actions/providers/github-main
           service_account: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: firstradequant
           version: ">= 416.0.0"
@@ -276,7 +276,7 @@ jobs:
           fi
 
       - name: Checkout approved stage workflow source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.expected_sha }}
 
@@ -303,7 +303,7 @@ jobs:
             --expected-service "${EXPECTED_SERVICE}" --tag "${CACHED_DIAGNOSTIC_TAG}"
 
       - name: Checkout fixed cached-diagnostic candidate
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: 78f976c3a23fa58a543a6dc695f5c43b26f2b125
           path: cached-diagnostic-source
@@ -326,13 +326,13 @@ jobs:
           fi
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
           version: ">= 416.0.0"
@@ -666,7 +666,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.deploy_config.outputs.enabled == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.expected_sha }}
 
@@ -714,14 +714,14 @@ jobs:
       - name: Authenticate to Google Cloud
         id: auth
         if: steps.deploy_config.outputs.enabled == 'true'
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
         if: steps.deploy_config.outputs.enabled == 'true'
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
           version: ">= 416.0.0"
@@ -754,7 +754,7 @@ jobs:
 
       - name: Set up Python for strategy requirement resolution
         if: steps.deploy_config.outputs.enabled == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
 
@@ -1725,7 +1725,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.expected_sha }}
           persist-credentials: false
@@ -1739,11 +1739,11 @@ jobs:
             echo "The approved branch changed before the release." >&2
             exit 1
           fi
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
       - name: Build and verify the archive-only revision
         env:
           CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
