@@ -178,6 +178,14 @@ def test_publish_uses_history_ingress_after_identity_validation(monkeypatch):
     assert len(published) == 1 and published[0][1] == {"historical": True}
 
 
+def test_publish_extracts_origin_from_evidence_url_when_console_base_url_unset(monkeypatch):
+    env, _, published = install_fakes(monkeypatch)
+    env["QSL_CONSOLE_BASE_URL"] = ""
+    env["EXECUTION_EVIDENCE_SYNC_URL"] = f"{SYNTHETIC_CONSOLE_BASE_URL}/api/execution-evidence/sync"
+    assert history.execute(DAY, publish=True, env=env)["status"] == "published"
+    assert len(published) == 1
+
+
 @pytest.mark.parametrize("failure", ["source", "identity"])
 def test_failed_source_or_native_identity_causes_zero_posts(monkeypatch, failure):
     env, reads, published = install_fakes(monkeypatch, mismatched_source=failure == "source", wrong_account=failure == "identity")

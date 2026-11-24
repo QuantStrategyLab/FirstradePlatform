@@ -23,15 +23,16 @@ COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 MAX_RESPONSE_BYTES = 2_000_000
 ACCOUNT_FACTS_SYNC_PATH = "/api/account-facts/sync"
 APPROVED_CONSOLE_BASE_URL_ENV = "QSL_CONSOLE_BASE_URL"
+EXECUTION_EVIDENCE_SYNC_URL_ENV = "EXECUTION_EVIDENCE_SYNC_URL"
+_EXPLICIT_ORIGIN_PATHS = frozenset({""})
+_FALLBACK_EVIDENCE_PATHS = frozenset({"", "/", "/api/execution-evidence/sync"})
 _CONSOLE_HOST_RE = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z",
     re.ASCII,
 )
 
 
-def _approved_account_facts_destination(environ: Mapping[str, str] | None = None) -> str | None:
-    env = os.environ if environ is None else environ
-    raw = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+def _parse_console_origin(raw: object, *, allowed_paths: frozenset[str]) -> str | None:
     if not isinstance(raw, str) or not raw or raw != raw.strip():
         return None
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
@@ -49,13 +50,30 @@ def _approved_account_facts_destination(environ: Mapping[str, str] | None = None
         or parsed.username is not None
         or parsed.password is not None
         or port is not None
-        or parsed.path not in {"", "/"}
+        or parsed.path not in allowed_paths
         or parsed.query
         or parsed.fragment
         or _CONSOLE_HOST_RE.fullmatch(host) is None
     ):
         return None
-    return f"https://{host}{ACCOUNT_FACTS_SYNC_PATH}"
+    return f"https://{host}"
+
+
+def _approved_account_facts_destination(environ: Mapping[str, str] | None = None) -> str | None:
+    env = os.environ if environ is None else environ
+    raw_origin = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+    if raw_origin is not None and raw_origin != "":
+        origin = _parse_console_origin(raw_origin, allowed_paths=_EXPLICIT_ORIGIN_PATHS)
+    else:
+        raw_fallback = env.get(EXECUTION_EVIDENCE_SYNC_URL_ENV)
+        origin = (
+            _parse_console_origin(raw_fallback, allowed_paths=_FALLBACK_EVIDENCE_PATHS)
+            if raw_fallback is not None and raw_fallback != ""
+            else None
+        )
+    if origin is None:
+        return None
+    return f"{origin}{ACCOUNT_FACTS_SYNC_PATH}"
 
 
 def _validated_account_facts_destination(value: object) -> str | None:

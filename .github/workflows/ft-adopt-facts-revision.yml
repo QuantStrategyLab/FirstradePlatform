@@ -32,7 +32,8 @@ jobs:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
-      QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}
+      QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL }}
+      EXECUTION_EVIDENCE_SYNC_URL: ${{ vars.EXECUTION_EVIDENCE_SYNC_URL }}
       APPROVED_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}
     steps:
       - name: Validate source
@@ -100,31 +101,41 @@ jobs:
               return bool((row or {}).get("value")) or has_secret_ref(row or {})
 
           host_re = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z", re.ASCII)
-          raw_origin = os.environ.get("QSL_CONSOLE_BASE_URL") or ""
-          parsed_origin = None
-          origin_port = None
-          if raw_origin and raw_origin == raw_origin.strip() and not any(ord(c) < 0x20 or ord(c) == 0x7F for c in raw_origin):
+
+          def resolve_origin(raw, allowed_paths):
+              if not raw or raw != raw.strip() or any(ord(c) < 0x20 or ord(c) == 0x7F for c in raw):
+                  return None
               try:
-                  parsed_origin = urlsplit(raw_origin)
-                  origin_port = parsed_origin.port
+                  parsed = urlsplit(raw)
+                  port = parsed.port
               except ValueError:
-                  parsed_origin = None
-          origin_host = (parsed_origin.hostname or "") if parsed_origin else ""
-          if (
-              parsed_origin is None
-              or parsed_origin.scheme != "https"
-              or not origin_host
-              or parsed_origin.netloc != origin_host
-              or parsed_origin.username is not None
-              or parsed_origin.password is not None
-              or origin_port is not None
-              or parsed_origin.path != ""
-              or parsed_origin.query
-              or parsed_origin.fragment
-              or host_re.fullmatch(origin_host) is None
-          ):
+                  return None
+              host = parsed.hostname or ""
+              if (
+                  parsed.scheme != "https"
+                  or not host
+                  or parsed.netloc != host
+                  or parsed.username is not None
+                  or parsed.password is not None
+                  or port is not None
+                  or parsed.path not in allowed_paths
+                  or parsed.query
+                  or parsed.fragment
+                  or host_re.fullmatch(host) is None
+              ):
+                  return None
+              return f"https://{host}"
+
+          raw_origin = os.environ.get("QSL_CONSOLE_BASE_URL") or ""
+          if raw_origin:
+              expected_origin = resolve_origin(raw_origin, {""})
+          else:
+              expected_origin = resolve_origin(
+                  os.environ.get("EXECUTION_EVIDENCE_SYNC_URL") or "",
+                  {"", "/", "/api/execution-evidence/sync"},
+              )
+          if not expected_origin:
               print("approved_origin_invalid", file=sys.stderr); sys.exit(1)
-          expected_origin = f"https://{origin_host}"
           expected_url = f"{expected_origin}/api/account-facts/sync"
           if (os.environ.get("APPROVED_ACCOUNT_FACTS_SYNC_URL") or "") != expected_url:
               print("approved_sync_url_invalid", file=sys.stderr); sys.exit(1)

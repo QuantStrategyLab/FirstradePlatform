@@ -8,6 +8,7 @@ from firstrade_platform.application.account_facts_publisher import (
     build_firstrade_account_snapshot,
     load_account_facts_publish_config,
     publish_firstrade_account_snapshot,
+    resolve_approved_console_origin,
 )
 
 
@@ -177,6 +178,59 @@ def test_config_fails_closed_when_approved_console_origin_is_absent():
     values.pop("QSL_CONSOLE_BASE_URL")
     with pytest.raises(AccountFactsPublishError, match="destination_not_approved"):
         load_account_facts_publish_config(values)
+
+
+@pytest.mark.parametrize(
+    "evidence_url",
+    [
+        "https://console.example.test",
+        "https://console.example.test/",
+        "https://console.example.test/api/execution-evidence/sync",
+    ],
+)
+def test_origin_fallback_extracts_canonical_https_origin_from_evidence_url(evidence_url):
+    env = config(QSL_CONSOLE_BASE_URL="", EXECUTION_EVIDENCE_SYNC_URL=evidence_url)
+    assert resolve_approved_console_origin(env) == SYNTHETIC_CONSOLE_BASE_URL
+    cfg = load_account_facts_publish_config(env)
+    assert cfg.sync_url == SYNTHETIC_SYNC_URL
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {
+            "QSL_CONSOLE_BASE_URL": "https://console.example.test/extra",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "https://console.example.test/api/execution-evidence/sync",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/unexpected",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "http://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync?x=1",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://user@console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test:8443/api/execution-evidence/sync",
+        },
+    ],
+)
+def test_origin_fallback_rejects_invalid_explicit_origin_or_disallowed_evidence_url(overrides):
+    with pytest.raises(AccountFactsPublishError, match="destination_not_approved"):
+        load_account_facts_publish_config(config(**overrides))
 
 
 @pytest.mark.parametrize(

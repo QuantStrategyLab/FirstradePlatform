@@ -134,15 +134,45 @@ def _secret_mapping(alias="facts-token-lookup", *, project_number=PROJECT_NUMBER
 
 def test_config_requires_all_fields_and_approved_destination(monkeypatch):
     monkeypatch.delenv("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", raising=False)
+    monkeypatch.delenv("EXECUTION_EVIDENCE_SYNC_URL", raising=False)
     with pytest.raises(ConfigSyncError, match="configuration_incomplete"):
         desired_facts_config()
 
     with pytest.raises(ConfigSyncError, match="destination_not_approved"):
         _desired(monkeypatch, FIRSTRADE_ACCOUNT_FACTS_SYNC_URL="https://example.invalid/api")
 
-    for bad_origin in (None, "", "http://console.example.test", "https://console.example.test/"):
+    for bad_origin in (None, "", "http://console.example.test", "https://console.example.test/", "https://console.example.test/extra"):
         with pytest.raises(ConfigSyncError, match="destination_not_approved"):
-            _desired(monkeypatch, QSL_CONSOLE_BASE_URL=bad_origin)
+            _desired(monkeypatch, QSL_CONSOLE_BASE_URL=bad_origin, EXECUTION_EVIDENCE_SYNC_URL=None)
+
+
+def test_config_extracts_canonical_origin_from_evidence_fallback_and_rejects_invalid(monkeypatch, capsys):
+    from scripts import account_facts_config_sync as config_sync
+
+    desired = _desired(
+        monkeypatch,
+        QSL_CONSOLE_BASE_URL="",
+        EXECUTION_EVIDENCE_SYNC_URL="https://console.example.test/api/execution-evidence/sync",
+    )
+    assert desired["QSL_CONSOLE_BASE_URL"] == SYNTHETIC_CONSOLE_BASE_URL
+    assert desired["FIRSTRADE_ACCOUNT_FACTS_SYNC_URL"] == SYNTHETIC_SYNC_URL
+
+    monkeypatch.setattr(config_sync.sys, "argv", ["account_facts_config_sync.py", "origin"])
+    assert config_sync.main() == 0
+    assert capsys.readouterr().out.strip() == SYNTHETIC_CONSOLE_BASE_URL
+
+    with pytest.raises(ConfigSyncError, match="destination_not_approved"):
+        _desired(
+            monkeypatch,
+            QSL_CONSOLE_BASE_URL="https://console.example.test/extra",
+            EXECUTION_EVIDENCE_SYNC_URL="https://console.example.test/api/execution-evidence/sync",
+        )
+    with pytest.raises(ConfigSyncError, match="destination_not_approved"):
+        _desired(
+            monkeypatch,
+            QSL_CONSOLE_BASE_URL="",
+            EXECUTION_EVIDENCE_SYNC_URL="https://console.example.test/unexpected",
+        )
 
 
 def test_only_exact_six_fields_and_secret_reference_change_on_no_traffic_candidate(monkeypatch):

@@ -158,6 +158,49 @@ def test_per_service_facts_config_fallback_applies_only_to_current_firstrade_tar
         assert name in by_service[sibling_service]["remove_env_vars"]
 
 
+def test_sync_plan_extracts_canonical_origin_from_evidence_fallback_and_rejects_bad_urls():
+    base_env = {
+        **os.environ,
+        "PLATFORM_CONFIG_JSON": '{"strategies":{}}',
+        "CLOUD_RUN_SERVICE": "firstrade-platform-service",
+        "NOTIFY_LANG": "en",
+        "RUNTIME_TARGET_JSON": runtime_target_json(
+            "tqqq_growth_income",
+            service_name="firstrade-platform-service",
+        ),
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
+        "QSL_CONSOLE_BASE_URL": "",
+        "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+        "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "synthetic-target",
+        "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-account-key",
+        "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE": "US",
+    }
+    ok = subprocess.run(
+        [sys.executable, str(SYNC_PLAN_SCRIPT_PATH), "--json"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=base_env,
+    )
+    target = json.loads(ok.stdout)["targets"][0]
+    assert target["env"]["QSL_CONSOLE_BASE_URL"] == "https://console.example.test"
+
+    for bad_patch in (
+        {"QSL_CONSOLE_BASE_URL": "https://console.example.test/extra"},
+        {"QSL_CONSOLE_BASE_URL": "", "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/unexpected"},
+    ):
+        failed = subprocess.run(
+            [sys.executable, str(SYNC_PLAN_SCRIPT_PATH), "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**base_env, **bad_patch},
+        )
+        assert failed.returncode != 0
+
+
 def test_build_cloud_run_env_sync_plan_requires_snapshot_for_snapshot_backed_profile():
     env = {
         **os.environ,

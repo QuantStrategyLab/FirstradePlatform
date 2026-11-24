@@ -42,6 +42,10 @@ for candidate in (SRC, ROOT, QPK_SRC, UES_SRC):
 
 from scripts.cloud_run_tag_preflight import validate_diagnostic
 
+from firstrade_platform.application.account_facts_publisher import (  # noqa: E402
+    AccountFactsPublishError,
+    resolve_approved_console_origin,
+)
 from firstrade_platform.strategy_registry import (  # noqa: E402
     FIRSTRADE_PLATFORM,
     get_platform_profile_status_matrix,
@@ -507,6 +511,26 @@ def _build_target_plan(
             override_value = overrides.get(name) or overrides.get(name.lower())
             if override_value is not None:
                 value = _coerce_env_value(override_value)
+        if name == "QSL_CONSOLE_BASE_URL":
+            if value is not None:
+                try:
+                    value = resolve_approved_console_origin({"QSL_CONSOLE_BASE_URL": value})
+                except AccountFactsPublishError:
+                    raise ValueError(
+                        f"Target {service_name} QSL_CONSOLE_BASE_URL is invalid"
+                    ) from None
+            elif (
+                (not per_service_mode or is_current_firstrade_facts_target)
+                and env.get("EXECUTION_EVIDENCE_SYNC_URL")
+            ):
+                try:
+                    value = resolve_approved_console_origin(
+                        {"EXECUTION_EVIDENCE_SYNC_URL": env["EXECUTION_EVIDENCE_SYNC_URL"]}
+                    )
+                except AccountFactsPublishError:
+                    raise ValueError(
+                        f"Target {service_name} EXECUTION_EVIDENCE_SYNC_URL fallback origin is invalid"
+                    ) from None
 
         if value is None:
             remove_env_vars.append(name)

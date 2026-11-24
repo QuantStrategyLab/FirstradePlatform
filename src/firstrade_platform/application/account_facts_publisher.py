@@ -16,6 +16,9 @@ from firstrade_platform.application.account_facts_readonly import AccountFactsUn
 
 ACCOUNT_FACTS_SYNC_PATH = "/api/account-facts/sync"
 APPROVED_CONSOLE_BASE_URL_ENV = "QSL_CONSOLE_BASE_URL"
+EXECUTION_EVIDENCE_SYNC_URL_ENV = "EXECUTION_EVIDENCE_SYNC_URL"
+_EXPLICIT_ORIGIN_PATHS = frozenset({""})
+_FALLBACK_EVIDENCE_PATHS = frozenset({"", "/", "/api/execution-evidence/sync"})
 _CONSOLE_HOST_RE = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z",
     re.ASCII,
@@ -65,9 +68,7 @@ def _required_env(env: Mapping[str, str], key: str) -> str:
     return value
 
 
-def resolve_approved_console_origin(env: Mapping[str, str]) -> str:
-    """Load and validate the approved HTTPS console origin from env."""
-    raw = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+def _parse_approved_console_origin(raw: object, *, allowed_paths: frozenset[str]) -> str:
     if not isinstance(raw, str) or not raw or raw != raw.strip():
         raise AccountFactsPublishError("destination_not_approved")
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
@@ -85,13 +86,24 @@ def resolve_approved_console_origin(env: Mapping[str, str]) -> str:
         or parsed.username is not None
         or parsed.password is not None
         or port is not None
-        or parsed.path not in {"", "/"}
+        or parsed.path not in allowed_paths
         or parsed.query
         or parsed.fragment
         or _CONSOLE_HOST_RE.fullmatch(host) is None
     ):
         raise AccountFactsPublishError("destination_not_approved")
     return f"https://{host}"
+
+
+def resolve_approved_console_origin(env: Mapping[str, str]) -> str:
+    """Load and validate the approved HTTPS console origin from env."""
+    raw_origin = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+    if raw_origin is not None and raw_origin != "":
+        return _parse_approved_console_origin(raw_origin, allowed_paths=_EXPLICIT_ORIGIN_PATHS)
+    raw_fallback = env.get(EXECUTION_EVIDENCE_SYNC_URL_ENV)
+    if raw_fallback is not None and raw_fallback != "":
+        return _parse_approved_console_origin(raw_fallback, allowed_paths=_FALLBACK_EVIDENCE_PATHS)
+    raise AccountFactsPublishError("destination_not_approved")
 
 
 def resolve_approved_sync_url(env: Mapping[str, str]) -> str:

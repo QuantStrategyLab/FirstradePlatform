@@ -227,7 +227,8 @@ jobs:
     env:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
-      QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}
+      QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL }}
+      EXECUTION_EVIDENCE_SYNC_URL: ${{ vars.EXECUTION_EVIDENCE_SYNC_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

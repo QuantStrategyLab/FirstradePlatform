@@ -56,13 +56,17 @@ def test_account_facts_configuration_is_an_isolated_zero_traffic_mode():
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
         "QSL_CONSOLE_BASE_URL",
+        "EXECUTION_EVIDENCE_SYNC_URL",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
     ):
         assert name in job
-    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}" in job
+    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL }}" in job
+    assert "EXECUTION_EVIDENCE_SYNC_URL: ${{ vars.EXECUTION_EVIDENCE_SYNC_URL }}" in job
+    assert 'resolved_console_origin="$(python3 scripts/account_facts_config_sync.py origin)"' in job
+    assert "QSL_CONSOLE_BASE_URL=${resolved_console_origin}" in job
     assert "account-facts configuration readback is unavailable" in job
     assert "serving adoption remains separate" in job
 
@@ -127,13 +131,11 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     for name in (
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+        "QSL_CONSOLE_BASE_URL",
+        "EXECUTION_EVIDENCE_SYNC_URL",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
-    assert (
-        "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}"
-        in workflow
-    )
     for name in (
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
@@ -523,7 +525,8 @@ def test_readback_baseline_projections_include_array_members():
 
 def test_adopt_facts_revision_workflow_loads_approved_destination_from_vars():
     workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ft-adopt-facts-revision.yml").read_text()
-    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}" in workflow
+    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL }}" in workflow
+    assert "EXECUTION_EVIDENCE_SYNC_URL: ${{ vars.EXECUTION_EVIDENCE_SYNC_URL }}" in workflow
     assert "APPROVED_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}" in workflow
     assert "workers.dev" not in workflow
 
@@ -559,14 +562,27 @@ def test_adopt_facts_revision_workflow_loads_approved_destination_from_vars():
         "REVISION_JSON": json.dumps(make_revision()),
         "EXPECTED_SHA": expected_sha,
         "QSL_CONSOLE_BASE_URL": origin,
+        "EXECUTION_EVIDENCE_SYNC_URL": "",
         "APPROVED_ACCOUNT_FACTS_SYNC_URL": sync_url,
     }
     ok = subprocess.run([sys.executable, "-c", script], env=base_env, capture_output=True, text=True, check=False)
     assert ok.returncode == 0 and ok.stdout.strip() == "candidate_ok"
 
+    for fallback_url in (origin, f"{origin}/api/execution-evidence/sync"):
+        ok_fallback = subprocess.run(
+            [sys.executable, "-c", script],
+            env={**base_env, "QSL_CONSOLE_BASE_URL": "", "EXECUTION_EVIDENCE_SYNC_URL": fallback_url},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert ok_fallback.returncode == 0 and ok_fallback.stdout.strip() == "candidate_ok"
+
     for env_patch, expected_err in (
-        ({"QSL_CONSOLE_BASE_URL": ""}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "", "EXECUTION_EVIDENCE_SYNC_URL": ""}, "approved_origin_invalid"),
         ({"QSL_CONSOLE_BASE_URL": "http://console.example.test"}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test/extra", "EXECUTION_EVIDENCE_SYNC_URL": f"{origin}/api/execution-evidence/sync"}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "", "EXECUTION_EVIDENCE_SYNC_URL": f"{origin}/unexpected"}, "approved_origin_invalid"),
         ({"QSL_CONSOLE_BASE_URL": "https://[bad"}, "approved_origin_invalid"),
         ({"QSL_CONSOLE_BASE_URL": "https://console.example.test:badport"}, "approved_origin_invalid"),
         ({"APPROVED_ACCOUNT_FACTS_SYNC_URL": "https://other.example.test/api/account-facts/sync"}, "approved_sync_url_invalid"),
