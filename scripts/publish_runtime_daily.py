@@ -14,7 +14,12 @@ from zoneinfo import ZoneInfo
 
 from scripts import execution_report_heartbeat as heartbeat
 from scripts.project_runtime_daily import PLATFORM, project_runtime_daily
-from firstrade_platform.application.account_facts_publisher import _APPROVED_SYNC_URL as _FACTS_URL
+from firstrade_platform.application.account_facts_publisher import (
+    ACCOUNT_FACTS_SYNC_PATH,
+    AccountFactsPublishError,
+    _CONSOLE_HOST_RE,
+    resolve_approved_console_origin,
+)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -58,13 +63,59 @@ def _read_reports(day, now, project):
         return [], "list_failed"
 
 
+def _parse_facts_origin(raw: str) -> str:
+    if not isinstance(raw, str) or not raw or raw != raw.strip():
+        raise ValueError("daily_origin_invalid")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
+        raise ValueError("daily_origin_invalid")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        raise ValueError("daily_origin_invalid") from None
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.netloc != host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path != ACCOUNT_FACTS_SYNC_PATH
+        or parsed.query
+        or parsed.fragment
+        or _CONSOLE_HOST_RE.fullmatch(host) is None
+    ):
+        raise ValueError("daily_origin_invalid")
+    return f"https://{host}"
+
+
+def _approved_origin(env):
+    configured_origin = None
+    if env.get("QSL_CONSOLE_BASE_URL"):
+        try:
+            configured_origin = resolve_approved_console_origin(env)
+        except AccountFactsPublishError:
+            raise ValueError("daily_origin_invalid") from None
+    facts_origin = None
+    if env.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL"):
+        facts_origin = _parse_facts_origin(env["FIRSTRADE_ACCOUNT_FACTS_SYNC_URL"])
+    if configured_origin and facts_origin and configured_origin != facts_origin:
+        raise ValueError("daily_origin_invalid")
+    origin = configured_origin or facts_origin
+    if not origin:
+        raise ValueError("daily_origin_invalid")
+    return origin
+
+
 def _auth_config(env):
     token = env.get("EXECUTION_EVIDENCE_SYNC_TOKEN")
     url = urlsplit(env.get("EXECUTION_EVIDENCE_SYNC_URL") or "")
     if (not token or token != token.strip() or url.scheme != "https" or not url.hostname
             or url.username or url.password or url.query or url.fragment):
         raise ValueError("daily_config_invalid")
-    if url.netloc != urlsplit(_FACTS_URL).netloc:
+    expected_origin = _approved_origin(env)
+    if url.netloc != urlsplit(expected_origin).netloc:
         raise ValueError("daily_origin_invalid")
     return token, f"https://{url.netloc}"
 

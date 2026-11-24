@@ -11,10 +11,15 @@ from firstrade_platform.application.account_facts_publisher import (
 )
 
 
+SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"
+SYNTHETIC_SYNC_URL = f"{SYNTHETIC_CONSOLE_BASE_URL}/api/account-facts/sync"
+
+
 def config(**overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
+        "QSL_CONSOLE_BASE_URL": SYNTHETIC_CONSOLE_BASE_URL,
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": SYNTHETIC_SYNC_URL,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "synthetic-facts-token",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "firstrade-live-synthetic",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
@@ -147,9 +152,17 @@ def test_available_cash_never_replaces_missing_exact_cash(missing_key):
     ("overrides", "reason"),
     [
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false"}, "disabled"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync"}, "destination_not_approved"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://other.example/api/account-facts/sync"}, "destination_not_approved"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync?next=other"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": ""}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "http://console.example.test"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test?next=other"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://user@console.example.test"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test:8443"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://127.0.0.1"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://localhost"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://console.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://other.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync?next=other"}, "destination_not_approved"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "A" * 64}, "source_binding_invalid"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "same", "ACCOUNT_FACTS_SYNC_TOKEN": "same"}, "sync_token_not_dedicated"),
     ],
@@ -157,6 +170,13 @@ def test_available_cash_never_replaces_missing_exact_cash(missing_key):
 def test_config_is_explicit_and_rejects_unapproved_or_aliased_values(overrides, reason):
     with pytest.raises(AccountFactsPublishError, match=reason):
         load_account_facts_publish_config(config(**overrides))
+
+
+def test_config_fails_closed_when_approved_console_origin_is_absent():
+    values = config()
+    values.pop("QSL_CONSOLE_BASE_URL")
+    with pytest.raises(AccountFactsPublishError, match="destination_not_approved"):
+        load_account_facts_publish_config(values)
 
 
 @pytest.mark.parametrize(

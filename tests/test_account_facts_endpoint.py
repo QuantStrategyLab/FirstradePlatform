@@ -187,7 +187,8 @@ def test_stdout_write_failure_preserves_http_response(monkeypatch, failure, expe
 def _configure(monkeypatch, **overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
+        "QSL_CONSOLE_BASE_URL": "https://console.example.test",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "synthetic-facts-token",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "firstrade-live-synthetic",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,

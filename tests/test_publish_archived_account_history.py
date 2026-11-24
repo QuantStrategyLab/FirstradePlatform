@@ -26,9 +26,12 @@ SOURCE = hashlib.sha256(json.dumps({
 }, separators=(",", ":")).encode()).hexdigest()
 
 
+SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"
+
+
 def config():
     return AccountFactsPublishConfig(
-        "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
+        f"{SYNTHETIC_CONSOLE_BASE_URL}/api/account-facts/sync",
         "synthetic-token", "synthetic-target", SOURCE, "synthetic-key", "live", ACCOUNT,
         position_currency="USD",
     )
@@ -111,6 +114,7 @@ def install_fakes(monkeypatch, *, mismatched_source=False, wrong_account=False,
     env = {
         "GCP_PROJECT_ID": "synthetic-project", "CLOUD_RUN_REGION": "synthetic-region",
         "CLOUD_RUN_SERVICE": "synthetic-service", "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
+        "QSL_CONSOLE_BASE_URL": SYNTHETIC_CONSOLE_BASE_URL,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": cfg.sync_url,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": cfg.sync_token,
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": cfg.target_id,

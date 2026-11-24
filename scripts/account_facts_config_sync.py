@@ -12,12 +12,19 @@ import re
 import sys
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 
-APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync"
+ACCOUNT_FACTS_SYNC_PATH = "/api/account-facts/sync"
+APPROVED_CONSOLE_BASE_URL_ENV = "QSL_CONSOLE_BASE_URL"
+_CONSOLE_HOST_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z",
+    re.ASCII,
+)
 FACTS_ENV_KEYS = (
     "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
     "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+    "QSL_CONSOLE_BASE_URL",
     "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
     "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
     "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
@@ -53,11 +60,43 @@ def _required(name: str) -> str:
     return value
 
 
+def approved_console_origin(environ: Mapping[str, str] | None = None) -> str:
+    env = os.environ if environ is None else environ
+    raw = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+    if not isinstance(raw, str) or not raw or raw != raw.strip():
+        raise ConfigSyncError("destination_not_approved")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
+        raise ConfigSyncError("destination_not_approved")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        raise ConfigSyncError("destination_not_approved") from None
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.netloc != host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path != ""
+        or parsed.query
+        or parsed.fragment
+        or _CONSOLE_HOST_RE.fullmatch(host) is None
+    ):
+        raise ConfigSyncError("destination_not_approved")
+    return f"https://{host}"
+
+
 def desired_facts_config() -> dict[str, str]:
     enabled = _required("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED")
     if enabled not in {"true", "false"}:
         raise ConfigSyncError("configuration_invalid")
-    if _required("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL") != APPROVED_SYNC_URL:
+    sync_url = _required("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL")
+    console_origin = approved_console_origin()
+    approved_sync_url = f"{console_origin}{ACCOUNT_FACTS_SYNC_PATH}"
+    if sync_url != approved_sync_url:
         raise ConfigSyncError("destination_not_approved")
     target_id = _required("FIRSTRADE_ACCOUNT_FACTS_TARGET_ID")
     binding_id = _required("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID")
@@ -76,7 +115,8 @@ def desired_facts_config() -> dict[str, str]:
         raise ConfigSyncError("secret_reference_invalid")
     return {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": enabled,
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": APPROVED_SYNC_URL,
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": approved_sync_url,
+        "QSL_CONSOLE_BASE_URL": console_origin,
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": target_id,
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": binding_id,
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": account_key,

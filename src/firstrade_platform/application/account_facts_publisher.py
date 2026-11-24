@@ -14,7 +14,12 @@ import requests
 
 from firstrade_platform.application.account_facts_readonly import AccountFactsUnavailable
 
-_APPROVED_SYNC_URL = "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync"
+ACCOUNT_FACTS_SYNC_PATH = "/api/account-facts/sync"
+APPROVED_CONSOLE_BASE_URL_ENV = "QSL_CONSOLE_BASE_URL"
+_CONSOLE_HOST_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z",
+    re.ASCII,
+)
 _TARGET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?", re.ASCII)
 _ACCOUNT_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*", re.ASCII)
 _ACCOUNT_SCOPE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*", re.ASCII)
@@ -60,6 +65,40 @@ def _required_env(env: Mapping[str, str], key: str) -> str:
     return value
 
 
+def resolve_approved_console_origin(env: Mapping[str, str]) -> str:
+    """Load and validate the approved HTTPS console origin from env."""
+    raw = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+    if not isinstance(raw, str) or not raw or raw != raw.strip():
+        raise AccountFactsPublishError("destination_not_approved")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
+        raise AccountFactsPublishError("destination_not_approved")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        raise AccountFactsPublishError("destination_not_approved") from None
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.netloc != host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or _CONSOLE_HOST_RE.fullmatch(host) is None
+    ):
+        raise AccountFactsPublishError("destination_not_approved")
+    return f"https://{host}"
+
+
+def resolve_approved_sync_url(env: Mapping[str, str]) -> str:
+    """Return the exact approved account-facts sync URL from protected config."""
+    return f"{resolve_approved_console_origin(env)}{ACCOUNT_FACTS_SYNC_PATH}"
+
+
 def load_account_facts_publish_config(
     env: Mapping[str, str],
     *,
@@ -70,15 +109,17 @@ def load_account_facts_publish_config(
         raise AccountFactsPublishError("disabled")
 
     sync_url = _required_env(env, "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL")
+    approved_sync_url = resolve_approved_sync_url(env)
+    approved_netloc = urlsplit(approved_sync_url).netloc
     try:
         parsed = urlsplit(sync_url)
     except ValueError:
         raise AccountFactsPublishError("destination_not_approved") from None
     if (
-        sync_url != _APPROVED_SYNC_URL
+        sync_url != approved_sync_url
         or parsed.scheme != "https"
-        or parsed.netloc != "qsl-strategy-switch-console.quantstrategylab.workers.dev"
-        or parsed.path != "/api/account-facts/sync"
+        or parsed.netloc != approved_netloc
+        or parsed.path != ACCOUNT_FACTS_SYNC_PATH
         or parsed.query
         or parsed.fragment
         or parsed.username

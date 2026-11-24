@@ -55,12 +55,14 @@ def test_account_facts_configuration_is_an_isolated_zero_traffic_mode():
     for name in (
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+        "QSL_CONSOLE_BASE_URL",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
     ):
         assert name in job
+    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}" in job
     assert "account-facts configuration readback is unavailable" in job
     assert "serving adoption remains separate" in job
 
@@ -128,6 +130,10 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+    assert (
+        "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}"
+        in workflow
+    )
     for name in (
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
@@ -513,3 +519,61 @@ def test_readback_baseline_projections_include_array_members():
                   "spec.template.spec.containers[].env[].valueFrom.secretKeyRef",
                   "bindings[].role", "bindings[].members", "bindings[].condition"):
         assert workflow.count(field) == 2  # baseline capture and comparison
+
+
+def test_adopt_facts_revision_workflow_loads_approved_destination_from_vars():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ft-adopt-facts-revision.yml").read_text()
+    assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}" in workflow
+    assert "APPROVED_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}" in workflow
+    assert "workers.dev" not in workflow
+
+    match = re.search(
+        r"REVISION_JSON=\"\$\{rev_json\}\" EXPECTED_SHA=\"\$\{EXPECTED_SHA\}\" python3 - <<'PY'\n(.*?)\n          PY",
+        workflow,
+        re.DOTALL,
+    )
+    assert match is not None
+    script = "\n".join(line[10:] if line.startswith("          ") else line for line in match.group(1).splitlines())
+    expected_sha = "a" * 40
+    origin = "https://console.example.test"
+    sync_url = f"{origin}/api/account-facts/sync"
+
+    def make_revision(*, rev_url=sync_url, rev_origin=origin):
+        env_rows = [
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", "value": "true"},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": rev_url},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "valueFrom": {"secretKeyRef": {"name": "sync-secret", "key": "latest"}}},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID", "value": "synthetic-target"},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID", "value": "b" * 64},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY", "value": "synthetic-key"},
+            {"name": "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE", "value": "US"},
+        ]
+        if rev_origin is not None:
+            env_rows.append({"name": "QSL_CONSOLE_BASE_URL", "value": rev_origin})
+        return {
+            "metadata": {"labels": {"commit-sha": expected_sha}},
+            "spec": {"containers": [{"env": env_rows}]},
+        }
+
+    base_env = {
+        "REVISION_JSON": json.dumps(make_revision()),
+        "EXPECTED_SHA": expected_sha,
+        "QSL_CONSOLE_BASE_URL": origin,
+        "APPROVED_ACCOUNT_FACTS_SYNC_URL": sync_url,
+    }
+    ok = subprocess.run([sys.executable, "-c", script], env=base_env, capture_output=True, text=True, check=False)
+    assert ok.returncode == 0 and ok.stdout.strip() == "candidate_ok"
+
+    for env_patch, expected_err in (
+        ({"QSL_CONSOLE_BASE_URL": ""}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "http://console.example.test"}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "https://[bad"}, "approved_origin_invalid"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test:badport"}, "approved_origin_invalid"),
+        ({"APPROVED_ACCOUNT_FACTS_SYNC_URL": "https://other.example.test/api/account-facts/sync"}, "approved_sync_url_invalid"),
+        ({"REVISION_JSON": json.dumps(make_revision(rev_url="https://other.example.test/api/account-facts/sync"))}, "sync_url_invalid"),
+        ({"REVISION_JSON": json.dumps(make_revision(rev_origin=None))}, "console_origin_invalid"),
+        ({"REVISION_JSON": json.dumps(make_revision(rev_origin="https://other.example.test"))}, "console_origin_invalid"),
+    ):
+        failed = subprocess.run([sys.executable, "-c", script], env={**base_env, **env_patch}, capture_output=True, text=True, check=False)
+        assert failed.returncode != 0
+        assert expected_err in failed.stderr

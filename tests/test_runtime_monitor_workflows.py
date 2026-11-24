@@ -124,6 +124,10 @@ def test_metadata_only_dispatch_is_opt_in_and_skips_lifecycle_job() -> None:
     assert "scripts/inspect_account_data_readiness.py" in metadata_job
     assert "CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}" in metadata_job
     assert "CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}" in metadata_job
+    assert (
+        "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}"
+        in metadata_job
+    )
 
 
 def test_lifecycle_publishes_read_only_observation_for_exact_service() -> None:

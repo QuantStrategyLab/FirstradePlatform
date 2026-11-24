@@ -32,6 +32,8 @@ jobs:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
+      QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL || vars.EXECUTION_EVIDENCE_SYNC_URL }}
+      APPROVED_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}
     steps:
       - name: Validate source
         run: |
@@ -73,6 +75,7 @@ jobs:
           rev_json="$(gcloud run revisions describe "${revision}" --region="${CLOUD_RUN_REGION}" --format=json)"
           REVISION_JSON="${rev_json}" EXPECTED_SHA="${EXPECTED_SHA}" python3 - <<'PY'
           import json, os, re, sys
+          from urllib.parse import urlsplit
           rev=json.loads(os.environ["REVISION_JSON"])
           expected=os.environ["EXPECTED_SHA"]
           labels=((rev.get("metadata") or {}).get("labels") or {})
@@ -96,14 +99,47 @@ jobs:
           def has_value_or_secret(row):
               return bool((row or {}).get("value")) or has_secret_ref(row or {})
 
+          host_re = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z", re.ASCII)
+          raw_origin = os.environ.get("QSL_CONSOLE_BASE_URL") or ""
+          parsed_origin = None
+          origin_port = None
+          if raw_origin and raw_origin == raw_origin.strip() and not any(ord(c) < 0x20 or ord(c) == 0x7F for c in raw_origin):
+              try:
+                  parsed_origin = urlsplit(raw_origin)
+                  origin_port = parsed_origin.port
+              except ValueError:
+                  parsed_origin = None
+          origin_host = (parsed_origin.hostname or "") if parsed_origin else ""
+          if (
+              parsed_origin is None
+              or parsed_origin.scheme != "https"
+              or not origin_host
+              or parsed_origin.netloc != origin_host
+              or parsed_origin.username is not None
+              or parsed_origin.password is not None
+              or origin_port is not None
+              or parsed_origin.path != ""
+              or parsed_origin.query
+              or parsed_origin.fragment
+              or host_re.fullmatch(origin_host) is None
+          ):
+              print("approved_origin_invalid", file=sys.stderr); sys.exit(1)
+          expected_origin = f"https://{origin_host}"
+          expected_url = f"{expected_origin}/api/account-facts/sync"
+          if (os.environ.get("APPROVED_ACCOUNT_FACTS_SYNC_URL") or "") != expected_url:
+              print("approved_sync_url_invalid", file=sys.stderr); sys.exit(1)
+
           enabled=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED") or {}).get("value")
           url=(values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL") or {}).get("value")
+          console_origin=(values.get("QSL_CONSOLE_BASE_URL") or {}).get("value")
           token=values.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN")
           needed=["FIRSTRADE_ACCOUNT_FACTS_TARGET_ID","FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY","FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE"]
           if enabled != "true":
               print(f"sync_not_enabled value={enabled!r}", file=sys.stderr); sys.exit(1)
-          if url != "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync":
+          if url != expected_url:
               print("sync_url_invalid", file=sys.stderr); sys.exit(1)
+          if console_origin != expected_origin:
+              print("console_origin_invalid", file=sys.stderr); sys.exit(1)
           if not has_secret_ref(token):
               keys=sorted((token or {}).keys())
               print(f"sync_token_missing keys={keys}", file=sys.stderr); sys.exit(1)

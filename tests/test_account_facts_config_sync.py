@@ -21,10 +21,15 @@ PROJECT_ID = "firstradequant"
 PROJECT_NUMBER = "1088907247379"
 
 
+SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"
+SYNTHETIC_SYNC_URL = f"{SYNTHETIC_CONSOLE_BASE_URL}/api/account-facts/sync"
+
+
 def _desired(monkeypatch, **overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
+        "QSL_CONSOLE_BASE_URL": SYNTHETIC_CONSOLE_BASE_URL,
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": SYNTHETIC_SYNC_URL,
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "synthetic-target",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "b" * 64,
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-account-key",
@@ -35,7 +40,10 @@ def _desired(monkeypatch, **overrides):
     }
     values.update(overrides)
     for name, value in values.items():
-        monkeypatch.setenv(name, value)
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
     return desired_facts_config()
 
 
@@ -97,6 +105,7 @@ def _desired_entries(desired):
         for name in (
             "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED",
             "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL",
+            "QSL_CONSOLE_BASE_URL",
             "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID",
             "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
             "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY",
@@ -130,6 +139,10 @@ def test_config_requires_all_fields_and_approved_destination(monkeypatch):
 
     with pytest.raises(ConfigSyncError, match="destination_not_approved"):
         _desired(monkeypatch, FIRSTRADE_ACCOUNT_FACTS_SYNC_URL="https://example.invalid/api")
+
+    for bad_origin in (None, "", "http://console.example.test", "https://console.example.test/"):
+        with pytest.raises(ConfigSyncError, match="destination_not_approved"):
+            _desired(monkeypatch, QSL_CONSOLE_BASE_URL=bad_origin)
 
 
 def test_only_exact_six_fields_and_secret_reference_change_on_no_traffic_candidate(monkeypatch):
