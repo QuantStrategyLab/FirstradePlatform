@@ -21,7 +21,7 @@ REGION_PATH_PATTERN = r"[a-z]+(?:-[a-z0-9]+)+[0-9]"
 REGION_RE = re.compile(REGION_PATH_PATTERN + r"\Z")
 COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 MAX_RESPONSE_BYTES = 2_000_000
-ACCOUNT_FACTS_DESTINATION = "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"
+ACCOUNT_FACTS_DESTINATION = "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync"
 
 
 class DiagnosticFailure(Exception):

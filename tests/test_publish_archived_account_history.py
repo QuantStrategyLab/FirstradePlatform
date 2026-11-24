@@ -28,7 +28,7 @@ SOURCE = hashlib.sha256(json.dumps({
 
 def config():
     return AccountFactsPublishConfig(
-        "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
+        "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
         "synthetic-token", "synthetic-target", SOURCE, "synthetic-key", "live", ACCOUNT,
         position_currency="USD",
     )

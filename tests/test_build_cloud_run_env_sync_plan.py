@@ -70,7 +70,7 @@ def test_build_cloud_run_env_sync_plan_legacy_mode_without_telegram():
 def test_build_cloud_run_env_sync_plan_carries_balance_facts_config_but_not_token_value():
     facts_config = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "synthetic-target",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-account-key",
@@ -125,7 +125,7 @@ def test_per_service_facts_config_fallback_applies_only_to_current_firstrade_tar
             {"defaults": {"NOTIFY_LANG": "en"}, "targets": targets}
         ),
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.quantstrategylab.workers.dev/api/account-facts/sync",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "synthetic-target",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "b" * 64,
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY": "synthetic-account-key",
