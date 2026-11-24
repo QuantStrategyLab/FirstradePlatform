@@ -21,7 +21,86 @@ REGION_PATH_PATTERN = r"[a-z]+(?:-[a-z0-9]+)+[0-9]"
 REGION_RE = re.compile(REGION_PATH_PATTERN + r"\Z")
 COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 MAX_RESPONSE_BYTES = 2_000_000
-ACCOUNT_FACTS_DESTINATION = "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"
+ACCOUNT_FACTS_SYNC_PATH = "/api/account-facts/sync"
+APPROVED_CONSOLE_BASE_URL_ENV = "QSL_CONSOLE_BASE_URL"
+EXECUTION_EVIDENCE_SYNC_URL_ENV = "EXECUTION_EVIDENCE_SYNC_URL"
+_EXPLICIT_ORIGIN_PATHS = frozenset({""})
+_FALLBACK_EVIDENCE_PATHS = frozenset({"", "/", "/api/execution-evidence/sync"})
+_CONSOLE_HOST_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z",
+    re.ASCII,
+)
+
+
+def _parse_console_origin(raw: object, *, allowed_paths: frozenset[str]) -> str | None:
+    if not isinstance(raw, str) or not raw or raw != raw.strip():
+        return None
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in raw):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        return None
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.netloc != host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path not in allowed_paths
+        or parsed.query
+        or parsed.fragment
+        or _CONSOLE_HOST_RE.fullmatch(host) is None
+    ):
+        return None
+    return f"https://{host}"
+
+
+def _approved_account_facts_destination(environ: Mapping[str, str] | None = None) -> str | None:
+    env = os.environ if environ is None else environ
+    raw_origin = env.get(APPROVED_CONSOLE_BASE_URL_ENV)
+    if raw_origin is not None and raw_origin != "":
+        origin = _parse_console_origin(raw_origin, allowed_paths=_EXPLICIT_ORIGIN_PATHS)
+    else:
+        raw_fallback = env.get(EXECUTION_EVIDENCE_SYNC_URL_ENV)
+        origin = (
+            _parse_console_origin(raw_fallback, allowed_paths=_FALLBACK_EVIDENCE_PATHS)
+            if raw_fallback is not None and raw_fallback != ""
+            else None
+        )
+    if origin is None:
+        return None
+    return f"{origin}{ACCOUNT_FACTS_SYNC_PATH}"
+
+
+def _validated_account_facts_destination(value: object) -> str | None:
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.netloc != host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path != ACCOUNT_FACTS_SYNC_PATH
+        or parsed.query
+        or parsed.fragment
+        or _CONSOLE_HOST_RE.fullmatch(host) is None
+    ):
+        return None
+    return f"https://{host}{ACCOUNT_FACTS_SYNC_PATH}"
 
 
 class DiagnosticFailure(Exception):
@@ -292,7 +371,11 @@ def _effective_selector_configuration(
     return direct_configured, f"first_trade_account_{direct_source}"
 
 
-def _account_data_configuration(revision: Mapping[str, Any]) -> dict[str, Any]:
+def _account_data_configuration(
+    revision: Mapping[str, Any],
+    *,
+    approved_destination: str | None = None,
+) -> dict[str, Any]:
     """Describe serving settings, without resolving secrets or claiming session health."""
     containers = revision.get("containers")
     if not isinstance(containers, list) or len(containers) != 1:
@@ -330,6 +413,11 @@ def _account_data_configuration(revision: Mapping[str, Any]) -> dict[str, Any]:
 
     destination = entry("FIRSTRADE_ACCOUNT_FACTS_SYNC_URL")
     destination_kind = source(destination)
+    expected_destination = (
+        _validated_account_facts_destination(approved_destination)
+        if approved_destination is not None
+        else _approved_account_facts_destination()
+    )
     binding_sources = [source(entry(name)) for name in (
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID", "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID",
         "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_KEY", "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE",
@@ -337,7 +425,7 @@ def _account_data_configuration(revision: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "sync_enabled": flag("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED"),
         "approved_destination_configured": (
-            destination.get("value") == ACCOUNT_FACTS_DESTINATION
+            bool(expected_destination) and destination.get("value") == expected_destination
             if destination_kind == "literal" else None if destination_kind == "secret_reference" else False
         ),
         "binding_settings_configured": all(kind != "absent" for kind in binding_sources),
@@ -356,6 +444,7 @@ def inspect_readiness(
     token: str,
     *,
     request_json: Callable[[str, str], Mapping[str, Any]] = _request_json,
+    approved_destination: str | None = None,
 ) -> dict[str, Any]:
     service_name = _safe_resource_part(service_name, SERVICE_NAME_RE)
     region = _safe_resource_part(region, REGION_RE)
@@ -385,7 +474,9 @@ def inspect_readiness(
     selector_nonempty, effective_selector_source = _effective_selector_configuration(
         revision, (selector_configured, selector_source)
     )
-    account_data_configuration = _account_data_configuration(revision)
+    account_data_configuration = _account_data_configuration(
+        revision, approved_destination=approved_destination
+    )
     after = request_json(service_url, token)
     if after.get("name") != service_path:
         raise DiagnosticFailure("service_identity_mismatch")

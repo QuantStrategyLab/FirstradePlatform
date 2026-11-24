@@ -8,13 +8,19 @@ from firstrade_platform.application.account_facts_publisher import (
     build_firstrade_account_snapshot,
     load_account_facts_publish_config,
     publish_firstrade_account_snapshot,
+    resolve_approved_console_origin,
 )
+
+
+SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"
+SYNTHETIC_SYNC_URL = f"{SYNTHETIC_CONSOLE_BASE_URL}/api/account-facts/sync"
 
 
 def config(**overrides):
     values = {
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
-        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
+        "QSL_CONSOLE_BASE_URL": SYNTHETIC_CONSOLE_BASE_URL,
+        "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": SYNTHETIC_SYNC_URL,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "synthetic-facts-token",
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": "firstrade-live-synthetic",
         "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
@@ -147,15 +153,83 @@ def test_available_cash_never_replaces_missing_exact_cash(missing_key):
     ("overrides", "reason"),
     [
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "false"}, "disabled"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync"}, "destination_not_approved"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://other.example/api/account-facts/sync"}, "destination_not_approved"),
-        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync?next=other"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": ""}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "http://console.example.test"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test?next=other"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://user@console.example.test"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://console.example.test:8443"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://127.0.0.1"}, "destination_not_approved"),
+        ({"QSL_CONSOLE_BASE_URL": "https://localhost"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "http://console.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://other.example.test/api/account-facts/sync"}, "destination_not_approved"),
+        ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync?next=other"}, "destination_not_approved"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "A" * 64}, "source_binding_invalid"),
         ({"FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": "same", "ACCOUNT_FACTS_SYNC_TOKEN": "same"}, "sync_token_not_dedicated"),
     ],
 )
 def test_config_is_explicit_and_rejects_unapproved_or_aliased_values(overrides, reason):
     with pytest.raises(AccountFactsPublishError, match=reason):
+        load_account_facts_publish_config(config(**overrides))
+
+
+def test_config_fails_closed_when_approved_console_origin_is_absent():
+    values = config()
+    values.pop("QSL_CONSOLE_BASE_URL")
+    with pytest.raises(AccountFactsPublishError, match="destination_not_approved"):
+        load_account_facts_publish_config(values)
+
+
+@pytest.mark.parametrize(
+    "evidence_url",
+    [
+        "https://console.example.test",
+        "https://console.example.test/",
+        "https://console.example.test/api/execution-evidence/sync",
+    ],
+)
+def test_origin_fallback_extracts_canonical_https_origin_from_evidence_url(evidence_url):
+    env = config(QSL_CONSOLE_BASE_URL="", EXECUTION_EVIDENCE_SYNC_URL=evidence_url)
+    assert resolve_approved_console_origin(env) == SYNTHETIC_CONSOLE_BASE_URL
+    cfg = load_account_facts_publish_config(env)
+    assert cfg.sync_url == SYNTHETIC_SYNC_URL
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {
+            "QSL_CONSOLE_BASE_URL": "https://console.example.test/extra",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "https://console.example.test/api/execution-evidence/sync",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/unexpected",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "http://console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync?x=1",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://user@console.example.test/api/execution-evidence/sync",
+        },
+        {
+            "QSL_CONSOLE_BASE_URL": "",
+            "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test:8443/api/execution-evidence/sync",
+        },
+    ],
+)
+def test_origin_fallback_rejects_invalid_explicit_origin_or_disallowed_evidence_url(overrides):
+    with pytest.raises(AccountFactsPublishError, match="destination_not_approved"):
         load_account_facts_publish_config(config(**overrides))
 
 

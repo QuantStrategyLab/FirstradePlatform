@@ -31,7 +31,6 @@ def test_publish_once_requires_exact_ack_and_never_retries(monkeypatch):
     from scripts import publish_runtime_daily as publisher
 
     monkeypatch.setattr(publisher, "_binding", lambda _env, _target: ("synthetic-key", "a" * 64, "b" * 64))
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
     report = {"platform": PLATFORM, "service_name": "synthetic-service", "strategy_profile": "synthetic-profile",
               "account_scope": "live", "run_id": "private-run", "started_at": "2026-10-29T18:00:00Z",
               "finished_at": "2026-10-29T18:01:00Z", "dry_run": False, "errors": [], "status": "ok",
@@ -39,7 +38,8 @@ def test_publish_once_requires_exact_ack_and_never_retries(monkeypatch):
               "external_cash_flow_interval": {"account_scope_sha256": "a" * 64}}
     monkeypatch.setattr(publisher, "_read_reports", lambda *_args: ([report], None))
     env = {"RUNTIME_TARGET_JSON": json.dumps({"service_name": "synthetic-service", "strategy_profile": "synthetic-profile", "account_scope": "live"}),
-           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
            "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
     class Response:
         status = 200
@@ -62,7 +62,6 @@ def test_matching_ack_is_only_success_and_nested_identity_mismatch_excluded(monk
 
     binding = "a" * 64
     monkeypatch.setattr(publisher, "_binding", lambda _env, _target: ("synthetic-key", binding, "b" * 64))
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
     report = {"platform": PLATFORM, "service_name": "synthetic-service", "strategy_profile": "synthetic-profile",
               "account_scope": "live", "run_id": "private-run", "started_at": "2026-10-29T18:00:00Z",
               "finished_at": "2026-10-29T18:01:00Z", "dry_run": False, "errors": [], "status": "ok",
@@ -70,7 +69,9 @@ def test_matching_ack_is_only_success_and_nested_identity_mismatch_excluded(monk
               "external_cash_flow_interval": {"account_scope_sha256": "a" * 64}}
     monkeypatch.setattr(publisher, "_read_reports", lambda *_args: ([report], None))
     env = {"RUNTIME_TARGET_JSON": json.dumps({"service_name": "synthetic-service", "strategy_profile": "synthetic-profile", "account_scope": "live"}),
-           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "QSL_CONSOLE_BASE_URL": "https://console.example.test",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
            "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
     now = datetime(2026, 10, 29, 20, tzinfo=timezone.utc)
     class Response:
@@ -101,9 +102,9 @@ def test_no_attributable_runs_or_wrong_origin_never_posts(monkeypatch):
     from scripts import publish_runtime_daily as publisher
 
     monkeypatch.setattr(publisher, "_binding", lambda _env, _target: ("synthetic-key", "a" * 64, "b" * 64))
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
     env = {"RUNTIME_TARGET_JSON": json.dumps({"service_name": "synthetic-service", "strategy_profile": "synthetic-profile", "account_scope": "live"}),
-           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
            "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
     now = datetime(2026, 10, 29, 20, tzinfo=timezone.utc)
     class Opener:
@@ -116,9 +117,14 @@ def test_no_attributable_runs_or_wrong_origin_never_posts(monkeypatch):
         monkeypatch.setattr(publisher, "_read_reports", lambda *_args: (reports, error))
         assert publisher.publish_once(env, now=now, opener=opener) == "no_attributable_runs"
     assert opener.calls == 0
-    env["EXECUTION_EVIDENCE_SYNC_URL"] = "https://untrusted.test/api/execution-evidence/sync"
-    with pytest.raises(ValueError, match="daily_origin_invalid"):
-        publisher.publish_once(env, now=now, opener=opener)
+    for bad_env in (
+        {**env, "EXECUTION_EVIDENCE_SYNC_URL": "https://untrusted.test/api/execution-evidence/sync"},
+        {k: v for k, v in env.items() if k != "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL"},
+        {**env, "QSL_CONSOLE_BASE_URL": "https://other.example.test"},
+        {**env, "QSL_CONSOLE_BASE_URL": "http://console.example.test"},
+    ):
+        with pytest.raises(ValueError, match="daily_origin_invalid"):
+            publisher.publish_once(bad_env, now=now, opener=opener)
     assert opener.calls == 0
 
 
@@ -131,9 +137,9 @@ def test_unreadable_empty_source_keeps_safe_failure_category(monkeypatch, capsys
            "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID": "a" * 64,
            "FIRSTRADE_ACCOUNT_FACTS_ACCOUNT_SCOPE": "live",
            "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token",
-           "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
            "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
     monkeypatch.setattr(publisher.os, "environ", env)
     monkeypatch.setattr(publisher.sys, "argv", ["publish_runtime_daily"])
     monkeypatch.setattr(publisher, "build_opener", lambda *_: (_ for _ in ()).throw(
@@ -165,7 +171,6 @@ def test_redirect_is_not_followed_and_unknown_is_not_retried(monkeypatch):
     from scripts import publish_runtime_daily as publisher
 
     monkeypatch.setattr(publisher, "_binding", lambda _env, _target: ("synthetic-key", "a" * 64, "b" * 64))
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
     report = {"platform": PLATFORM, "service_name": "synthetic-service", "strategy_profile": "synthetic-profile",
               "account_scope": "live", "run_id": "private-run", "started_at": "2026-10-29T18:00:00Z",
               "finished_at": "2026-10-29T18:01:00Z", "dry_run": False, "errors": [], "status": "ok",
@@ -173,7 +178,8 @@ def test_redirect_is_not_followed_and_unknown_is_not_retried(monkeypatch):
               "external_cash_flow_interval": {"account_scope_sha256": "a" * 64}}
     monkeypatch.setattr(publisher, "_read_reports", lambda *_args: ([report], None))
     env = {"RUNTIME_TARGET_JSON": json.dumps({"service_name": "synthetic-service", "strategy_profile": "synthetic-profile", "account_scope": "live"}),
-           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync",
+           "EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync",
            "RUNTIME_DAILY_BUSINESS_DATE": "2026-10-29"}
     class Redirect:
         calls = 0
@@ -191,8 +197,9 @@ def test_auth_preflight_accepts_only_exact_safe_json_without_retry(monkeypatch):
     from urllib.error import HTTPError
     from scripts import publish_runtime_daily as publisher
 
-    monkeypatch.setattr(publisher, "_FACTS_URL", "https://example.test/api/account-facts/sync")
-    env = {"EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token", "EXECUTION_EVIDENCE_SYNC_URL": "https://example.test/api/execution-evidence/sync"}
+    env = {"EXECUTION_EVIDENCE_SYNC_TOKEN": "synthetic-token",
+           "EXECUTION_EVIDENCE_SYNC_URL": "https://console.example.test/api/execution-evidence/sync",
+           "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": "https://console.example.test/api/account-facts/sync"}
     class Opener:
         def __init__(self, code, body): self.code, self.body, self.calls = code, body, 0
         def open(self, request, timeout):

@@ -8,6 +8,8 @@ def test_natural_and_manual_daily_sources_use_only_masked_target_secret():
     for workflow in (scheduled, manual):
         assert "RUNTIME_TARGET_JSON: ${{ secrets.RUNTIME_TARGET_JSON }}" in workflow
         assert "vars.RUNTIME_TARGET_JSON" not in workflow
+        assert "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: ${{ vars.FIRSTRADE_ACCOUNT_FACTS_SYNC_URL }}" in workflow
+        assert "QSL_CONSOLE_BASE_URL: ${{ vars.QSL_CONSOLE_BASE_URL }}" in workflow
     assert "github.event_name == 'schedule'" in scheduled
     assert "github.run_attempt == 1" in scheduled
     assert "scripts.publish_runtime_daily" in scheduled

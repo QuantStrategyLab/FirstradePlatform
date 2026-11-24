@@ -26,9 +26,12 @@ SOURCE = hashlib.sha256(json.dumps({
 }, separators=(",", ":")).encode()).hexdigest()
 
 
+SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"
+
+
 def config():
     return AccountFactsPublishConfig(
-        "https://qsl-strategy-switch-console.pigbibi-e06.workers.dev/api/account-facts/sync",
+        f"{SYNTHETIC_CONSOLE_BASE_URL}/api/account-facts/sync",
         "synthetic-token", "synthetic-target", SOURCE, "synthetic-key", "live", ACCOUNT,
         position_currency="USD",
     )
@@ -111,6 +114,7 @@ def install_fakes(monkeypatch, *, mismatched_source=False, wrong_account=False,
     env = {
         "GCP_PROJECT_ID": "synthetic-project", "CLOUD_RUN_REGION": "synthetic-region",
         "CLOUD_RUN_SERVICE": "synthetic-service", "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED": "true",
+        "QSL_CONSOLE_BASE_URL": SYNTHETIC_CONSOLE_BASE_URL,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL": cfg.sync_url,
         "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN": cfg.sync_token,
         "FIRSTRADE_ACCOUNT_FACTS_TARGET_ID": cfg.target_id,
@@ -172,6 +176,14 @@ def test_publish_uses_history_ingress_after_identity_validation(monkeypatch):
     env, _, published = install_fakes(monkeypatch)
     assert history.execute(DAY, publish=True, env=env)["status"] == "published"
     assert len(published) == 1 and published[0][1] == {"historical": True}
+
+
+def test_publish_extracts_origin_from_evidence_url_when_console_base_url_unset(monkeypatch):
+    env, _, published = install_fakes(monkeypatch)
+    env["QSL_CONSOLE_BASE_URL"] = ""
+    env["EXECUTION_EVIDENCE_SYNC_URL"] = f"{SYNTHETIC_CONSOLE_BASE_URL}/api/execution-evidence/sync"
+    assert history.execute(DAY, publish=True, env=env)["status"] == "published"
+    assert len(published) == 1
 
 
 @pytest.mark.parametrize("failure", ["source", "identity"])

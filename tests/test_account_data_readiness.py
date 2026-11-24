@@ -99,10 +99,13 @@ def test_inspects_only_exact_project_region_service_and_serving_revision() -> No
     assert all(url.startswith("https://run.googleapis.com/v2/projects/firstradequant/") for url in urls)
 
 
-def test_serving_facts_settings_are_redacted_and_do_not_prove_session_or_identity() -> None:
+def test_serving_facts_settings_are_redacted_and_do_not_prove_session_or_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    console_origin = "https://console.example.test"
+    approved_destination = f"{console_origin}/api/account-facts/sync"
+    monkeypatch.setenv("QSL_CONSOLE_BASE_URL", console_origin)
     env = [
         {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", "value": "true"},
-        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": readiness.ACCOUNT_FACTS_DESTINATION},
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": approved_destination},
         {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "valueSource": {"secretKeyRef": {"secret": SENTINEL, "version": "latest"}}},
         {"name": "FIRSTRADE_REUSE_SESSION", "value": " true "},
         {"name": "FIRSTRADE_PERSIST_SESSION_CACHE", "value": "true"},
@@ -125,7 +128,37 @@ def test_serving_facts_settings_are_redacted_and_do_not_prove_session_or_identit
     assert len(urls) == 3
     assert all("run.googleapis.com/v2/" in url for url in urls)
     assert SENTINEL not in json.dumps(result)
-    assert readiness.ACCOUNT_FACTS_DESTINATION not in json.dumps(result)
+    assert approved_destination not in json.dumps(result)
+    assert "console.example.test" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("origin", [None, "", "http://console.example.test", "https://console.example.test/api/account-facts/sync", "https://console.example.test/extra"])
+def test_missing_or_invalid_approved_origin_fails_closed(monkeypatch: pytest.MonkeyPatch, origin: str | None) -> None:
+    monkeypatch.delenv("EXECUTION_EVIDENCE_SYNC_URL", raising=False)
+    if origin is None:
+        monkeypatch.delenv("QSL_CONSOLE_BASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("QSL_CONSOLE_BASE_URL", origin)
+    result = readiness._account_data_configuration(_revision(env=[
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": "https://console.example.test/api/account-facts/sync"},
+    ]))
+    assert result["approved_destination_configured"] is False
+
+
+def test_evidence_url_fallback_extracts_origin_while_failing_closed_on_unexpected_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    revision = _revision(env=[
+        {"name": "FIRSTRADE_ACCOUNT_FACTS_SYNC_URL", "value": "https://console.example.test/api/account-facts/sync"},
+    ])
+    monkeypatch.setenv("QSL_CONSOLE_BASE_URL", "")
+    monkeypatch.setenv("EXECUTION_EVIDENCE_SYNC_URL", "https://console.example.test/api/execution-evidence/sync")
+    assert readiness._account_data_configuration(revision)["approved_destination_configured"] is True
+
+    monkeypatch.setenv("QSL_CONSOLE_BASE_URL", "https://console.example.test/extra")
+    assert readiness._account_data_configuration(revision)["approved_destination_configured"] is False
+
+    monkeypatch.setenv("QSL_CONSOLE_BASE_URL", "")
+    monkeypatch.setenv("EXECUTION_EVIDENCE_SYNC_URL", "https://console.example.test/unexpected")
+    assert readiness._account_data_configuration(revision)["approved_destination_configured"] is False
 
 
 @pytest.mark.parametrize("value", ["invalid-flag", None])
