@@ -47,6 +47,7 @@ permissions:
 
 env:
   GCP_PROJECT_ID: firstradequant
+  GCP_PROJECT_NUMBER: ${{ secrets.GCP_PROJECT_NUMBER }}
   GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com
   GCP_RUNTIME_SERVICE_ACCOUNT: firstrade-platform-runtime@firstradequant.iam.gserviceaccount.com
   GCP_SCHEDULER_SERVICE_ACCOUNT: firstrade-platform-scheduler@firstradequant.iam.gserviceaccount.com
