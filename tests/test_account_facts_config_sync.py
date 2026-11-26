@@ -18,7 +18,7 @@ EXPECTED_SHA = "a" * 40
 SERVICE = "firstrade-platform-service"
 SECRET_NAME = "firstrade-account-facts-sync"
 PROJECT_ID = "firstradequant"
-PROJECT_NUMBER = "1088907247379"
+PROJECT_NUMBER = "123456789012"
 
 
 SYNTHETIC_CONSOLE_BASE_URL = "https://console.example.test"

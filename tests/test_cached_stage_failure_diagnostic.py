@@ -431,7 +431,7 @@ def test_workflow_is_opt_in_read_only_and_reuses_existing_identity():
     assert "GCP_PROJECT_ID: firstradequant" in workflow
     assert "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093" in workflow
     assert "firstrade-platform-deploy@firstradequant.iam.gserviceaccount.com" in workflow
-    assert "github-main" in workflow
+    assert "secrets.GCP_WORKLOAD_IDENTITY_PROVIDER" in workflow
     assert "gcloud run services describe" in workflow
     assert "gcloud run revisions list" in workflow
     assert "gcloud run services get-iam-policy" in workflow
