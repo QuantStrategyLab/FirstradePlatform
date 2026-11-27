@@ -952,22 +952,6 @@ jobs:
             required_vars+=(GLOBAL_TELEGRAM_CHAT_ID)
           fi
 
-          # Fail closed if configured alert channels lack recipient/sender secrets.
-          alert_channels_norm=",$(printf '%s' "${STRATEGY_PLUGIN_ALERT_CHANNELS:-}" | tr '[:upper:];[:space:]' '[:lower:],,'),"
-          if [[ "${alert_channels_norm}" == *",email,"* ]]; then
-            if [ -z "${STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS:-}" ]; then
-              required_vars+=(STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS)
-            fi
-            if [ -z "${STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL:-}" ]; then
-              required_vars+=(STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL)
-            fi
-          fi
-          if [[ "${alert_channels_norm}" == *",telegram,"* ]] \
-            && [ -z "${STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS:-}" ] \
-            && [ -z "${GLOBAL_TELEGRAM_CHAT_ID:-}" ]; then
-            required_vars+=("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID")
-          fi
-
           missing_vars=()
           for var_name in "${required_vars[@]}"; do
             if [[ "${var_name}" == *" or "* ]]; then
@@ -980,6 +964,31 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
+
+          channels = {
+              token.strip().lower()
+              for token in re.split(r"[,;\s]+", os.environ.get("STRATEGY_PLUGIN_ALERT_CHANNELS", ""))
+              if token.strip()
+          }
+          missing_alert_secrets = []
+          if "email" in channels:
+              if not os.environ.get("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS", "").strip():
+                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS")
+              if not os.environ.get("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL", "").strip():
+                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL")
+          if "telegram" in channels:
+              if not (
+                  os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", "").strip()
+                  or os.environ.get("GLOBAL_TELEGRAM_CHAT_ID", "").strip()
+              ):
+                  missing_alert_secrets.append(
+                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID"
+                  )
+          if missing_alert_secrets:
+              raise SystemExit(
+                  "Missing required alert channel secrets: " + ", ".join(missing_alert_secrets)
+              )
 
           plan = json.loads(os.environ["SYNC_PLAN_JSON"])
           targets = plan.get("targets") or []

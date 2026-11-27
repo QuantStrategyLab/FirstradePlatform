@@ -633,17 +633,27 @@ def test_sync_cloud_run_env_workflow_fails_closed_when_enabled_alert_secrets_are
     assert run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": ""}).returncode == 0
     ok = run_check(
         {
-            "STRATEGY_PLUGIN_ALERT_CHANNELS": " email ;\ntelegram ",
+            "STRATEGY_PLUGIN_ALERT_CHANNELS": " EMAIL ;\n telegram ; email ",
             "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS": "alerts@example.com",
             "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL": "sender@example.com",
             "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS": "synthetic-chat",
         }
     )
     assert ok.returncode == 0
-    missing_email = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "email"})
+    tg_fallback = run_check(
+        {
+            "STRATEGY_PLUGIN_ALERT_CHANNELS": "telegram",
+            "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS": "",
+            "GLOBAL_TELEGRAM_CHAT_ID": "synthetic-global-chat",
+            "TELEGRAM_TOKEN": "synthetic-token",
+        }
+    )
+    assert tg_fallback.returncode == 0
+    missing_email = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "EMAIL;TELEGRAM"})
     assert missing_email.returncode != 0
     assert "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS" in missing_email.stderr
     assert "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL" in missing_email.stderr
+    assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID" in missing_email.stderr
     missing_tg = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "telegram"})
     assert missing_tg.returncode != 0
     assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID" in missing_tg.stderr
