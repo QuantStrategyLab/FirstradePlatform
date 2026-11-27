@@ -5,6 +5,7 @@ import re
 import shlex
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -203,6 +204,9 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
     ):
         assert f"{name}: ${{{{ secrets.{name} }}}}" in workflow
         assert f"{name}: ${{{{ vars.{name} }}}}" not in workflow
+    assert "set -x" not in workflow
+    assert 'echo "${SYNC_PLAN_JSON}"' not in workflow
+    assert 'echo "${sync_plan_json}"' not in workflow
 
     assert (
         "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME: "
@@ -598,3 +602,54 @@ def test_adopt_facts_revision_workflow_loads_approved_destination_from_vars():
         failed = subprocess.run([sys.executable, "-c", script], env={**base_env, **env_patch}, capture_output=True, text=True, check=False)
         assert failed.returncode != 0
         assert expected_err in failed.stderr
+
+
+def test_sync_cloud_run_env_workflow_fails_closed_when_enabled_alert_secrets_are_empty():
+    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml").read_text(
+        encoding="utf-8"
+    )
+    marker_start = '          # Fail closed if configured alert channels lack recipient/sender secrets.\n'
+    marker_end = '          missing_vars=()\n'
+    snippet = workflow.split(marker_start, 1)[1].split(marker_end, 1)[0]
+    footer = workflow.split('          if [ "${#missing_vars[@]}" -gt 0 ]; then\n', 1)[1].split(
+        "\n          fi", 1
+    )[0]
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            "missing_vars=()",
+            "required_vars=()",
+            textwrap.dedent(marker_start + snippet),
+            'if [ "${#required_vars[@]}" -gt 0 ]; then',
+            '  for var_name in "${required_vars[@]}"; do',
+            '    if [[ "${var_name}" == *" or "* ]] || [ -z "${!var_name:-}" ]; then',
+            '      missing_vars+=("${var_name}")',
+            "    fi",
+            "  done",
+            "fi",
+            'if [ "${#missing_vars[@]}" -gt 0 ]; then',
+            textwrap.dedent(footer),
+            "fi",
+        ]
+    )
+
+    def run_check(env):
+        return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
+
+    assert run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": ""}).returncode == 0
+    ok = run_check(
+        {
+            "STRATEGY_PLUGIN_ALERT_CHANNELS": "email,telegram",
+            "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS": "alerts@example.com",
+            "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL": "sender@example.com",
+            "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS": "synthetic-chat",
+        }
+    )
+    assert ok.returncode == 0
+    missing_email = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "email"})
+    assert missing_email.returncode != 0
+    assert "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS" in missing_email.stderr
+    assert "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL" in missing_email.stderr
+    missing_tg = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "telegram"})
+    assert missing_tg.returncode != 0
+    assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID" in missing_tg.stderr

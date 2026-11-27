@@ -952,6 +952,22 @@ jobs:
             required_vars+=(GLOBAL_TELEGRAM_CHAT_ID)
           fi
 
+          # Fail closed if configured alert channels lack recipient/sender secrets.
+          alert_channels_norm=",$(printf '%s' "${STRATEGY_PLUGIN_ALERT_CHANNELS:-}" | tr '[:upper:]' '[:lower:]' | tr '; ' ',,'),"
+          if [[ "${alert_channels_norm}" == *",email,"* ]]; then
+            if [ -z "${STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS:-}" ]; then
+              required_vars+=(STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS)
+            fi
+            if [ -z "${STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL:-}" ]; then
+              required_vars+=(STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL)
+            fi
+          fi
+          if [[ "${alert_channels_norm}" == *",telegram,"* ]] \
+            && [ -z "${STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS:-}" ] \
+            && [ -z "${GLOBAL_TELEGRAM_CHAT_ID:-}" ]; then
+            required_vars+=("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID")
+          fi
+
           missing_vars=()
           for var_name in "${required_vars[@]}"; do
             if [[ "${var_name}" == *" or "* ]]; then
