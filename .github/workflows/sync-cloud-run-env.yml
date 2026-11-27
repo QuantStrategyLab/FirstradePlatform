@@ -953,7 +953,7 @@ jobs:
           fi
 
           # Fail closed if configured alert channels lack recipient/sender secrets.
-          alert_channels_norm=",$(printf '%s' "${STRATEGY_PLUGIN_ALERT_CHANNELS:-}" | tr '[:upper:]' '[:lower:]' | tr '; ' ',,'),"
+          alert_channels_norm=",$(printf '%s' "${STRATEGY_PLUGIN_ALERT_CHANNELS:-}" | tr '[:upper:];[:space:]' '[:lower:],,'),"
           if [[ "${alert_channels_norm}" == *",email,"* ]]; then
             if [ -z "${STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS:-}" ]; then
               required_vars+=(STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS)
