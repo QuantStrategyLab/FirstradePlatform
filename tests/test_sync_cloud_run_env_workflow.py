@@ -151,8 +151,6 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
 
     for name in (
         "STRATEGY_PLUGIN_ALERT_CHANNELS",
-        "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS",
-        "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_HOST",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_PORT",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_SECURITY",
@@ -170,7 +168,6 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "STRATEGY_PLUGIN_ALERT_PUSH_PRIORITY",
         "STRATEGY_PLUGIN_ALERT_PUSH_TAGS",
         "STRATEGY_PLUGIN_ALERT_PUSH_BODY_MAX_CHARS",
-        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_API_BASE_URL",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_PARSE_MODE",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_DISABLE_WEB_PAGE_PREVIEW",
@@ -198,6 +195,14 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+
+    for name in (
+        "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS",
+        "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL",
+        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+    ):
+        assert f"{name}: ${{{{ secrets.{name} }}}}" in workflow
+        assert f"{name}: ${{{{ vars.{name} }}}}" not in workflow
 
     assert (
         "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME: "
