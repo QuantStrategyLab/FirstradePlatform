@@ -26,7 +26,7 @@ jobs:
     env:
       CLOUD_RUN_REGION: ${{ vars.CLOUD_RUN_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
-      FIRSTRADE_GCS_STATE_BUCKET: ${{ vars.FIRSTRADE_GCS_STATE_BUCKET }}
+      FIRSTRADE_GCS_STATE_BUCKET: ${{ secrets.FIRSTRADE_GCS_STATE_BUCKET }}
       FIRSTRADE_STATE_PREFIX: ${{ vars.FIRSTRADE_STATE_PREFIX || 'firstrade-platform' }}
     steps:
       - name: Authenticate to Google Cloud
