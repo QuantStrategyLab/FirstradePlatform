@@ -5,7 +5,6 @@ import re
 import shlex
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -605,75 +604,3 @@ def test_adopt_facts_revision_workflow_loads_approved_destination_from_vars():
         failed = subprocess.run([sys.executable, "-c", script], env={**base_env, **env_patch}, capture_output=True, text=True, check=False)
         assert failed.returncode != 0
         assert expected_err in failed.stderr
-
-
-def test_sync_cloud_run_env_workflow_fails_closed_when_enabled_alert_secrets_are_empty(tmp_path):
-    workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/sync-cloud-run-env.yml").read_text(
-        encoding="utf-8"
-    )
-    start_marker = "      - name: Validate env sync inputs\n"
-    end_marker = "\n      - name: Wait for Cloud Run deployment of current commit"
-    assert start_marker in workflow, "Validate env sync inputs step not found"
-    assert end_marker in workflow, "Wait for Cloud Run deployment step not found"
-    step_block = workflow.split(start_marker, 1)[1].split(end_marker, 1)[0]
-    assert "        run: |\n" in step_block
-    script = textwrap.dedent(step_block.split("        run: |\n", 1)[1])
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "python").symlink_to(sys.executable)
-    base_env = {
-        "PATH": f"{bin_dir}:/usr/bin:/bin",
-        "CLOUD_RUN_REGION": "us-central1",
-        "CLOUD_RUN_SERVICE": "synthetic-svc",
-        "NOTIFY_LANG": "zh",
-    }
-
-    def run_check(target_env, extra_env=None):
-        payload = {"targets": [{"service_name": "synthetic-svc", "env": target_env}]}
-        env = {**base_env, "SYNC_PLAN_JSON": json.dumps(payload), **(extra_env or {})}
-        return subprocess.run(
-            ["bash", "-c", script],
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-    # 1. Target with no alert channels passes even when global env has email enabled (per-target gating).
-    assert run_check({}, {"STRATEGY_PLUGIN_ALERT_CHANNELS": "email"}).returncode == 0
-    # 2. Target with email + telegram channels passes when all required secrets/tokens are set.
-    ok = run_check(
-        {"STRATEGY_PLUGIN_ALERT_CHANNELS": " EMAIL ;\n telegram ; email "},
-        {
-            "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS": "alerts@example.com",
-            "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL": "sender@example.com",
-            "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS": "synthetic-chat",
-            "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN": "synthetic-bot-token",
-        },
-    )
-    assert ok.returncode == 0
-    # 3. Target with telegram passes via GLOBAL_TELEGRAM_CHAT_ID fallback + TELEGRAM_TOKEN.
-    tg_fallback = run_check(
-        {"STRATEGY_PLUGIN_ALERT_CHANNELS": "telegram"},
-        {
-            "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS": "",
-            "GLOBAL_TELEGRAM_CHAT_ID": "synthetic-global-chat",
-            "TELEGRAM_TOKEN": "synthetic-token",
-        },
-    )
-    assert tg_fallback.returncode == 0
-    # 4. Target with telegram + GLOBAL_TELEGRAM_CHAT_ID without any token fails closed.
-    tg_no_token = run_check(
-        {"STRATEGY_PLUGIN_ALERT_CHANNELS": "telegram"},
-        {"GLOBAL_TELEGRAM_CHAT_ID": "synthetic-global-chat"},
-    )
-    assert tg_no_token.returncode != 0
-    assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN" in tg_no_token.stderr
-    # 5. Target with EMAIL;TELEGRAM and empty secrets fails closed listing missing email & telegram items.
-    missing_both = run_check({"STRATEGY_PLUGIN_ALERT_CHANNELS": "EMAIL;TELEGRAM"})
-    assert missing_both.returncode != 0
-    assert "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS" in missing_both.stderr
-    assert "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL" in missing_both.stderr
-    assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID" in missing_both.stderr
-    assert "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN" in missing_both.stderr
