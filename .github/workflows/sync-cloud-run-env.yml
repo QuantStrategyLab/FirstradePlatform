@@ -966,30 +966,6 @@ jobs:
           import os
           import re
 
-          channels = {
-              token.strip().lower()
-              for token in re.split(r"[,;\s]+", os.environ.get("STRATEGY_PLUGIN_ALERT_CHANNELS", ""))
-              if token.strip()
-          }
-          missing_alert_secrets = []
-          if "email" in channels:
-              if not os.environ.get("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS", "").strip():
-                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS")
-              if not os.environ.get("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL", "").strip():
-                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL")
-          if "telegram" in channels:
-              if not (
-                  os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", "").strip()
-                  or os.environ.get("GLOBAL_TELEGRAM_CHAT_ID", "").strip()
-              ):
-                  missing_alert_secrets.append(
-                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID"
-                  )
-          if missing_alert_secrets:
-              raise SystemExit(
-                  "Missing required alert channel secrets: " + ", ".join(missing_alert_secrets)
-              )
-
           plan = json.loads(os.environ["SYNC_PLAN_JSON"])
           targets = plan.get("targets") or []
           if not targets:
@@ -1012,8 +988,49 @@ jobs:
               raise SystemExit(
                   f"Cloud Run sync target {service_name!r} does not match CLOUD_RUN_SERVICE"
               )
-          if not isinstance(target.get("env"), dict):
+          target_env = target.get("env")
+          if not isinstance(target_env, dict):
               raise SystemExit(f"Cloud Run sync target {service_name} is missing env")
+
+          def _resolved_value(name: str) -> str:
+              return str(target_env.get(name) or os.environ.get(name, "") or "").strip()
+
+          raw_channels = str(target_env.get("STRATEGY_PLUGIN_ALERT_CHANNELS") or "").strip()
+          channels = {
+              token.strip().lower()
+              for token in re.split(r"[,;\s]+", raw_channels)
+              if token.strip()
+          }
+          missing_alert_secrets = []
+          if "email" in channels:
+              if not _resolved_value("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS"):
+                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS")
+              if not _resolved_value("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL"):
+                  missing_alert_secrets.append("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL")
+          if "telegram" in channels:
+              if not (
+                  _resolved_value("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS")
+                  or str(os.environ.get("GLOBAL_TELEGRAM_CHAT_ID", "") or "").strip()
+              ):
+                  missing_alert_secrets.append(
+                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS or GLOBAL_TELEGRAM_CHAT_ID"
+                  )
+              if not any(
+                  _resolved_value(token_key)
+                  for token_key in (
+                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME",
+                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN",
+                      "TELEGRAM_TOKEN_SECRET_NAME",
+                      "TELEGRAM_TOKEN",
+                  )
+              ):
+                  missing_alert_secrets.append(
+                      "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN"
+                  )
+          if missing_alert_secrets:
+              raise SystemExit(
+                  "Missing required alert channel secrets: " + ", ".join(missing_alert_secrets)
+              )
           PY
 
           if [ "${#missing_vars[@]}" -gt 0 ]; then
