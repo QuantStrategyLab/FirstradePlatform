@@ -151,8 +151,6 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
 
     for name in (
         "STRATEGY_PLUGIN_ALERT_CHANNELS",
-        "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS",
-        "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_HOST",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_PORT",
         "STRATEGY_PLUGIN_ALERT_EMAIL_SMTP_SECURITY",
@@ -170,7 +168,6 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "STRATEGY_PLUGIN_ALERT_PUSH_PRIORITY",
         "STRATEGY_PLUGIN_ALERT_PUSH_TAGS",
         "STRATEGY_PLUGIN_ALERT_PUSH_BODY_MAX_CHARS",
-        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_API_BASE_URL",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_PARSE_MODE",
         "STRATEGY_PLUGIN_ALERT_TELEGRAM_DISABLE_WEB_PAGE_PREVIEW",
@@ -198,6 +195,20 @@ def test_sync_cloud_run_env_workflow_uses_sync_plan_script():
         "FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS",
     ):
         assert f"{name}: ${{{{ vars.{name} }}}}" in workflow
+
+    deploy_job_header = "  deploy-cloud-run:\n"
+    assert deploy_job_header in workflow
+    deploy_env = workflow.split(deploy_job_header, 1)[1].split("\n    steps:\n", 1)[0]
+    workflow_dir = Path(__file__).resolve().parents[1] / ".github/workflows"
+    all_workflows = {p.name: p.read_text(encoding="utf-8") for p in sorted(workflow_dir.glob("*.yml"))}
+    for name in (
+        "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS",
+        "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL",
+        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+    ):
+        assert f"{name}: ${{{{ secrets.{name} }}}}" in deploy_env
+        for wf_name, wf_text in all_workflows.items():
+            assert f"vars.{name}" not in wf_text, f"{wf_name} still references vars.{name}"
 
     assert (
         "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD_SECRET_NAME: "
