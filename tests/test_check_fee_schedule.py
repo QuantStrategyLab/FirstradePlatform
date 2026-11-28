@@ -205,6 +205,45 @@ def test_compare_taf_years_reports_each_difference_and_missing_years():
     assert "2027" in report.findings[0] and "2028: missing" in report.findings[0]
 
 
+def test_compare_taf_years_allows_missing_archived_past_years():
+    official = {2026: TAF_2026}
+    report = cfs.Report()
+    cfs.compare_taf_years("test", official, config(), range(2024, 2027), report, allow_missing_before_year=2026)
+    assert report.findings == []
+    assert "2026-2026" in report.notes[0]
+
+    missing_current = cfs.Report()
+    cfs.compare_taf_years("test", {}, config(), range(2024, 2027), missing_current, allow_missing_before_year=2026)
+    assert len(missing_current.findings) == 1
+    assert "2026: missing" in missing_current.findings[0]
+    assert "2024: missing" not in missing_current.findings[0]
+
+
+def test_full_run_tolerates_archived_past_years_removed_from_finra_schedule(monkeypatch):
+    # Keep 2026..2029 in the table while removing archived 2024 and 2025 columns.
+    schedule_html = fixture("finra_schedule.html")
+    for col in (
+        "<th>2024</th>",
+        "<th>2025 (no change)</th>",
+        "<td>$0.000166 per share (up to $8.30 max per trade)</td><td>$0.000166 per share (up to $8.30 max per trade)</td>",
+        "<td>$0.00279 per contract</td><td>$0.00279 per contract</td>",
+        "<td>$0.00011 per contract (with $0.014 minimum per round turn transaction)</td><td>$0.00011 per contract (with $0.014 minimum per round turn transaction)</td>",
+        "<td>$0.00105 per bond (up to $1.05 max per trade)</td><td>$0.00105 per bond (up to $1.05 max per trade)</td>",
+        "<td>$0.00000105 times reported value (up to $1.05 max per trade)</td><td>$0.00000105 times reported value (up to $1.05 max per trade)</td>",
+    ):
+        assert col in schedule_html
+        schedule_html = schedule_html.replace(col, "", 1)
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2026, 11, 28)
+
+    monkeypatch.setattr(cfs, "date", FixedDate)
+    report = offline_run(config(), {cfs.FINRA_SCHEDULE_URL: schedule_html})
+    assert report.findings == []
+
+
 def test_compare_pause_checks_window_and_previous_rate():
     cfg = config()
     window = cfs.repo_pause(cfg)

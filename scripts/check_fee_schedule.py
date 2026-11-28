@@ -494,12 +494,17 @@ def compare_sec(advisory: SecAdvisory, config: Mapping[str, Any], report: Report
 
 
 def compare_taf_years(label: str, official: Mapping[int, Taf], config: Mapping[str, Any],
-                      years: range, report: Report) -> None:
+                      years: range, report: Report,
+                      *, allow_missing_before_year: int | None = None) -> None:
     mismatches = []
+    checked_years = []
     for year in years:
         if year not in official:
+            if allow_missing_before_year is not None and year < allow_missing_before_year:
+                continue
             mismatches.append(f"{year}: missing in {label}")
             continue
+        checked_years.append(year)
         repo = repo_taf_on(config, date(year, 1, 1))
         if repo != official[year]:
             mismatches.append(f"{year}: {label} {official[year][0]} / {official[year][1]}, "
@@ -507,8 +512,9 @@ def compare_taf_years(label: str, official: Mapping[int, Taf], config: Mapping[s
     if mismatches:
         report.findings.append(f"FINRA TAF ({label}) differs from the schedule: " + "; ".join(mismatches))
     else:
+        span = f"{checked_years[0]}-{checked_years[-1]}" if checked_years else f"{years.start}-{years.stop - 1}"
         report.notes.append(
-            f"FINRA TAF ({label}): covered-equity rate and cap for {years.start}-{years.stop - 1} "
+            f"FINRA TAF ({label}): covered-equity rate and cap for {span} "
             "match the schedule.")
 
 
@@ -562,11 +568,14 @@ def run_check(config: Mapping[str, Any], fetch_html: Callable[[str], str],
         else:
             report.notes.append(f"SEC page for {filing}: no suspension mentioned.")
 
-    # FINRA: original schedule table, years up to 2026 (later years were deferred)
+    # FINRA: original schedule table, years up to 2026 (later years were deferred).
+    # FINRA's live webpage drops past calendar years once archived; tolerate absent
+    # prior-year columns while still checking any row that remains published.
     report.source(FINRA_SCHEDULE_URL)
     compare_taf_years("fee adjustment schedule SR-FINRA-2024-019",
                       parse_finra_schedule_table(fetch_html(FINRA_SCHEDULE_URL)),
-                      config, range(2024, 2027), report)
+                      config, range(2024, 2027), report,
+                      allow_missing_before_year=date.today().year)
 
     # FINRA: new TAF filings that have not been reviewed
     report.source(FINRA_LISTING_URL)
